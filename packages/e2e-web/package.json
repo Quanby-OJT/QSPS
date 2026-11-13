@@ -1,0 +1,13 @@
+{
+	"name": "@repo/e2e-web",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test session-read-recovery.test.ts seed-hint.test.ts",
+		"test:e2e": "playwright test",
+		"show-report": "playwright show-report"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.64.1"
+	}
+}

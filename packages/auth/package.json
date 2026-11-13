@@ -1,0 +1,63 @@
+{
+	"name": "@repo/auth",
+	"version": "0.0.1",
+	"description": "Framework-agnostic Better Auth package with shared configuration and instance.",
+	"author": "",
+	"private": true,
+	"license": "UNLICENSED",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./secret-schema": {
+			"types": "./dist/secret-schema.d.ts",
+			"default": "./dist/secret-schema.js"
+		},
+		"./api-docs": {
+			"types": "./dist/api-docs.d.ts",
+			"default": "./dist/api-docs.js"
+		},
+		"./rate-limit-storage": {
+			"types": "./dist/rate-limit-storage.d.ts",
+			"default": "./dist/rate-limit-storage.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"format": "prettier --check \"src/**/*.ts\"",
+		"format:fix": "prettier --write \"src/**/*.ts\"",
+		"lint": "eslint --flag unstable_native_nodejs_ts_config \"src/**/*.ts\" --fix",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:cov": "vitest run --coverage",
+		"test:watch": "vitest",
+		"generate": "cross-env DOTENV_CONFIG_PATH=../../apps/backend/.env auth generate --config src/auth-cli.config.ts --output auth-schema.generated.ts --yes"
+	},
+	"dependencies": {
+		"@repo/db": "workspace:*",
+		"@repo/observability": "workspace:*",
+		"@t3-oss/env-core": "catalog:",
+		"better-auth": "catalog:",
+		"nodemailer": "^10.0.6",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/eslint-config": "workspace:*",
+		"@repo/prettier-config": "workspace:*",
+		"@repo/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"@vitest/coverage-v8": "^4.1.12",
+		"auth": "catalog:",
+		"cross-env": "^10.1.0",
+		"eslint": "catalog:",
+		"prettier": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "^4.1.12"
+	},
+	"prettier": "@repo/prettier-config"
+}

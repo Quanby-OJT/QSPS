@@ -1,0 +1,185 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+
+import { isApiDocsEnabled as sharedIsApiDocsEnabled } from "@repo/auth/api-docs"
+
+import { booleanFromEnv, exactlyTrueFromEnv, isApiDocsEnabled } from "@/config/api-docs.config"
+
+describe("isApiDocsEnabled", () => {
+	it("defaults to false in production when no flag is set", () => {
+		expect(isApiDocsEnabled("production", undefined)).toBe(false)
+	})
+
+	it("defaults to true in development when no flag is set", () => {
+		expect(isApiDocsEnabled("development", undefined)).toBe(true)
+	})
+
+	it("honors an explicit true in production", () => {
+		expect(isApiDocsEnabled("production", true)).toBe(true)
+	})
+
+	it("honors an explicit false in development", () => {
+		expect(isApiDocsEnabled("development", false)).toBe(false)
+	})
+
+	it("defaults to false in the test environment when no flag is set", () => {
+		expect(isApiDocsEnabled("test", undefined)).toBe(false)
+	})
+
+	it("re-exports the shared @repo/auth rule", () => {
+		expect(isApiDocsEnabled).toBe(sharedIsApiDocsEnabled)
+	})
+
+	it("treats an unset NODE_ENV as development", () => {
+		expect(isApiDocsEnabled(undefined, undefined)).toBe(true)
+		expect(isApiDocsEnabled(undefined, false)).toBe(false)
+		expect(isApiDocsEnabled(undefined, true)).toBe(true)
+	})
+})
+
+describe("isApiDocsEnabled NODE_ENV x flag matrix", () => {
+	const nodeEnvs = ["development", undefined, "test", "production"] as const
+	const flags = [undefined, true, false, "1", "0"] as const
+
+	function expected(nodeEnv: (typeof nodeEnvs)[number], flag: (typeof flags)[number]): boolean {
+		if (flag === true || flag === "1") return true
+		if (flag === false || flag === "0") return false
+		return (nodeEnv ?? "development") === "development"
+	}
+
+	const cases = nodeEnvs.flatMap(nodeEnv => flags.map(flag => [nodeEnv, flag] as const))
+
+	it.each(cases)("NODE_ENV=%s ENABLE_API_DOCS=%s", (nodeEnv, flag) => {
+		const rawFlag = flag === undefined ? undefined : booleanFromEnv.parse(flag)
+		expect(isApiDocsEnabled(nodeEnv, rawFlag)).toBe(expected(nodeEnv, flag))
+	})
+})
+
+describe("booleanFromEnv", () => {
+	it('parses the string "true" to true', () => {
+		expect(booleanFromEnv.parse("true")).toBe(true)
+	})
+
+	it('parses the string "false" to false', () => {
+		expect(booleanFromEnv.parse("false")).toBe(false)
+	})
+
+	it('parses the string "1" to true and "0" to false', () => {
+		expect(booleanFromEnv.parse("1")).toBe(true)
+		expect(booleanFromEnv.parse("0")).toBe(false)
+	})
+
+	it("passes through actual booleans", () => {
+		expect(booleanFromEnv.parse(true)).toBe(true)
+		expect(booleanFromEnv.parse(false)).toBe(false)
+	})
+
+	it("rejects arbitrary strings", () => {
+		expect(() => booleanFromEnv.parse("yes")).toThrow()
+	})
+})
+
+// ---------------------------------------------------------------------------
+// BETTER_AUTH_SECRET must fail the boot, not warn.
+//
+// env.config validates at module load, so each case re-requires the module with
+// a fresh process.env. `@repo/auth/secret-schema` is the SAME schema object the
+// @repo/auth package validates with, so proving it here proves both processes.
+// ---------------------------------------------------------------------------
+
+describe("BETTER_AUTH_SECRET boot validation", () => {
+	const ORIGINAL_ENV = process.env
+	let consoleError: jest.SpyInstance
+
+	const BASE_ENV: NodeJS.ProcessEnv = {
+		NODE_ENV: "test",
+		CORS_ORIGINS: "http://localhost",
+		DATABASE_URL: "postgres://user:pass@localhost:5432/turbo-template",
+		BETTER_AUTH_TRUSTED_ORIGINS: "http://localhost",
+	}
+
+	const loadEnvConfig = (secret: string) => {
+		jest.resetModules()
+		process.env = { ...BASE_ENV, BETTER_AUTH_SECRET: secret }
+		// t3-env prints the invalid-variable report before throwing.
+		return require("@/config/env.config") as typeof import("@/config/env.config")
+	}
+
+	beforeEach(() => {
+		consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined)
+	})
+
+	afterEach(() => {
+		consoleError.mockRestore()
+		process.env = ORIGINAL_ENV
+		jest.resetModules()
+	})
+
+	it("refuses to boot with the .env.example placeholder", () => {
+		expect(() => loadEnvConfig("<replace-me-run-openssl-rand-base64-32>")).toThrow()
+	})
+
+	it("refuses to boot with the previously shipped working default", () => {
+		expect(() => loadEnvConfig("default-secret-for-testing-change-in-production")).toThrow()
+	})
+
+	it("refuses to boot with a secret shorter than 32 characters", () => {
+		expect(() => loadEnvConfig("a".repeat(31))).toThrow()
+	})
+
+	it("refuses to boot with no secret at all", () => {
+		expect(() => {
+			jest.resetModules()
+			process.env = { ...BASE_ENV }
+			require("@/config/env.config")
+		}).toThrow()
+	})
+
+	it("boots with a 32+ character random secret", () => {
+		const secret = "Zq3n1r5pQ8vT2wY6bK9cA4dF7gH0jL2m"
+		const { env } = loadEnvConfig(secret)
+
+		expect(env.BETTER_AUTH_SECRET).toBe(secret)
+	})
+})
+
+describe(".env.example", () => {
+	const example = readFileSync(join(__dirname, "../../.env.example"), "utf8")
+	const trustedOrigins = (example.match(/^BETTER_AUTH_TRUSTED_ORIGINS=(.*)$/m)?.[1] ?? "").split(
+		","
+	)
+
+	it("trusts the Android emulator's origin, so a copied .env lets the emulator sign in", () => {
+		// The mobile app sends its API host as Origin; on the Android emulator
+		// that host is 10.0.2.2. Without it Better Auth answers 403.
+		expect(trustedOrigins).toContain("http://10.0.2.2:3000")
+	})
+})
+
+describe("exactlyTrueFromEnv", () => {
+	it.each([
+		["true", true],
+		["1", false],
+		["yes", false],
+		["TRUE", false],
+		[undefined, false],
+	])("reads %p as %p, the rule instrument.ts and telemetry.ts boot with", (raw, expected) => {
+		expect(exactlyTrueFromEnv.parse(raw)).toBe(expected)
+	})
+})
+
+describe("env SENTRY_ENABLED and OTEL_ENABLED", () => {
+	it("agree with the boot-time gates and never stop the process on a typo", () => {
+		const original = process.env
+		process.env = { ...original, SENTRY_ENABLED: "1", OTEL_ENABLED: "yes" }
+		try {
+			jest.isolateModules(() => {
+				const { env } = require("@/config/env.config") as typeof import("@/config/env.config")
+				expect(env.SENTRY_ENABLED).toBe(false)
+				expect(env.OTEL_ENABLED).toBe(false)
+			})
+		} finally {
+			process.env = original
+		}
+	})
+})

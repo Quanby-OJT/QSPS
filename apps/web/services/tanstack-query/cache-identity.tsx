@@ -1,0 +1,45 @@
+import { AnalyticsIdentityStamp } from "@/services/analytics/analytics-identity-stamp"
+import { getSession, SessionUnavailableError } from "@/services/better-auth/auth-server"
+import { CacheIdentityStamp } from "@/services/tanstack-query/provider"
+
+/**
+ * Binds the persisted query cache to the signed-in user.
+ *
+ * Render this once per authenticated subtree. It resolves the session on the
+ * server and hands the id to the client stamp, which scopes every IndexedDB
+ * bucket to that user.
+ *
+ * Deliberately *not* in the root layout: `getSession` reads cookies, so placing
+ * it there opts every route into dynamic rendering — including `/login`,
+ * `/register` and the PWA's `/~offline` fallback, which must stay
+ * prerenderable. Every surface that mounts this is already dynamic because it
+ * resolves a session of its own, and `getSession` is React-cached, so mounting
+ * this costs those routes no extra request.
+ *
+ * Unauthenticated pages need no stamp: with no session there is no identity to
+ * separate, and they read nothing that the dehydration allowlist lets persist.
+ *
+ * A failed read is the anonymous bucket, not a failed page. The home layout
+ * mounts this beside pages that already render an anonymous view when the
+ * session service is down. Protected layouts still throw from their own
+ * `getSession()` call before this stamp is reached.
+ */
+export async function CacheIdentity() {
+	let session: Awaited<ReturnType<typeof getSession>> = null
+	try {
+		session = await getSession()
+	} catch (error) {
+		if (!(error instanceof SessionUnavailableError)) throw error
+	}
+
+	const userId = session?.user?.id ?? null
+
+	// PostHog's identity follows the same session read, so the two can never
+	// disagree about who is signed in.
+	return (
+		<>
+			<CacheIdentityStamp userId={userId} />
+			<AnalyticsIdentityStamp userId={userId} />
+		</>
+	)
+}

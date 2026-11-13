@@ -1,0 +1,36 @@
+{
+	"$schema": "https://turborepo.com/schema.json",
+	"extends": ["//"],
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"outputs": ["build/**", "!build/**/.last_build_id"]
+		},
+		"dev": {
+			"persistent": true,
+			"cache": false
+		},
+		"start": {
+			"cache": false
+		},
+		"test": {
+			"cache": false,
+			"outputLogs": "full",
+			"outputs": ["coverage/**"]
+		},
+		"test:cov": {
+			"cache": false,
+			"outputLogs": "full",
+			"outputs": ["coverage/**"]
+		},
+		"lint": {
+			"outputs": [".dart_tool/**"]
+		},
+		"format": {
+			"outputs": [".dart_tool/**"]
+		},
+		"clean": {
+			"cache": false
+		}
+	}
+}
