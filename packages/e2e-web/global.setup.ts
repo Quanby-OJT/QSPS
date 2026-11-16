@@ -42,7 +42,7 @@ setup("authenticate", async ({ page }) => {
 /**
  * The seeded admin's session, for tests whose screen is permission-gated.
  *
- * userA above holds no role, so a create form gated on `posts:create` is
+ * userA above holds no role, so a create form gated on `bookings.own:create` is
  * correctly hidden from them — tests needing one were waiting on an input RBAC
  * was right to hide. Establishing the admin session once here, rather than
  * signing in inside each such test, keeps the number of auth requests flat:

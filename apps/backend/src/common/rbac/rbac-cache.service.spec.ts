@@ -22,8 +22,8 @@ afterAll(() => {
 })
 
 const SET: ResolvedPermissionSet = {
-	roleNames: new Set(["Admin"]),
-	permissionNames: new Set(["users:read", "users:manage"]),
+	roleNames: new Set(["Super Admin"]),
+	permissionNames: new Set(["users.accounts:read", "users.roles:manage"]),
 }
 
 /** Minimal in-memory stand-in for the ioredis surface this service uses. */
@@ -79,8 +79,8 @@ describe("with Redis available", () => {
 
 		// Sets do not survive JSON; the service must rebuild them.
 		expect(restored?.roleNames).toBeInstanceOf(Set)
-		expect([...restored!.roleNames]).toEqual(["Admin"])
-		expect([...restored!.permissionNames]).toEqual(["users:read", "users:manage"])
+		expect([...restored!.roleNames]).toEqual(["Super Admin"])
+		expect([...restored!.permissionNames]).toEqual(["users.accounts:read", "users.roles:manage"])
 	})
 
 	it("bounds every entry with a TTL", async () => {

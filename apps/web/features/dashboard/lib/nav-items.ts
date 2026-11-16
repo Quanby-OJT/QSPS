@@ -27,7 +27,7 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/user-management",
 		icon: UserMultipleIcon,
 		section: "Administration",
-		requiredPermission: ["users:read", "users:manage"],
+		requiredPermission: ["users.accounts:read", "users.accounts:manage"],
 	},
 ]
 

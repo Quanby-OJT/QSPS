@@ -195,7 +195,7 @@ describe("ThrottlerProxyGuard (unit)", () => {
 			await expect(guard["getTracker"](req)).resolves.toBe("user:user-a")
 
 			const rbac = new RbacGuard(
-				{ getAllAndOverride: () => ["posts:read"] } as unknown as Reflector,
+				{ getAllAndOverride: () => ["bookings.own:read"] } as unknown as Reflector,
 				{
 					hasAllPermissions: jest.fn().mockResolvedValue(true),
 					getMissingPermissions: jest.fn(),

@@ -112,6 +112,33 @@ export class RbacService {
 		return permissionsToCheck.filter(p => !this.matchPermission(set, p))
 	}
 
+	/**
+	 * Record a permission denial from `RbacGuard` (Flow A, step 3).
+	 *
+	 * Written on its own, not inside a transaction: a refused request has
+	 * nothing to roll back, and the entry is the evidence of who tried.
+	 */
+	async recordPermissionDenial(denial: {
+		actorId: string
+		route: string
+		requiredPermissions: string[]
+		missingPermissions: string[]
+	}): Promise<void> {
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_RBAC,
+			action: "permission.check",
+			outcome: "denied",
+			actorId: denial.actorId,
+			targetType: "route",
+			targetId: denial.route,
+			newValue: {
+				requiredPermissions: denial.requiredPermissions,
+				missingPermissions: denial.missingPermissions,
+			},
+			reason: "missing permission",
+		})
+	}
+
 	async getUserAccess(userId: string): Promise<MePermissions> {
 		const set = await this.resolveForUser(userId)
 
@@ -150,7 +177,7 @@ export class RbacService {
 	 * a concurrent request repopulate it from a state that then rolled back.
 	 *
 	 * Granting Admin additionally requires the caller to hold
-	 * Admin. Without this, any `users:manage` holder could grant themselves the
+	 * Admin. Without this, any `users.roles:manage` holder could grant themselves the
 	 * top tier — the permission that lets you manage users became the
 	 * permission that lets you become anyone.
 	 */

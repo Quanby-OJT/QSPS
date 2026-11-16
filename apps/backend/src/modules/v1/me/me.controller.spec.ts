@@ -10,17 +10,17 @@ jest.mock("@orpc/nest", () => ({
 }))
 
 jest.mock("@repo/contracts", () => ({
-	ADMIN_ROLE: "Admin",
+	ADMIN_ROLE: "Super Admin",
 	PERMISSION_NAMES: [
-		"posts:read",
-		"posts:create",
-		"posts:edit",
-		"posts:delete",
-		"posts:*",
-		"users:read",
-		"users:manage",
+		"bookings.own:read",
+		"bookings.own:create",
+		"bookings.own:reschedule",
+		"bookings.own:cancel",
+		"bookings.own:*",
+		"users.accounts:read",
+		"users.roles:manage",
 	],
-	ROLE_NAMES: ["Admin", "Manager", "User"],
+	ROLE_NAMES: ["Super Admin", "System Admin", "Client"],
 }))
 
 jest.mock("@/common/rbac/rbac.service", () => ({
@@ -64,13 +64,13 @@ describe("MeController", () => {
 
 	it("returns the current user's roles and permissions", async () => {
 		rbacService.getUserAccess.mockResolvedValue({
-			roles: ["User"],
-			permissions: ["posts:read"],
+			roles: ["Client"],
+			permissions: ["bookings.own:read"],
 		})
 
 		await expect(controller.getPermissions({ user: { id: "user-1" } } as never)).resolves.toEqual({
-			roles: ["User"],
-			permissions: ["posts:read"],
+			roles: ["Client"],
+			permissions: ["bookings.own:read"],
 		})
 		expect(rbacService.getUserAccess).toHaveBeenCalledWith("user-1")
 	})

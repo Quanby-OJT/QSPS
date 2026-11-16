@@ -31,7 +31,8 @@ export class RbacController {
 	) {}
 
 	// ---------------------------------------------------------------- roles
-	@RequirePermissions("users:read")
+	// Every role and role-membership route needs `users.roles:manage` (FND-2).
+	@RequirePermissions("users.roles:manage")
 	@Implement(v1.rbac.roles.list)
 	async listRoles() {
 		return implement(v1.rbac.roles.list).handler(async () => {
@@ -40,7 +41,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.roles.create)
 	async createRole(@Session() session?: UserSession) {
@@ -50,7 +51,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.roles.update)
 	async updateRole(@Session() session?: UserSession) {
@@ -60,7 +61,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.roles.setPermissions)
 	async setRolePermissions(@Session() session?: UserSession) {
@@ -70,7 +71,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.roles.delete)
 	async deleteRole(@Session() session?: UserSession) {
@@ -80,7 +81,7 @@ export class RbacController {
 	}
 
 	// ---------------------------------------------------------- permissions
-	@RequirePermissions("users:read")
+	@RequirePermissions("users.roles:manage")
 	@Implement(v1.rbac.permissions.list)
 	async listPermissions() {
 		return implement(v1.rbac.permissions.list).handler(async () => {
@@ -89,16 +90,16 @@ export class RbacController {
 	}
 
 	// ---------------------------------------------------------------- users
-	// The LIST needs `users:read`; the EMAIL ADDRESSES additionally
-	// need `users:read-directory`. Splitting them means ticket triage no longer
-	// carries the full directory.
-	@RequirePermissions("users:read")
+	// The LIST needs `users.accounts:read`; the EMAIL ADDRESSES additionally
+	// need `users.accounts:manage`. Splitting them means a read-only holder does
+	// not get the full email directory.
+	@RequirePermissions("users.accounts:read")
 	@Implement(v1.rbac.users.list)
 	async listUsers(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.list).handler(async () => {
 			const userId = session?.user?.id
 			const includeDirectory = userId
-				? await this.rbacService.hasPermission(userId, "users:read-directory")
+				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
 				: false
 
 			return this.rbacAdminService.listUsers(includeDirectory)
@@ -106,7 +107,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.users.assignRole)
 	async assignRole(@Session() session?: UserSession) {
@@ -116,7 +117,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users:manage")
+	@RequirePermissions("users.roles:manage")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.rbac.users.removeRole)
 	async removeRole(@Session() session?: UserSession) {
@@ -128,7 +129,7 @@ export class RbacController {
 	// ------------------------------------------------------------ audit log
 	// Read-only by design. There is deliberately no update or
 	// delete route for `audit_log`, and none may be added.
-	@RequirePermissions("users:read")
+	@RequirePermissions("audit.logs:read")
 	@Implement(v1.rbac.audit.list)
 	async listAuditLog() {
 		return implement(v1.rbac.audit.list).handler(async ({ input }) => {

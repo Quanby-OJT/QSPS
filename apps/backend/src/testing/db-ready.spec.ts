@@ -53,9 +53,9 @@ describe("resolveDbReadiness", () => {
 	})
 
 	it("names pnpm db:seed when seed data is missing and does not call that a missing relation", () => {
-		const seed = dbSkipMessage("az-2", "refuses a grant", "seed", ["Admin"])
+		const seed = dbSkipMessage("az-2", "refuses a grant", "seed", ["Super Admin"])
 		expect(seed).toBe(
-			'[az-2] skipped "refuses a grant": schema is present but required seed data is missing (Admin). Run pnpm db:seed for full coverage.'
+			'[az-2] skipped "refuses a grant": schema is present but required seed data is missing (Super Admin). Run pnpm db:seed for full coverage.'
 		)
 		expect(seed).not.toContain("pnpm db:push")
 		expect(seed).not.toContain("relations are missing")
@@ -75,7 +75,7 @@ describe("resolveDbReadiness", () => {
 			}) as jest.It
 			const gate = bindSeededCases({
 				label: "az-2",
-				rows: ["Admin"],
+				rows: ["Super Admin"],
 				itDb: passthrough,
 			})
 			gate.markMissing()
@@ -102,7 +102,7 @@ describe("resolveDbReadiness", () => {
 			}) as jest.It
 			const gate = bindSeededCases({
 				label: "az-4",
-				rows: ["Admin"],
+				rows: ["Super Admin"],
 				itDb: passthrough,
 			})
 			gate.itDb("records the refusal", async () => {
@@ -125,7 +125,7 @@ describe("resolveDbReadiness", () => {
 		}) as jest.It
 		const gate = bindSeededCases({
 			label: "az-2",
-			rows: ["Admin"],
+			rows: ["Super Admin"],
 			itDb: schemaGate,
 		})
 		gate.markMissing()

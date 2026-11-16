@@ -281,8 +281,8 @@ export class RbacAdminService {
 	 * List users.
 	 *
 	 * `includeDirectory` decides whether email addresses are returned. Holding
-	 * `users:read` used to yield the complete email directory, so granting
-	 * someone support-ticket triage (also on `users:read`) handed them
+	 * `users.accounts:read` used to yield the complete email directory, so granting
+	 * someone support-ticket triage (also on `users.accounts:read`) handed them
 	 * every address as a side effect.
 	 *
 	 * The design call: the endpoint OMITS the emails rather than returning 403.

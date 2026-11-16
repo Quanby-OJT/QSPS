@@ -33,7 +33,7 @@ interface DashboardOverviewProps {
 
 export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 	const canReadUsers = canAccess(access, {
-		requiredPermission: ["users:read", "users:manage"],
+		requiredPermission: ["users.accounts:read", "users.accounts:manage"],
 	})
 
 	const users = useUsersQuery()

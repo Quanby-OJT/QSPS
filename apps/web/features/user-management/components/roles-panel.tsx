@@ -9,7 +9,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
-import type { Role } from "@repo/contracts"
+import { ADMIN_ROLE, type Role } from "@repo/contracts"
 
 import {
 	AlertDialog,
@@ -117,7 +117,7 @@ export function RolesPanel() {
 						</TableHeader>
 						<TableBody>
 							{roles.map(role => {
-								const isAdmin = role.name === "Admin"
+								const isAdmin = role.name === ADMIN_ROLE
 								return (
 									<TableRow key={role.id}>
 										<TableCell className="align-top">

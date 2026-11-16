@@ -12,6 +12,7 @@ jest.mock("@/common/rbac/rbac.service", () => ({
 	RbacService: jest.fn().mockImplementation(() => ({
 		hasAllPermissions: jest.fn(),
 		getMissingPermissions: jest.fn(),
+		recordPermissionDenial: jest.fn(),
 	})),
 }))
 
@@ -55,7 +56,11 @@ const buildStableContext = (request: object): ExecutionContext =>
 describe("RbacGuard", () => {
 	let guard: RbacGuard
 	let reflector: { getAllAndOverride: jest.Mock }
-	let rbacService: { hasAllPermissions: jest.Mock; getMissingPermissions: jest.Mock }
+	let rbacService: {
+		hasAllPermissions: jest.Mock
+		getMissingPermissions: jest.Mock
+		recordPermissionDenial: jest.Mock
+	}
 	const env = require("@/config/env.config").env as { NODE_ENV: string }
 
 	beforeEach(async () => {
@@ -75,6 +80,7 @@ describe("RbacGuard", () => {
 		rbacService = app.get(RbacService) as unknown as {
 			hasAllPermissions: jest.Mock
 			getMissingPermissions: jest.Mock
+			recordPermissionDenial: jest.Mock
 		}
 	})
 
@@ -95,7 +101,7 @@ describe("RbacGuard", () => {
 	})
 
 	it("throws UnauthorizedException when no session on protected route", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 
 		await expect(guard.canActivate(buildContext(undefined))).rejects.toBeInstanceOf(
 			UnauthorizedException
@@ -104,7 +110,7 @@ describe("RbacGuard", () => {
 	})
 
 	it("throws UnauthorizedException when session is absent and user is absent", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 
 		await expect(guard.canActivate(buildContext(undefined, undefined))).rejects.toBeInstanceOf(
 			UnauthorizedException
@@ -113,29 +119,29 @@ describe("RbacGuard", () => {
 	})
 
 	it("throws ForbiddenException when the verified lookup supplies the user id", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(false)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		await expect(
 			guard.canActivate(buildContext(undefined, { id: "someone-else" }))
 		).rejects.toBeInstanceOf(ForbiddenException)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("allows when the verified lookup supplies a user who has permission", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		await expect(guard.canActivate(buildContext(undefined, { id: "someone-else" }))).resolves.toBe(
 			true
 		)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("checks permissions for the user getSession returns when pre-set objects say otherwise", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 		const request = {
@@ -145,29 +151,29 @@ describe("RbacGuard", () => {
 		}
 
 		await expect(guard.canActivate(buildStableContext(request))).resolves.toBe(true)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("throws ForbiddenException when authenticated but missing permission", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(false)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("allows when authenticated and has permission", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		await expect(guard.canActivate(buildContext())).resolves.toBe(true)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("does not look the session up again when resolution was already recorded", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		mockGetSession.mockResolvedValue(null)
 		const request = { headers: {} }
 		await resolveRequestSession(request)
@@ -181,17 +187,19 @@ describe("RbacGuard", () => {
 	})
 
 	it("resolves the session itself when not yet attached to the request", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)
 		mockGetSession.mockResolvedValue({ user: { id: "resolved-u" } })
 
 		await expect(guard.canActivate(buildContext(undefined, undefined))).resolves.toBe(true)
 		expect(mockGetSession).toHaveBeenCalled()
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("resolved-u", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("resolved-u", [
+			"bookings.own:create",
+		])
 	})
 
 	it("rejects with the lookup error when a pre-set session is present and getSession throws", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		const lookupError = new Error("database unavailable")
 		mockGetSession.mockRejectedValue(lookupError)
 		const request = {
@@ -205,7 +213,7 @@ describe("RbacGuard", () => {
 	})
 
 	it("returns 401 when getSession returns null for a request that already carries a user id", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		mockGetSession.mockResolvedValue(null)
 		const request = {
 			headers: {},
@@ -221,7 +229,7 @@ describe("RbacGuard", () => {
 	})
 
 	it("calls getSession again in the permission guard after the throttler lookup threw", async () => {
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)
 		mockGetSession.mockRejectedValueOnce(new Error("database unavailable"))
 		mockGetSession.mockResolvedValueOnce({ user: { id: "u1" } })
@@ -239,14 +247,14 @@ describe("RbacGuard", () => {
 
 		await expect(guard.canActivate(buildStableContext(request))).resolves.toBe(true)
 		expect(mockGetSession).toHaveBeenCalledTimes(2)
-		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["posts:create"])
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
 	it("includes missingPermissions in non-production 403 response", async () => {
 		env.NODE_ENV = "development"
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(false)
-		rbacService.getMissingPermissions.mockResolvedValue(["posts:create"])
+		rbacService.getMissingPermissions.mockResolvedValue(["bookings.own:create"])
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		try {
@@ -257,16 +265,23 @@ describe("RbacGuard", () => {
 			const response = (error as ForbiddenException).getResponse()
 			expect(response).toMatchObject({
 				message: "Forbidden",
-				missingPermissions: ["posts:create"],
+				missingPermissions: ["bookings.own:create"],
 			})
 		}
 	})
 
 	it("reports only unmet permissions when some required permissions are satisfied", async () => {
 		env.NODE_ENV = "development"
-		reflector.getAllAndOverride.mockReturnValue(["posts:create", "posts:delete", "posts:read"])
+		reflector.getAllAndOverride.mockReturnValue([
+			"bookings.own:create",
+			"bookings.own:cancel",
+			"bookings.own:read",
+		])
 		rbacService.hasAllPermissions.mockResolvedValue(false)
-		rbacService.getMissingPermissions.mockResolvedValue(["posts:delete", "posts:read"])
+		rbacService.getMissingPermissions.mockResolvedValue([
+			"bookings.own:cancel",
+			"bookings.own:read",
+		])
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
 		try {
@@ -277,20 +292,22 @@ describe("RbacGuard", () => {
 			const response = (error as ForbiddenException).getResponse()
 			expect(response).toMatchObject({
 				message: "Forbidden",
-				missingPermissions: ["posts:delete", "posts:read"],
+				missingPermissions: ["bookings.own:cancel", "bookings.own:read"],
 			})
-			expect((response as Record<string, unknown>).missingPermissions).not.toContain("posts:create")
+			expect((response as Record<string, unknown>).missingPermissions).not.toContain(
+				"bookings.own:create"
+			)
 			expect(rbacService.getMissingPermissions).toHaveBeenCalledWith("u1", [
-				"posts:create",
-				"posts:delete",
-				"posts:read",
+				"bookings.own:create",
+				"bookings.own:cancel",
+				"bookings.own:read",
 			])
 		}
 	})
 
 	it("returns generic 403 message in production", async () => {
 		env.NODE_ENV = "production"
-		reflector.getAllAndOverride.mockReturnValue(["posts:create"])
+		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(false)
 		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
 
@@ -303,5 +320,32 @@ describe("RbacGuard", () => {
 			expect(response).toMatchObject({ message: "Forbidden" })
 			expect((response as Record<string, unknown>).missingPermissions).toBeUndefined()
 		}
+	})
+
+	it("writes a denied audit entry with the actor and the keys on every 403", async () => {
+		env.NODE_ENV = "production"
+		reflector.getAllAndOverride.mockReturnValue(["users.roles:manage"])
+		rbacService.hasAllPermissions.mockResolvedValue(false)
+		rbacService.getMissingPermissions.mockResolvedValue(["users.roles:manage"])
+		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
+
+		await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
+		expect(rbacService.recordPermissionDenial).toHaveBeenCalledWith(
+			expect.objectContaining({
+				actorId: "u1",
+				requiredPermissions: ["users.roles:manage"],
+				missingPermissions: ["users.roles:manage"],
+			})
+		)
+	})
+
+	it("still refuses with 403 when the audit write fails", async () => {
+		reflector.getAllAndOverride.mockReturnValue(["users.roles:manage"])
+		rbacService.hasAllPermissions.mockResolvedValue(false)
+		rbacService.getMissingPermissions.mockResolvedValue(["users.roles:manage"])
+		rbacService.recordPermissionDenial.mockRejectedValue(new Error("database unavailable"))
+		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
+
+		await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
 	})
 })
