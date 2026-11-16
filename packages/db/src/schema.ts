@@ -212,6 +212,20 @@ export const auditLog = createTable(
 )
 
 // ============================================================================
+// LOCATIONS
+// ============================================================================
+
+export const locations = createTable("locations", t => ({
+	code: t.text("code").primaryKey(),
+	name: t.text("name").notNull(),
+	address: t.text("address").notNull(),
+	region: t.text("region").notNull(),
+	isActive: t.boolean("is_active").notNull().default(true),
+	createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+}))
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -225,6 +239,7 @@ export const relations = defineRelations(
 		userRoles,
 		rolePermissions,
 		auditLog,
+		locations,
 	},
 	r => ({
 		users: {
@@ -257,6 +272,7 @@ export const relations = defineRelations(
 				to: r.users.id,
 			}),
 		},
+		locations: {},
 		userRoles: {
 			user: r.one.users({
 				from: r.userRoles.userId,
@@ -294,6 +310,7 @@ export const schema = Object.assign(
 		permissions,
 		userRoles,
 		rolePermissions,
+		locations,
 	},
 	relations
 )

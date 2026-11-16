@@ -21,6 +21,7 @@ import { Skeleton } from "@/core/components/ui/skeleton"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { canAccess, type AccessProfile } from "@/features/dashboard/lib/access"
 import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
+import { ClientLocationPicker } from "@/features/locations/components/client-location-picker"
 import { useRolesQuery, useUsersQuery } from "@/features/user-management/api/rbac.hooks"
 
 interface DashboardOverviewProps {
@@ -63,6 +64,8 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 					</div>
 				) : null}
 			</header>
+
+			{access.roles.includes("Client") ? <ClientLocationPicker /> : null}
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
