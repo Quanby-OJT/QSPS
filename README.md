@@ -327,6 +327,25 @@ Re-running `pnpm db:seed` does not change an admin password that is already
 stored. If the database was seeded with a different or random password, set
 `SEED_ADMIN_PASSWORD` and run `pnpm db:seed -- --force-password`.
 
+## First Super Admin (staging and production)
+
+`pnpm db:migrate` creates the QSPS roles and permissions on every environment, but it does not give anyone a role. On a new environment, DevOps assigns the first Super Admin by hand, once:
+
+1. The person registers through the web app and verifies their email.
+2. Run this against that environment's database, with their email:
+
+```sql
+INSERT INTO "user_roles" ("user_id", "role_id")
+SELECT u."id", r."id"
+FROM "users" u, "roles" r
+WHERE u."email" = '<their-email>' AND r."name" = 'Super Admin'
+ON CONFLICT DO NOTHING;
+```
+
+3. They sign out and back in. Role changes can take up to a minute to apply because permissions are cached.
+
+From then on, the Super Admin grants every other role from User Management.
+
 ## Web e2e (Playwright)
 
 Authenticated projects stay off until `E2E_AUTH_API_URL` is set. Leave
