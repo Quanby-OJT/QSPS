@@ -327,6 +327,12 @@ Re-running `pnpm db:seed` does not change an admin password that is already
 stored. If the database was seeded with a different or random password, set
 `SEED_ADMIN_PASSWORD` and run `pnpm db:seed -- --force-password`.
 
+## Client registration and the privacy notice
+
+Self-registration creates a client account, assigns the Client role, and records Data Privacy Act consent. A sign-up must send `privacyNoticeVersion` equal to `PRIVACY_NOTICE_VERSION` in `packages/contracts/src/common/privacy-notice.ts`; the server stores that version and the time it was accepted. When the notice text on the register page changes, change that constant in the same pull request, so every stored consent points at the wording the client actually saw.
+
+After verifying their email and signing in, a client must complete their profile (name, mobile, birth date, nationality, gender) at `/complete-profile` before the portal opens. Gender accepts any text.
+
 ## First Super Admin (staging and production)
 
 `pnpm db:migrate` creates the QSPS roles and permissions on every environment, but it does not give anyone a role. On a new environment, DevOps assigns the first Super Admin by hand, once:
