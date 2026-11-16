@@ -10,8 +10,7 @@ import { redactSqlParams } from "@repo/observability"
 /** An error that is already a Better Auth / better-call API response. */
 function isApiError(error: Error): boolean {
 	return (
-		error.name === "APIError" &&
-		typeof (error as { statusCode?: unknown }).statusCode === "number"
+		error.name === "APIError" && typeof (error as { statusCode?: unknown }).statusCode === "number"
 	)
 }
 

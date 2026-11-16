@@ -36,7 +36,7 @@ describe("withSafeDatabaseErrors", () => {
 		await expect(adapter.findOne()).resolves.toBe(1)
 	})
 
-		it("passes a deliberate API error through unchanged, keeping its status", () => {
+	it("passes a deliberate API error through unchanged, keeping its status", () => {
 		const apiError = Object.assign(new Error("Please read and accept the privacy notice."), {
 			name: "APIError",
 			status: "BAD_REQUEST",

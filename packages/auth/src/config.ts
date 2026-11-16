@@ -339,22 +339,22 @@ export function createAuth() {
 		},
 
 		databaseHooks: {
-		/**
-		 * Consent is checked before Better Auth touches the database, so a missing
-		 * or outdated notice version gets a clear 400. The database hook below
-		 * keeps the same rule as a second line of defense.
-		 */
-		hooks: {
-			before: createAuthMiddleware(async ctx => {
-				if (ctx.path !== "/sign-up/email") return
-				const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
-				if (accepted !== PRIVACY_NOTICE_VERSION) {
-					throw ctx.error("BAD_REQUEST", {
-						message: "Please read and accept the privacy notice to create an account.",
-					})
-				}
-			}),
-		},
+			/**
+			 * Consent is checked before Better Auth touches the database, so a missing
+			 * or outdated notice version gets a clear 400. The database hook below
+			 * keeps the same rule as a second line of defense.
+			 */
+			hooks: {
+				before: createAuthMiddleware(async ctx => {
+					if (ctx.path !== "/sign-up/email") return
+					const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
+					if (accepted !== PRIVACY_NOTICE_VERSION) {
+						throw ctx.error("BAD_REQUEST", {
+							message: "Please read and accept the privacy notice to create an account.",
+						})
+					}
+				}),
+			},
 			user: {
 				create: {
 					/**
