@@ -147,13 +147,4 @@ describe("session reads per request (e2e)", () => {
 		expect(calls).toBe(1)
 		expect(resolved).toBe(0)
 	})
-
-	it("keeps the public todo list reachable without a session", async () => {
-		const response = await hit("/api/v1/example/todos")
-
-		expect(response.status).toBe(200)
-		expect(Array.isArray(response.body)).toBe(true)
-		expect(calls).toBe(1)
-		expect(resolved).toBe(0)
-	})
 })

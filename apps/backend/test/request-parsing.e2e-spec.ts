@@ -27,7 +27,7 @@ describe("request parsing errors (e2e)", () => {
 		const logs = captureProcessOutput()
 		try {
 			const response = await request(app.getHttpServer())
-				.post("/api/v1/example/todos")
+				.post("/api/v1/health")
 				.set("Content-Type", "application/json")
 				.set("X-Request-Id", "req-body-too-large")
 				.send({ title: "x".repeat(200 * 1024) })
@@ -73,7 +73,7 @@ describe("request parsing errors (e2e)", () => {
 		const logs = captureProcessOutput()
 		try {
 			const response = await request(app.getHttpServer())
-				.post("/api/v1/example/todos")
+				.post("/api/v1/health")
 				.set("Content-Type", "application/json")
 				.set("X-Request-Id", "req-malformed-json")
 				.send("{")

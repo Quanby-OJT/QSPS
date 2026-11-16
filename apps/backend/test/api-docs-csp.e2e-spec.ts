@@ -148,7 +148,6 @@ describe("API docs CSP (enabled)", () => {
 
 	it.each([
 		["/api/v1/spec.json", 200],
-		["/api/v1/example/todos", 200],
 		["/api/v1/health", 200],
 		["/api/v1/auth/get-session", 200],
 		["/api/v1/me/permissions", 401],
@@ -188,7 +187,6 @@ describe("API docs CSP (disabled)", () => {
 
 	it.each([
 		"/api/v1/spec.json",
-		"/api/v1/example/todos",
 		"/api/v1/health",
 		"/api/v1/auth/get-session",
 		"/api/v1/me/permissions",
