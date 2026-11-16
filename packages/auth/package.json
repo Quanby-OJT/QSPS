@@ -24,7 +24,12 @@
 		"./rate-limit-storage": {
 			"types": "./dist/rate-limit-storage.d.ts",
 			"default": "./dist/rate-limit-storage.js"
+		},
+		"./auth-events": {
+			"types": "./dist/auth-events.d.ts",
+			"default": "./dist/auth-events.js"
 		}
+		
 	},
 	"scripts": {
 		"build": "tsc",
@@ -40,9 +45,11 @@
 	},
 	"dependencies": {
 		"@repo/db": "workspace:*",
+		"@repo/contracts": "workspace:*",
 		"@repo/observability": "workspace:*",
 		"@t3-oss/env-core": "catalog:",
 		"better-auth": "catalog:",
+		"drizzle-orm": "catalog:",
 		"nodemailer": "^10.0.6",
 		"zod": "catalog:"
 	},

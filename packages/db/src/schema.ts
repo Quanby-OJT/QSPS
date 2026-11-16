@@ -15,6 +15,19 @@ export const users = createTable("users", t => ({
 	image: t.text("image"),
 	createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	// QSPS (AUTH-1). All nullable except account_type, so existing rows stay valid.
+	/** `client` (registered member of the public) or `staff` (BOQ employee). */
+	accountType: t.text("account_type").notNull().default("client"),
+	mobile: t.text("mobile"),
+	birthDate: t.date("birth_date"),
+	nationality: t.text("nationality"),
+	/** Free text: TOR §VIII.2 requires the field to accept all genders. */
+	gender: t.text("gender"),
+	/** Set when the client finishes the first-sign-in profile; null blocks the portal. */
+	profileCompletedAt: t.timestamp("profile_completed_at"),
+	/** Data Privacy Act consent: which notice version was accepted, and when. */
+	privacyNoticeVersion: t.text("privacy_notice_version"),
+	privacyAcceptedAt: t.timestamp("privacy_accepted_at"),
 }))
 
 export const sessions = createTable("sessions", t => ({

@@ -46,8 +46,17 @@ export type {
 
 // Current-user access schemas
 export { meContract } from "./modules/v1/me/me.contract.js"
-export { MePermissionsSchema } from "./modules/v1/me/me.schema.js"
-export type { MePermissions } from "./modules/v1/me/me.schema.js"
+export {
+	MePermissionsSchema,
+	ClientProfileSchema,
+	UpdateClientProfileSchema,
+	GENDER_OPTIONS,
+} from "./modules/v1/me/me.schema.js"
+export type {
+	MePermissions,
+	ClientProfile,
+	UpdateClientProfileInput,
+} from "./modules/v1/me/me.schema.js"
 
 // Future versions:
 // export { v2Contract, type V2Contract } from "./modules/v2/v2.contract.js"
@@ -57,3 +66,5 @@ export type { MePermissions } from "./modules/v1/me/me.schema.js"
 // Business timezone (PRD: schedules, cutoffs, and reports use Asia/Manila)
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
+
+export * from "./common/privacy-notice.js"

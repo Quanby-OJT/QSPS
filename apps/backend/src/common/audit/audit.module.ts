@@ -1,6 +1,7 @@
 import { Global, Module } from "@nestjs/common"
 
 import { AuditService } from "./audit.service"
+import { AuthAuditListener } from "./auth-audit.listener"
 
 /**
  * Append-only audit trail.
@@ -12,7 +13,7 @@ import { AuditService } from "./audit.service"
  */
 @Global()
 @Module({
-	providers: [AuditService],
+	providers: [AuditService, AuthAuditListener],
 	exports: [AuditService],
 })
 export class AuditModule {}

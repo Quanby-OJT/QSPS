@@ -8,3 +8,60 @@ export const MePermissionsSchema = z.object({
 })
 
 export type MePermissions = z.infer<typeof MePermissionsSchema>
+
+// ============================================================================
+// CLIENT PROFILE (AUTH-1)
+// ============================================================================
+
+/**
+ * Gender choices offered in the form. TOR §VIII.2 requires the field to accept
+ * all genders, so these are suggestions only: any other text is accepted too.
+ */
+export const GENDER_OPTIONS = ["Female", "Male", "Non-binary", "Prefer not to say"] as const
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** A real calendar date in YYYY-MM-DD, not in the future, not before 1900. */
+function isValidBirthDate(value: string): boolean {
+	if (!ISO_DATE.test(value)) return false
+	const date = new Date(`${value}T00:00:00Z`)
+	if (Number.isNaN(date.getTime())) return false
+	// Rejects dates JavaScript silently rolls over, such as 2026-02-30.
+	if (date.toISOString().slice(0, 10) !== value) return false
+	return date.getUTCFullYear() >= 1900 && date.getTime() <= Date.now()
+}
+
+/** What the client fills in on first sign-in, and can edit later. */
+export const UpdateClientProfileSchema = z.object({
+	name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
+	/** Spaces and dashes are removed; then 10–15 digits, optionally starting with +. */
+	mobile: z
+		.string()
+		.trim()
+		.transform(value => value.replace(/[\s-]/g, ""))
+		.pipe(z.string().regex(/^\+?\d{10,15}$/, "Enter a valid mobile number")),
+	birthDate: z.string().trim().refine(isValidBirthDate, "Enter a valid birth date (YYYY-MM-DD)"),
+	nationality: z
+		.string()
+		.trim()
+		.min(2, "Nationality is required")
+		.max(60, "Nationality is too long"),
+	/** Free text or one of {@link GENDER_OPTIONS}. */
+	gender: z.string().trim().min(1, "Gender is required").max(50, "Gender is too long"),
+})
+
+export const ClientProfileSchema = z.object({
+	name: z.string(),
+	email: z.string(),
+	mobile: z.string().nullable(),
+	/** YYYY-MM-DD */
+	birthDate: z.string().nullable(),
+	nationality: z.string().nullable(),
+	gender: z.string().nullable(),
+	/** Set the first time the profile is completed; null keeps the portal closed. */
+	profileCompletedAt: z.coerce.date().nullable(),
+	isComplete: z.boolean(),
+})
+
+export type UpdateClientProfileInput = z.infer<typeof UpdateClientProfileSchema>
+export type ClientProfile = z.infer<typeof ClientProfileSchema>

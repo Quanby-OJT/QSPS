@@ -7,6 +7,9 @@ import { AppSidebar } from "@/features/dashboard/components/app-sidebar"
 import { SiteHeader } from "@/features/dashboard/components/site-header"
 import { getAccess } from "@/features/dashboard/server/get-access"
 
+/** QSPS fields the session carries (see `user.additionalFields` in @repo/auth). */
+type QspsSessionUser = { profileCompletedAt?: string | Date | null }
+
 export default async function SiteLayout({
 	children,
 }: Readonly<{
@@ -20,6 +23,16 @@ export default async function SiteLayout({
 	}
 
 	const access = await getAccess()
+
+	// AUTH-1: a client completes the profile (name, birth date, mobile,
+	// nationality, gender) before reaching the portal. Staff and the seeded
+	// administrators do not hold the Client role, so they are not stopped here.
+	const isClient = (access.roles as readonly string[]).includes("Client")
+	const profileCompletedAt = (session.user as QspsSessionUser).profileCompletedAt
+	if (isClient && !profileCompletedAt) {
+		redirect("/complete-profile")
+	}
+
 	const user = {
 		name: session.user.name ?? null,
 		email: session.user.email,
