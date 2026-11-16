@@ -13,8 +13,8 @@ import { resolveE2eAdminPassword } from "./e2e-admin-password"
  */
 const TEST_LIMIT = 3
 
-const ADMIN_EMAIL = "admin@turbo-template.local"
-const OTHER_EMAIL = "alex@turbo-template.local"
+const ADMIN_EMAIL = "admin@qsps.local"
+const OTHER_EMAIL = "alex@qsps.local"
 
 describe("per-user request limiter (e2e)", () => {
 	let app: INestApplication<App>

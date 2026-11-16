@@ -6,7 +6,7 @@ import { ALLOW_REMOTE_SEED_ENV, SeedRefusedError } from "./seed-guard.js"
 // The seeder calls assertSeedAllowed() and refuses a missing password before
 // it opens a connection. These tests exercise that plan. They do not write.
 
-const LOCAL_URL = "postgres://postgres:password@localhost:5432/turbo-template"
+const LOCAL_URL = "postgres://postgres:password@localhost:5432/qsps"
 const REMOTE_URL = "postgres://app:hunter2@db.prod.example.com:5432/app"
 
 function env(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -55,7 +55,7 @@ describe("prepareE2eSeed", () => {
 		expect(plan.userA.email).toBe("test@gmail.com")
 		expect(plan.userA.name).toBe("E2E Test User")
 		expect(plan.userA.password).toBe("user-a-plan-password")
-		expect(plan.userB.email).toBe("e2e-user-b@turbo-template.local")
+		expect(plan.userB.email).toBe("e2e-user-b@qsps.local")
 		expect(plan.userB.name).toBe("E2E User B")
 		expect(plan.userB.password).toBe("user-b-plan-password")
 		expect(withFlag.userA.password).toBe(plan.userA.password)
@@ -63,11 +63,11 @@ describe("prepareE2eSeed", () => {
 	})
 
 	it("refuses to reuse the template's seeded admin, alex, or sam addresses", () => {
-		expect(() => prepareE2eSeed(env({ E2E_TEST_EMAIL: "admin@turbo-template.local" }), [])).toThrow(
-			/admin@turbo-template.local/
+		expect(() => prepareE2eSeed(env({ E2E_TEST_EMAIL: "admin@qsps.local" }), [])).toThrow(
+			/admin@qsps.local/
 		)
-		expect(() => prepareE2eSeed(env({ E2E_TEST_EMAIL_B: "sam@turbo-template.local" }), [])).toThrow(
-			/sam@turbo-template.local/
+		expect(() => prepareE2eSeed(env({ E2E_TEST_EMAIL_B: "sam@qsps.local" }), [])).toThrow(
+			/sam@qsps.local/
 		)
 	})
 })

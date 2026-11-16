@@ -94,7 +94,7 @@ describe("BETTER_AUTH_SECRET boot validation", () => {
 	const BASE_ENV: NodeJS.ProcessEnv = {
 		NODE_ENV: "test",
 		CORS_ORIGINS: "http://localhost",
-		DATABASE_URL: "postgres://user:pass@localhost:5432/turbo-template",
+		DATABASE_URL: "postgres://user:pass@localhost:5432/qsps",
 		BETTER_AUTH_TRUSTED_ORIGINS: "http://localhost",
 	}
 

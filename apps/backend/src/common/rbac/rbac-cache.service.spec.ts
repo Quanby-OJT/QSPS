@@ -30,7 +30,7 @@ const SET: ResolvedPermissionSet = {
 function fakeRedis(overrides: Partial<Record<string, unknown>> = {}) {
 	const store = new Map<string, string>()
 	return {
-		options: { keyPrefix: "turbo-template:" },
+		options: { keyPrefix: "qsps:" },
 		store,
 		get: jest.fn(async (key: string) => store.get(key) ?? null),
 		set: jest.fn(async (key: string, value: string) => {
@@ -44,7 +44,7 @@ function fakeRedis(overrides: Partial<Record<string, unknown>> = {}) {
 		}),
 		scan: jest.fn(async (cursor: string, _m: string, match: string) => {
 			const re = new RegExp(`^${match.replace(/\*/g, ".*")}$`)
-			const keys = [...store.keys()].map(k => `turbo-template:${k}`).filter(k => re.test(k))
+			const keys = [...store.keys()].map(k => `qsps:${k}`).filter(k => re.test(k))
 			return ["0", keys] as [string, string[]]
 		}),
 		...overrides,

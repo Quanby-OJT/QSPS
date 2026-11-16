@@ -8,8 +8,8 @@ import { getAuth } from "@repo/auth"
 import { createApplication } from "../src/bootstrap"
 import { resolveE2eAdminPassword } from "./e2e-admin-password"
 
-const ADMIN_EMAIL = "admin@turbo-template.local"
-const USER_EMAIL = "alex@turbo-template.local"
+const ADMIN_EMAIL = "admin@qsps.local"
+const USER_EMAIL = "alex@qsps.local"
 const FORGED_COOKIE = "better-auth.session_token=forged"
 
 describe("session reads per request (e2e)", () => {

@@ -15,7 +15,7 @@ export type OtelConfig = {
 	serviceName: string
 }
 
-const DEFAULT_SERVICE_NAME = "turbo-template-api"
+const DEFAULT_SERVICE_NAME = "qsps-api"
 
 /**
  * The export settings, or `undefined` when OpenTelemetry stays off.

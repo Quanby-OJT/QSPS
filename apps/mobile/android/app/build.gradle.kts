@@ -9,7 +9,7 @@ plugins {
 
 android {
     // Kept in step with applicationId below; see the warning there.
-    namespace = "com.quanbyit.turbotemplate"
+    namespace = "ph.gov.boq.qsps"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -31,7 +31,7 @@ android {
         // WARNING: this value CANNOT be changed after the first store publish.
         // Changing it produces a different app: existing installs never receive
         // the update, and the old id can never be reused. Decide it once.
-        applicationId = "com.quanbyit.turbotemplate"
+        applicationId = "ph.gov.boq.qsps"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

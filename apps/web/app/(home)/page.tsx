@@ -26,7 +26,7 @@ export default async function Home() {
 					)}
 				</p>
 				<h1 className="text-6xl font-bold tracking-tight text-black md:text-7xl dark:text-zinc-50">
-					TURBO TEMPLATE.
+					QSPS.
 				</h1>
 				<p className="max-w-2xl text-lg leading-8 text-zinc-600 md:text-2xl dark:text-zinc-400">
 					A full-stack monorepo template with Next.js, NestJS, and Flutter. Built for rapid

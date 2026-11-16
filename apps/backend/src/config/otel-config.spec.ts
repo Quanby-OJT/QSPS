@@ -28,7 +28,7 @@ describe("readOtelConfig", () => {
 				OTEL_ENABLED: "true",
 				OTEL_EXPORTER_OTLP_ENDPOINT: " http://localhost:4318 ",
 			})
-		).toEqual({ endpoint: "http://localhost:4318", serviceName: "turbo-template-api" })
+		).toEqual({ endpoint: "http://localhost:4318", serviceName: "qsps-api" })
 	})
 
 	it.each(["http://collector:4318/", "http://collector:4318//"])(

@@ -6,7 +6,7 @@ test.describe("home page", () => {
 	})
 
 	test("displays the main heading", async ({ page }) => {
-		await expect(page.getByRole("heading", { level: 1 })).toContainText(/turbo template/i)
+		await expect(page.getByRole("heading", { level: 1 })).toContainText(/qsps/i)
 	})
 
 	test("shows welcome message for unauthenticated users", async ({ page }) => {

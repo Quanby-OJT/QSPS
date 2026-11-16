@@ -35,7 +35,7 @@ services:
   # in .env). Set COMPOSE_PROFILES= empty to disable and use external Nginx.
   nginx:
     image: nginx:alpine
-    container_name: turbo-template-nginx
+    container_name: qsps-nginx
     profiles: ["docker-proxy"]
     ports:
       - "80:80" # single published port (clean URLs, no :port)
@@ -88,7 +88,7 @@ services:
         - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
         - NEXT_PUBLIC_API_VERSION=${NEXT_PUBLIC_API_VERSION}
-    container_name: turbo-template-web
+    container_name: qsps-web
     # Bound to loopback so an external/host Nginx can reach it when the
     # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
     # still reaches it by service name (web:3001) over the internal network.
@@ -124,7 +124,7 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    container_name: turbo-template-backend
+    container_name: qsps-backend
     # Bound to loopback so an external/host Nginx can reach it when the
     # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
     # still reaches it by service name (backend:3000) over the internal network.
@@ -179,7 +179,7 @@ services:
   # internet-facing data store for no reason.
   redis:
     image: redis:7-alpine
-    container_name: turbo-template-redis
+    container_name: qsps-redis
     # `requirepass` via command so the password comes from the environment
     # rather than a baked-in config file. REDIS_PASSWORD has no default: an
     # unauthenticated Redis must not be reachable even inside the network.

@@ -20,7 +20,7 @@ set -euo pipefail
 
 HTTP_PORT="${SMOKE_HTTP_PORT:-8080}"
 HTTPS_PORT="${SMOKE_HTTPS_PORT:-8443}"
-PROJECT="turbo-template-smoke-tls"
+PROJECT="qsps-smoke-tls"
 WORKDIR="$(mktemp -d)"
 
 pass=0

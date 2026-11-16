@@ -56,7 +56,7 @@ export const ACCOUNTS: Record<TestRole, Pick<TestAccount, "email" | "name">> = {
 	// fail before any request when the variable is missing. Sign-in does not
 	// register an account. A missing or unverified user needs `pnpm db:seed:e2e`.
 	admin: {
-		email: process.env.E2E_ADMIN_EMAIL ?? "admin@turbo-template.local",
+		email: process.env.E2E_ADMIN_EMAIL ?? "admin@qsps.local",
 		name: "Admin User",
 	},
 	// Ordinary user from `pnpm db:seed:e2e`, already verified.
@@ -67,7 +67,7 @@ export const ACCOUNTS: Record<TestRole, Pick<TestAccount, "email" | "name">> = {
 	// A second ordinary user. Ownership means nothing without someone to be
 	// excluded, so this account exists purely to be "not user A".
 	userB: {
-		email: process.env.E2E_TEST_EMAIL_B ?? "e2e-user-b@turbo-template.local",
+		email: process.env.E2E_TEST_EMAIL_B ?? "e2e-user-b@qsps.local",
 		name: "E2E User B",
 	},
 }
@@ -220,8 +220,8 @@ export async function signOutCompletely(page: Page): Promise<void> {
 	await page.context().clearCookies()
 }
 
-const SIGN_OUT_TURN = path.join(os.tmpdir(), "turbo-template-e2e-signout-turn")
-const SESSION_READ_COOLDOWN = path.join(os.tmpdir(), "turbo-template-e2e-session-cooldown")
+const SIGN_OUT_TURN = path.join(os.tmpdir(), "qsps-e2e-signout-turn")
+const SESSION_READ_COOLDOWN = path.join(os.tmpdir(), "qsps-e2e-session-cooldown")
 
 function signOutRetryDelayMs(retryAfterHeader: string | undefined): number {
 	const seconds = Number(retryAfterHeader)

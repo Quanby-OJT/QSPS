@@ -99,7 +99,7 @@ async function dumpIndexedDb(page: Page): Promise<{ keys: string[]; contents: st
 }
 
 const cacheKeys = (keys: string[]) =>
-	keys.filter(key => key.startsWith("turbo-template-query-cache"))
+	keys.filter(key => key.startsWith("qsps-query-cache"))
 
 /** Wait for the persister to have written at least one snapshot. */
 async function waitForPersistedSnapshot(page: Page): Promise<string[]> {
@@ -154,7 +154,7 @@ test.describe("persisted cache isolation", () => {
 		// The signed-in user's own email must never reach disk...
 		expect(contents).not.toContain(email)
 		// ...nor any other seeded directory address...
-		expect(contents).not.toContain("@turbo-template.local")
+		expect(contents).not.toContain("@qsps.local")
 		// ...nor the excluded query roots themselves.
 		expect(contents).not.toContain('"rbac"')
 		expect(contents).not.toContain('"session"')
@@ -173,7 +173,7 @@ test.describe("persisted cache isolation", () => {
 		// The pre-fix persister wrote every user's snapshot to this one key.
 		expect(keys).not.toContain("REACT_QUERY_OFFLINE_CACHE")
 		for (const key of keys) {
-			expect(key).toMatch(/^turbo-template-query-cache:.+/)
+			expect(key).toMatch(/^qsps-query-cache:.+/)
 		}
 	})
 

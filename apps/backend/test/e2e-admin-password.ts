@@ -11,7 +11,7 @@
  */
 
 /** Seeded admin address. An email is not a secret, so the default stays. */
-export const SEEDED_ADMIN_EMAIL = "admin@turbo-template.local"
+export const SEEDED_ADMIN_EMAIL = "admin@qsps.local"
 
 export class E2eAdminPasswordError extends Error {
 	constructor() {

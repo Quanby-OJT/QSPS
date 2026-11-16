@@ -149,7 +149,7 @@ test.describe("page data cache", () => {
 		// would leave it blank, and that is not this result.
 		await page.waitForTimeout(2_000)
 		await expect(page.getByTestId("session-unavailable")).toHaveCount(0)
-		await expect(page.getByRole("heading", { name: "TURBO TEMPLATE." })).toBeVisible()
+		await expect(page.getByRole("heading", { name: "QSPS." })).toBeVisible()
 		await expect(page).toHaveURL(/\/$/)
 
 		const stored = await cachedFlights(page, "/dashboard")

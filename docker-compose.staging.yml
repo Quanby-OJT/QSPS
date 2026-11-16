@@ -82,7 +82,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # Shared throttle counters and the RBAC cache are used across instances.
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
-      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-turbo-template}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-qsps}
       - ENABLE_API_DOCS=${ENABLE_API_DOCS:-false}
     healthcheck:
       test:
@@ -108,7 +108,7 @@ services:
   # internet for no reason.
   redis:
     image: redis:7-alpine
-    container_name: turbo-template-redis
+    container_name: qsps-redis
     # `requirepass` via command so the password comes from the environment
     # rather than a baked-in config file. REDIS_PASSWORD has no default: an
     # unauthenticated Redis must not be reachable even inside the network.

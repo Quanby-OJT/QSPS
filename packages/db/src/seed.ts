@@ -74,7 +74,7 @@ async function seedDatabase() {
 		{
 			id: "seed-user-admin",
 			name: "Admin User",
-			email: "admin@turbo-template.local",
+			email: "admin@qsps.local",
 			emailVerified: true,
 			image: null,
 			createdAt: now,
@@ -83,7 +83,7 @@ async function seedDatabase() {
 		{
 			id: "seed-user-alex",
 			name: "Alex Johnson",
-			email: "alex@turbo-template.local",
+			email: "alex@qsps.local",
 			emailVerified: true,
 			image: null,
 			createdAt: now,
@@ -92,7 +92,7 @@ async function seedDatabase() {
 		{
 			id: "seed-user-sam",
 			name: "Sam Rivera",
-			email: "sam@turbo-template.local",
+			email: "sam@qsps.local",
 			emailVerified: false,
 			image: null,
 			createdAt: now,
