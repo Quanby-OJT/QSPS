@@ -5,21 +5,21 @@ import { MePermissionsSchema, type MePermissions } from "./me.schema"
 describe("MePermissionsSchema", () => {
 	it("parses current-user roles and permissions", () => {
 		const result: MePermissions = MePermissionsSchema.parse({
-			roles: ["Manager", "User"],
-			permissions: ["posts:*", "users:read"],
+			roles: ["Cashier", "Client"],
+			permissions: ["payments.onsite:collect", "bookings.all:read"],
 		})
 
-		expect(result.roles).toEqual(["Manager", "User"])
-		expect(result.permissions).toEqual(["posts:*", "users:read"])
+		expect(result.roles).toEqual(["Cashier", "Client"])
+		expect(result.permissions).toEqual(["payments.onsite:collect", "bookings.all:read"])
 	})
 
 	it("allows an admin role without expanded permissions", () => {
 		const result = MePermissionsSchema.parse({
-			roles: ["Admin"],
+			roles: ["Super Admin"],
 			permissions: [],
 		})
 
-		expect(result).toEqual({ roles: ["Admin"], permissions: [] })
+		expect(result).toEqual({ roles: ["Super Admin"], permissions: [] })
 	})
 
 	it("allows custom non-catalog role names from the database", () => {

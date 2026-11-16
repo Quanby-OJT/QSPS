@@ -32,8 +32,8 @@ import { bindDbBackedTests, bindSeededCases } from "@/testing/db-ready"
 // not transform, and nothing here depends on its runtime values beyond the two
 // constants RbacService reads.
 jest.mock("@repo/contracts", () => ({
-	ADMIN_ROLE: "Admin",
-	PERMISSION_NAMES: ["users:read", "users:manage"],
+	ADMIN_ROLE: "Super Admin",
+	PERMISSION_NAMES: ["users.accounts:read", "users.roles:manage"],
 }))
 
 // `RbacAdminService` imports ORPCError from `@orpc/server`, another ESM
@@ -63,7 +63,7 @@ const dbTests = bindDbBackedTests({
 const itDb = dbTests.itDb
 const adminSeed = bindSeededCases({
 	label: "az-4",
-	rows: ["Admin"],
+	rows: ["Super Admin"],
 	itDb,
 })
 
@@ -211,7 +211,7 @@ describe("refused privileged attempts are recorded", () => {
 
 	beforeAll(async () => {
 		if (!dbTests.ready) return
-		const [admin] = await db.select().from(roles).where(eq(roles.name, "Admin"))
+		const [admin] = await db.select().from(roles).where(eq(roles.name, "Super Admin"))
 		// Admin is inserted by `pnpm db:seed`, not by `pnpm db:push`.
 		if (!admin) {
 			adminSeed.markMissing()
@@ -262,7 +262,7 @@ describe("refused privileged attempts are recorded", () => {
 		await expect(makeAdminService().deleteRole(adminRoleId, TEST_ACTOR)).rejects.toThrow()
 
 		const [admin] = await db.select().from(roles).where(eq(roles.id, adminRoleId))
-		expect(admin?.name).toBe("Admin")
+		expect(admin?.name).toBe("Super Admin")
 	})
 
 	itAdmin("surfaces denials through the read API alongside successes", async () => {

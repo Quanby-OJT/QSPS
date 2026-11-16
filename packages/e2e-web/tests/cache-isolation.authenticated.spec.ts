@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
  * userA here would log the rest of the authenticated project out mid-run.
  */
 
-// The seeded Admin holds `users:read`, so `/user-management` returns the real
+// The seeded Admin holds `users.accounts:read`, so `/user-management` returns the real
 // email directory — the exact PII the audit found sitting on disk.
 const ADMIN_EMAIL = ACCOUNTS.admin.email
 const TEST_EMAIL = ACCOUNTS.userB.email

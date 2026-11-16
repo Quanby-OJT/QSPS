@@ -16,7 +16,7 @@ export const REQUIRED_PERMISSIONS_KEY = "required_permissions"
  * yet in the catalog; `RbacService` fails closed for unknown names.
  *
  * @example
- * @RequirePermissions("posts:create")
+ * @RequirePermissions("bookings.own:create")
  */
 export const RequirePermissions = (...permissions: (PermissionName | string)[]) =>
 	SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions)

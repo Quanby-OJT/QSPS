@@ -9,7 +9,7 @@
  *
  * Skips when Postgres is unreachable, and when it is up but `pnpm db:push` has
  * not created the relations this file uses. A table that exists still runs.
- * When those relations exist but the seeded Admin role is missing, every case
+ * When those relations exist but the seeded Super Admin role is missing, every case
  * skips and the message names `pnpm db:seed`. An Admin row that is present
  * still runs.
  */
@@ -25,8 +25,8 @@ import { RbacService } from "@/common/rbac/rbac.service"
 import { bindDbBackedTests, bindSeededCases } from "@/testing/db-ready"
 
 jest.mock("@repo/contracts", () => ({
-	ADMIN_ROLE: "Admin",
-	PERMISSION_NAMES: ["users:read", "users:manage"],
+	ADMIN_ROLE: "Super Admin",
+	PERMISSION_NAMES: ["users.accounts:read", "users.roles:manage"],
 }))
 
 // `RbacService` refuses with `ORPCError` so oRPC maps the denial to 403/409
@@ -45,7 +45,7 @@ jest.mock("@orpc/server", () => ({
 	},
 }))
 
-const MANAGER = "az2-manager" // holds users:manage, NOT Admin
+const MANAGER = "az2-manager" // holds users.roles:manage, NOT Super Admin
 const ADMIN_A = "az2-admin-a"
 const ADMIN_B = "az2-admin-b"
 const SUBJECT = "az2-subject"
@@ -58,7 +58,7 @@ const dbTests = bindDbBackedTests({
 })
 const adminSeed = bindSeededCases({
 	label: "az-2",
-	rows: ["Admin"],
+	rows: ["Super Admin"],
 	itDb: dbTests.itDb,
 })
 const itDb = adminSeed.itDb
@@ -108,8 +108,8 @@ beforeAll(async () => {
 	await dbTests.probe()
 	if (!dbTests.ready) return
 
-	const [admin] = await db.select().from(roles).where(eq(roles.name, "Admin"))
-	// Admin is inserted by `pnpm db:seed`, not by `pnpm db:push`.
+	const [admin] = await db.select().from(roles).where(eq(roles.name, "Super Admin"))
+	// Super Admin is inserted by `pnpm db:seed`, not by `pnpm db:push`.
 	if (!admin) {
 		adminSeed.markMissing()
 		return
@@ -165,11 +165,11 @@ describe("Admin grants require Admin", () => {
 		await setAdmins([ADMIN_A])
 	})
 
-	itDb("refuses a users:manage holder granting Admin to themselves", async () => {
+	itDb("refuses a users.roles:manage holder granting Super Admin to themselves", async () => {
 		// The self-escalation this ticket exists to stop: the permission that
 		// lets you manage users must not be the permission that lets you become
 		// anyone.
-		await expect(makeService().assignRole(MANAGER, "Admin", MANAGER)).rejects.toThrow(
+		await expect(makeService().assignRole(MANAGER, "Super Admin", MANAGER)).rejects.toThrow(
 			/Only an Admin may grant the Admin role/
 		)
 
@@ -180,32 +180,32 @@ describe("Admin grants require Admin", () => {
 		expect(held).toHaveLength(0)
 	})
 
-	itDb("refuses a users:manage holder granting Admin to someone else", async () => {
-		await expect(makeService().assignRole(SUBJECT, "Admin", MANAGER)).rejects.toThrow(
+	itDb("refuses a users.roles:manage holder granting Super Admin to someone else", async () => {
+		await expect(makeService().assignRole(SUBJECT, "Super Admin", MANAGER)).rejects.toThrow(
 			/Only an Admin may grant the Admin role/
 		)
 	})
 
 	itDb("audits the refused self-escalation with actor, target and reason", async () => {
-		await expect(makeService().assignRole(MANAGER, "Admin", MANAGER)).rejects.toThrow()
+		await expect(makeService().assignRole(MANAGER, "Super Admin", MANAGER)).rejects.toThrow()
 
 		const denials = await denialsFor(MANAGER)
 		expect(denials).toHaveLength(1)
 		expect(denials[0]!.action).toBe("role.assign")
 		expect(denials[0]!.targetId).toBe(MANAGER)
 		expect(denials[0]!.reason).toMatch(/self-escalation/)
-		expect(denials[0]!.newValue).toEqual({ roleName: "Admin" })
+		expect(denials[0]!.newValue).toEqual({ roleName: "Super Admin" })
 	})
 
 	itDb("distinguishes granting to another from granting to self in the reason", async () => {
-		await expect(makeService().assignRole(SUBJECT, "Admin", MANAGER)).rejects.toThrow()
+		await expect(makeService().assignRole(SUBJECT, "Super Admin", MANAGER)).rejects.toThrow()
 
 		const denials = await denialsFor(MANAGER)
 		expect(denials[0]!.reason).toMatch(/not an Admin/)
 	})
 
 	itDb("allows an Admin to grant Admin, and audits the success", async () => {
-		await makeService().assignRole(SUBJECT, "Admin", ADMIN_A)
+		await makeService().assignRole(SUBJECT, "Super Admin", ADMIN_A)
 
 		const held = await db
 			.select()
@@ -219,9 +219,9 @@ describe("Admin grants require Admin", () => {
 	})
 
 	itDb("does not gate non-Admin roles behind Admin", async () => {
-		// The tier check must apply only to the Admin role; a users:manage
+		// The tier check must apply only to the Super Admin role; a users.roles:manage
 		// holder still administers ordinary roles.
-		await expect(makeService().assignRole(SUBJECT, "User", MANAGER)).resolves.toBeUndefined()
+		await expect(makeService().assignRole(SUBJECT, "Client", MANAGER)).resolves.toBeUndefined()
 	})
 })
 
@@ -234,7 +234,7 @@ describe("last Admin cannot be removed", () => {
 	itDb("refuses the removal that would leave zero Admins, with 409 semantics", async () => {
 		await setAdmins([ADMIN_A])
 
-		await expect(makeService().removeRole(ADMIN_A, "Admin", ADMIN_A)).rejects.toThrow(
+		await expect(makeService().removeRole(ADMIN_A, "Super Admin", ADMIN_A)).rejects.toThrow(
 			/Cannot remove the last Admin/
 		)
 		expect(await adminCount()).toBe(1)
@@ -242,7 +242,7 @@ describe("last Admin cannot be removed", () => {
 
 	itDb("audits the refused last-Admin removal", async () => {
 		await setAdmins([ADMIN_A])
-		await expect(makeService().removeRole(ADMIN_A, "Admin", ADMIN_A)).rejects.toThrow()
+		await expect(makeService().removeRole(ADMIN_A, "Super Admin", ADMIN_A)).rejects.toThrow()
 
 		const denials = await denialsFor(ADMIN_A)
 		expect(denials[0]!.action).toBe("role.remove")
@@ -252,7 +252,7 @@ describe("last Admin cannot be removed", () => {
 	itDb("allows removing an Admin while another remains", async () => {
 		await setAdmins([ADMIN_A, ADMIN_B])
 
-		await makeService().removeRole(ADMIN_B, "Admin", ADMIN_A)
+		await makeService().removeRole(ADMIN_B, "Super Admin", ADMIN_A)
 		expect(await adminCount()).toBe(1)
 	})
 
@@ -274,8 +274,8 @@ describe("last Admin cannot be removed", () => {
 				await setAdmins([ADMIN_A, ADMIN_B])
 
 				const results = await Promise.allSettled([
-					service.removeRole(ADMIN_A, "Admin", ADMIN_A),
-					service.removeRole(ADMIN_B, "Admin", ADMIN_B),
+					service.removeRole(ADMIN_A, "Super Admin", ADMIN_A),
+					service.removeRole(ADMIN_B, "Super Admin", ADMIN_B),
 				])
 
 				const succeeded = results.filter(r => r.status === "fulfilled").length
@@ -290,16 +290,16 @@ describe("last Admin cannot be removed", () => {
 
 	itDb("still allows removing a non-Admin role from the last Admin", async () => {
 		await setAdmins([ADMIN_A])
-		await makeService().assignRole(ADMIN_A, "User", ADMIN_A)
+		await makeService().assignRole(ADMIN_A, "Client", ADMIN_A)
 
-		await expect(makeService().removeRole(ADMIN_A, "User", ADMIN_A)).resolves.toBeUndefined()
+		await expect(makeService().removeRole(ADMIN_A, "Client", ADMIN_A)).resolves.toBeUndefined()
 		expect(await adminCount()).toBe(1)
 	})
 
 	itDb("treats removing Admin from someone who lacks it as a harmless no-op", async () => {
 		await setAdmins([ADMIN_A])
 
-		await expect(makeService().removeRole(SUBJECT, "Admin", ADMIN_A)).resolves.toBeUndefined()
+		await expect(makeService().removeRole(SUBJECT, "Super Admin", ADMIN_A)).resolves.toBeUndefined()
 		expect(await adminCount()).toBe(1)
 	})
 })

@@ -18,10 +18,9 @@ import {
 
 @Injectable()
 export class RbacGuard implements CanActivate {
-	// Instance logger (not injected) so the guard keeps a zero-dependency
-	// constructor. `app.useLogger(nestjs-pino Logger)` in bootstrap.ts routes
-	// these lines through Pino, so denials land in the same structured sink as
-	// request logs.
+	// Instance logger (not injected) so the guard keeps a small constructor.
+	// `app.useLogger(nestjs-pino Logger)` in bootstrap.ts routes these lines
+	// through Pino, so denials land in the same structured sink as request logs.
 	private readonly logger = new Logger(RbacGuard.name)
 
 	constructor(
@@ -30,27 +29,48 @@ export class RbacGuard implements CanActivate {
 	) {}
 
 	/**
-	 * Record a permission denial so every rejected privileged read/write is
-	 * attributable (acceptance: "the denial is auditable").
+	 * Record a permission denial so every rejected request is attributable
+	 * (FND-2: "403 and an Audit Entry with outcome denied, the key, and the
+	 * actor").
 	 *
-	 * Deliberately generic — actor / action / target / outcome — so the
-	 * append-only `audit_log` helper can adopt this call site without changing
-	 * the shape. Logs the handler identity rather than `req.url`: the URL can
-	 * carry token-bearing query parameters.
+	 * The entry goes to the append-only `audit_log` through RbacService, and a
+	 * log line is kept as well. Uses the handler identity rather than `req.url`:
+	 * the URL can carry token-bearing query parameters.
+	 *
+	 * A failed audit write must not turn the 403 into a 500 or, worse, into an
+	 * allowed request, so it is logged and the denial still stands.
 	 */
-	private auditDenial(
+	private async auditDenial(
 		context: ExecutionContext,
 		actorId: string,
 		requiredPermissions: string[],
-		missingPermissions?: string[]
-	): void {
+		missingPermissions: string[]
+	): Promise<void> {
+		const route = `${context.getClass().name}.${context.getHandler().name}`
+
 		this.logger.warn({
 			event: "rbac.permission_denied",
 			actorId,
-			action: `${context.getClass().name}.${context.getHandler().name}`,
+			action: route,
 			requiredPermissions,
 			missingPermissions,
 		})
+
+		try {
+			await this.rbacService.recordPermissionDenial({
+				actorId,
+				route,
+				requiredPermissions,
+				missingPermissions,
+			})
+		} catch (error) {
+			this.logger.error({
+				event: "rbac.permission_denied.audit_failed",
+				actorId,
+				action: route,
+				error: error instanceof Error ? error.message : String(error),
+			})
+		}
 	}
 
 	async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -83,19 +103,19 @@ export class RbacGuard implements CanActivate {
 			return true
 		}
 
-		// Verbose in non-production to aid debugging; HttpExceptionFilter surfaces
-		// `missingPermissions` as details. Generic message in production.
-		// Only report permissions the user actually lacks, not the full required list.
+		// The audit entry always names the missing keys. Only the response
+		// differs: verbose in non-production to aid debugging (HttpExceptionFilter
+		// surfaces `missingPermissions` as details), generic in production.
+		const missingPermissions = await this.rbacService.getMissingPermissions(
+			userId,
+			requiredPermissions
+		)
+		await this.auditDenial(context, userId, requiredPermissions, missingPermissions)
+
 		if (env.NODE_ENV !== "production") {
-			const missingPermissions = await this.rbacService.getMissingPermissions(
-				userId,
-				requiredPermissions
-			)
-			this.auditDenial(context, userId, requiredPermissions, missingPermissions)
 			throw new ForbiddenException({ message: "Forbidden", missingPermissions })
 		}
 
-		this.auditDenial(context, userId, requiredPermissions)
 		throw new ForbiddenException("Forbidden")
 	}
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 
-import type { PermissionName, Role } from "@repo/contracts"
+import { ADMIN_ROLE, type PermissionName, type Role } from "@repo/contracts"
 
 import { Button } from "@/core/components/ui/button"
 import {
@@ -44,7 +44,7 @@ export function RoleFormDialog({ open, onOpenChange, role }: RoleFormDialogProps
 
 function RoleForm({ role, onClose }: { role?: Role; onClose: () => void }) {
 	const isEdit = Boolean(role)
-	const isAdminRole = role?.name === "Admin"
+	const isAdminRole = role?.name === ADMIN_ROLE
 
 	const [name, setName] = useState(role?.name ?? "")
 	const [description, setDescription] = useState(role?.description ?? "")
@@ -119,7 +119,9 @@ function RoleForm({ role, onClose }: { role?: Role; onClose: () => void }) {
 						aria-invalid={Boolean(formError)}
 					/>
 					{isAdminRole ? (
-						<p className="text-muted-foreground text-xs">The Admin role cannot be renamed.</p>
+						<p className="text-muted-foreground text-xs">
+							The {ADMIN_ROLE} role cannot be renamed.
+						</p>
 					) : null}
 				</Field>
 

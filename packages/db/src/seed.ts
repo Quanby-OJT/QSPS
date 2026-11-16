@@ -10,6 +10,7 @@ import {
 	ADMIN_ROLE,
 	PERMISSION_NAMES,
 	ROLE_NAMES,
+	ROLE_PERMISSIONS,
 	type PermissionName,
 	type RoleName,
 } from "@repo/contracts"
@@ -32,6 +33,23 @@ import {
 	SeedRefusedError,
 	shouldWritePassword,
 } from "./seed-guard.js"
+
+/**
+ * The turbo-template demo catalog. Databases seeded before FND-2 still hold
+ * these rows; the seed removes them (and their grants and memberships) so a
+ * re-seeded local database ends up with the QSPS catalog only.
+ */
+const LEGACY_TEMPLATE_ROLES = ["Admin", "Manager", "User"]
+const LEGACY_TEMPLATE_PERMISSIONS = [
+	"posts:read",
+	"posts:create",
+	"posts:edit",
+	"posts:delete",
+	"posts:*",
+	"users:read",
+	"users:read-directory",
+	"users:manage",
+]
 
 async function hashPassword(password: string): Promise<string> {
 	const saltHex = randomBytes(16).toString("hex")
@@ -111,9 +129,14 @@ async function seedDatabase() {
 	}))
 
 	const roleDescriptions: Record<RoleName, string> = {
-		Admin: "Super-administrator; full access via role-name short-circuit",
-		Manager: "Can manage posts and read users",
-		User: "Standard user with read access to posts",
+		"Super Admin": "Full access via role-name short-circuit; approves major changes",
+		"System Admin": "Users, settings, schedules, forms, and nationwide oversight",
+		"Module Admin": "Runs one service area in assigned locations (limited by scope)",
+		"Processing Officer": "Encodes, assesses, and issues documents (limited by scope)",
+		"Cashier": "Collects onsite payments and issues receipts (limited by scope)",
+		"Collecting Officer": "Closes daily collections and records deposits (limited by scope)",
+		"Auditor": "Read-only access to transactions, reports, and audit logs",
+		"Client": "Registered member of the public: books, pays, downloads documents",
 	}
 
 	const seedRoles: Array<typeof roles.$inferInsert> = ROLE_NAMES.map(name => ({
@@ -124,14 +147,53 @@ async function seedDatabase() {
 	}))
 
 	const permissionDescriptions: Record<PermissionName, string> = {
-		"posts:read": "Read posts",
-		"posts:create": "Create posts",
-		"posts:edit": "Edit posts",
-		"posts:delete": "Delete posts",
-		"posts:*": "All actions on posts",
-		"users:read": "Read user profiles",
-		"users:read-directory": "Read user email addresses (directory PII)",
-		"users:manage": "Manage users",
+		"account.profile:manage": "Manage own profile",
+		"users.accounts:read": "Read user accounts",
+		"users.accounts:manage": "Create, edit, and disable user accounts",
+		"users.roles:manage": "Assign and remove roles",
+		"users.scopes:manage": "Assign service-category and location scopes",
+		"audit.logs:read": "Read the audit log",
+		"audit.logs:export": "Export the audit log",
+		"settings.locations:manage": "Manage BOQ locations",
+		"settings.services:manage": "Manage the service catalog and fees",
+		"settings.policies:manage": "Manage booking and payment policies",
+		"settings.announcements:manage": "Manage announcements and the flash screen",
+		"settings.payment-channels:manage": "Manage payment channels and convenience fees",
+		"settings.changes:approve": "Approve major configuration changes",
+		"schedules.slots:manage": "Manage schedule slots and capacity",
+		"forms.templates:manage": "Manage service questionnaires",
+		"bookings.own:create": "Create own bookings",
+		"bookings.own:read": "Read own bookings",
+		"bookings.own:reschedule": "Reschedule own bookings",
+		"bookings.own:cancel": "Cancel own bookings",
+		"bookings.expedite:request": "Request an expedite booking",
+		"bookings.expedite:approve": "Approve expedite bookings",
+		"bookings.vip:create": "Create VIP bookings",
+		"bookings.walk-in:create": "Create walk-in bookings",
+		"bookings.all:read": "Read all bookings",
+		"bookings.all:reschedule": "Reschedule any booking",
+		"bookings.all:override": "Override any booking",
+		"payments.own:create": "Pay own bookings",
+		"payments.onsite:collect": "Collect onsite payments",
+		"payments.transactions:read": "Read payment transactions",
+		"payments.refunds:request": "Request refunds and forfeitures",
+		"payments.refunds:approve": "Approve refunds and forfeitures",
+		"payments.reconciliation:read": "Read payment reconciliation",
+		"payments.deposits:verify": "Verify collecting officer deposits",
+		"processing.queue:read": "Read the processing queue",
+		"processing.assessments:perform": "Perform assessments",
+		"processing.assessments:approve": "Approve assessments (head approval)",
+		"processing.offline:use": "Use offline mode",
+		"certificates.own:read": "Read own documents",
+		"certificates.documents:issue": "Issue documents",
+		"certificates.documents:print": "Print documents",
+		"certificates.documents:revoke": "Revoke or reissue documents",
+		"reports.dashboard:read": "Read the dashboard",
+		"reports.sales:read": "Read sales and collections reports",
+		"reports.operations:read": "Read operations reports",
+		"reports.transactions:read": "Read the transaction monitor",
+		"migration.imports:manage": "Run legacy imports",
+		"migration.exports:create": "Create turnover exports",
 	}
 
 	const seedPermissions: Array<typeof permissions.$inferInsert> = PERMISSION_NAMES.map(name => ({
@@ -141,23 +203,11 @@ async function seedDatabase() {
 		updatedAt: now,
 	}))
 
-	// Role -> permission names. Admin omitted: granted via role-name
-	// short-circuit, which is also how it picks up `users:read-directory`
-	// without a migration — no admin loses access.
-	//
-	// Manager deliberately does NOT get `users:read-directory`. That is the
-	// point of the split: it can triage tickets and see who exists, without
-	// holding the complete email directory.
-	const rolePermissionNames: Partial<Record<RoleName, PermissionName[]>> = {
-		Manager: ["posts:*", "users:read"],
-		User: ["posts:read"],
-	}
-
 	// User id -> role name.
 	const userRoleAssignments: Array<{ userId: string; roleName: RoleName }> = [
 		{ userId: "seed-user-admin", roleName: ADMIN_ROLE },
-		{ userId: "seed-user-alex", roleName: "User" },
-		{ userId: "seed-user-sam", roleName: "User" },
+		{ userId: "seed-user-alex", roleName: "Client" },
+		{ userId: "seed-user-sam", roleName: "Client" },
 	]
 
 	let rolePermissionCount = 0
@@ -214,6 +264,32 @@ async function seedDatabase() {
 				}
 			}
 
+			// Remove the template demo catalog. Grants and memberships go first so
+			// no row is left pointing at a deleted role or permission.
+			const legacyRoleIds = (
+				await tx
+					.select({ id: roles.id })
+					.from(roles)
+					.where(inArray(roles.name, LEGACY_TEMPLATE_ROLES))
+			).map(row => row.id)
+			if (legacyRoleIds.length > 0) {
+				await tx.delete(userRoles).where(inArray(userRoles.roleId, legacyRoleIds))
+				await tx.delete(rolePermissions).where(inArray(rolePermissions.roleId, legacyRoleIds))
+				await tx.delete(roles).where(inArray(roles.id, legacyRoleIds))
+			}
+			const legacyPermissionIds = (
+				await tx
+					.select({ id: permissions.id })
+					.from(permissions)
+					.where(inArray(permissions.name, LEGACY_TEMPLATE_PERMISSIONS))
+			).map(row => row.id)
+			if (legacyPermissionIds.length > 0) {
+				await tx
+					.delete(rolePermissions)
+					.where(inArray(rolePermissions.permissionId, legacyPermissionIds))
+				await tx.delete(permissions).where(inArray(permissions.id, legacyPermissionIds))
+			}
+
 			for (const role of seedRoles) {
 				await tx
 					.insert(roles)
@@ -240,9 +316,9 @@ async function seedDatabase() {
 			const permissionIdByName = new Map<string, number>(permissionRows.map(p => [p.name, p.id]))
 
 			const seedRolePermissions: Array<typeof rolePermissions.$inferInsert> = []
-			for (const [roleName, permNames] of Object.entries(rolePermissionNames)) {
+			for (const [roleName, permNames] of Object.entries(ROLE_PERMISSIONS)) {
 				const roleId = roleIdByName.get(roleName)
-				if (roleId === undefined || !permNames) continue
+				if (roleId === undefined) continue
 				for (const permName of permNames) {
 					const permissionId = permissionIdByName.get(permName)
 					if (permissionId === undefined) continue
