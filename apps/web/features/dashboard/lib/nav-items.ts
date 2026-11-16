@@ -1,9 +1,4 @@
-import {
-	DashboardSquare01Icon,
-	Task01Icon,
-	Ticket01Icon,
-	UserMultipleIcon,
-} from "@hugeicons/core-free-icons"
+import { DashboardSquare01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
 
 import { type PermissionName } from "@repo/contracts"
@@ -26,17 +21,6 @@ export const navItems: readonly DashboardNavItem[] = [
 		label: "Dashboard",
 		href: "/dashboard",
 		icon: DashboardSquare01Icon,
-	},
-	{
-		label: "Submit Ticket",
-		href: "/submit-ticket",
-		icon: Ticket01Icon,
-	},
-	{
-		label: "Todos / Posts",
-		href: "/todos",
-		icon: Task01Icon,
-		requiredPermission: "posts:read",
 	},
 	{
 		label: "User Management",

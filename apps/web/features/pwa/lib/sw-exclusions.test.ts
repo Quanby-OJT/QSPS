@@ -35,7 +35,7 @@ describe("carriesToken", () => {
 })
 
 describe("isAuthenticatedRoute", () => {
-	it.each(["/dashboard", "/account", "/user-management", "/todos", "/submit-ticket", "/session"])(
+	it.each(["/dashboard", "/account", "/user-management", "/session"])(
 		"treats %s as authenticated",
 		path => {
 			expect(isAuthenticatedRoute(url(path))).toBe(true)
@@ -47,8 +47,8 @@ describe("isAuthenticatedRoute", () => {
 	})
 
 	it("does not over-match a similarly-named public route", () => {
-		// `/todos-public` must not be swept up by a prefix check.
-		expect(isAuthenticatedRoute(url("/todos-public"))).toBe(false)
+		// `/accounts-public` must not be swept up by a prefix check.
+		expect(isAuthenticatedRoute(url("/accounts-public"))).toBe(false)
 	})
 
 	it.each(["/", "/login", "/register", "/forgot-password", "/~offline"])(

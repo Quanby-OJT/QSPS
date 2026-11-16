@@ -14,7 +14,6 @@ import { del, get, set } from "idb-keyval"
 import { toast } from "sonner"
 
 import { setupOnlineManagerBridge } from "@/features/pwa/lib/online-manager-bridge"
-import { registerTodosMutationDefaults } from "@/features/todos/api/todos.hooks"
 
 import {
 	ANONYMOUS_CACHE_IDENTITY,
@@ -101,10 +100,6 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
 		if (persister) markPersistedCacheRestoring()
 	}
 
-	// Register rehydratable mutation defaults synchronously so newly created
-	// mutations have their functions available before any reload. setMutationDefaults
-	// is synchronous and idempotent, so calling it on every render is safe.
-	registerTodosMutationDefaults(queryClient)
 
 	// Bridge real connectivity into TanStack Query's onlineManager so paused
 	// mutations resume when the network actually returns.
@@ -164,7 +159,6 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
 			// already been sent.
 			onSuccess={() => {
 				markPersistedCacheRestored()
-				registerTodosMutationDefaults(queryClient)
 
 				const discarded = discardForeignPausedMutations(queryClient)
 				if (discarded > 0) {

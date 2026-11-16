@@ -40,7 +40,6 @@ export default defineConfig({
 				"**/*.test.*",
 				"**/*.d.ts",
 				"**/node_modules/**",
-				"**/features/todos/**",
 			],
 		},
 	},
