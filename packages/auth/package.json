@@ -24,7 +24,12 @@
 		"./rate-limit-storage": {
 			"types": "./dist/rate-limit-storage.d.ts",
 			"default": "./dist/rate-limit-storage.js"
+		},
+		"./auth-events": {
+			"types": "./dist/auth-events.d.ts",
+			"default": "./dist/auth-events.js"
 		}
+		
 	},
 	"scripts": {
 		"build": "tsc",

@@ -15,3 +15,4 @@ export {
 export { parseOriginList } from "./origin-list.js"
 export { setAuthRateLimitStorage, type AuthRateLimitStorage } from "./rate-limit-storage.js"
 export type { Session, User, Account, Verification } from "better-auth/types"
+export { setAuthEventListener, type AuthEvent, type AuthEventListener } from "./auth-events.js"
