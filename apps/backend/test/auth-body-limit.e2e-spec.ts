@@ -176,6 +176,9 @@ describe("auth body limit (e2e)", () => {
 			name: "Body Limit",
 			email,
 			password: "a-normal-password",
+			// AUTH-1: sign-up requires the current privacy notice version
+			// (PRIVACY_NOTICE_VERSION in @repo/contracts, which this Jest setup cannot load).
+			privacyNoticeVersion: "2026-11-16",
 		})
 
 		expect(signUp.status).toBe(200)
