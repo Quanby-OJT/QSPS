@@ -14,7 +14,15 @@ import {
 	type RoleName,
 } from "@repo/contracts"
 
-import { accounts, permissions, rolePermissions, roles, schema, userRoles, users } from "./schema.js"
+import {
+	accounts,
+	permissions,
+	rolePermissions,
+	roles,
+	schema,
+	userRoles,
+	users,
+} from "./schema.js"
 import {
 	ALLOW_REMOTE_SEED_ENV,
 	assertSeedAllowed,
