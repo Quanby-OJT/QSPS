@@ -44,7 +44,12 @@ describe("useRegisterMutation rate limit", () => {
 		)
 
 		const { result } = renderRegister()
-		result.current.mutate({ name: "Ada", email: "a@example.com", password: "secret12" })
+		result.current.mutate({
+			name: "Ada",
+			email: "a@example.com",
+			password: "secret12",
+			privacyAccepted: true,
+		})
 
 		await waitFor(() => expect(result.current.isError).toBe(true))
 
@@ -52,5 +57,25 @@ describe("useRegisterMutation rate limit", () => {
 		expect((result.current.error as RateLimitError).retryAfter).toBe(10)
 		const returned = await signUpEmail.mock.results[0]?.value
 		expect(returned.error).not.toHaveProperty("headers")
+	})
+
+	describe("useRegisterMutation privacy consent", () => {
+		it("sends the current privacy notice version, and not the checkbox itself", async () => {
+			signUpEmail.mockResolvedValue({ data: { token: null }, error: null })
+
+			const { result } = renderRegister()
+			result.current.mutate({
+				name: "Ada",
+				email: "a@example.com",
+				password: "secret12",
+				privacyAccepted: true,
+			})
+
+			await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+			const sent = signUpEmail.mock.calls[0]?.[0] as Record<string, unknown>
+			expect(sent.privacyNoticeVersion).toBe("2026-11-16")
+			expect(sent).not.toHaveProperty("privacyAccepted")
+		})
 	})
 })

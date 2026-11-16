@@ -41,6 +41,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 			email: "",
 			password: "",
 			name: "",
+			privacyAccepted: false,
 		},
 		validators: {
 			onSubmit: RegisterSchema,
@@ -154,6 +155,42 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 												autoComplete="new-password"
 												disabled={isPending}
 											/>
+											{isInvalid && <FieldError errors={field.state.meta.errors} />}
+										</Field>
+									)
+								}}
+							/>
+
+							<form.Field
+								name="privacyAccepted"
+								children={field => {
+									const isInvalid = field.state.meta.isTouched && !field.state.meta.isValid
+									return (
+										<Field data-invalid={isInvalid}>
+											<div className="flex items-start gap-3">
+												<input
+													id={field.name}
+													name={field.name}
+													type="checkbox"
+													className="accent-primary mt-1 size-4 shrink-0"
+													checked={field.state.value}
+													onBlur={field.handleBlur}
+													onChange={e => field.handleChange(e.target.checked)}
+													aria-invalid={isInvalid}
+													aria-describedby="privacy-notice"
+													disabled={isPending}
+												/>
+												<FieldLabel htmlFor={field.name} className="leading-snug font-normal">
+													I have read and accept the privacy notice below.
+												</FieldLabel>
+											</div>
+											<FieldDescription id="privacy-notice" className="text-xs">
+												The Bureau of Quarantine collects your name, email, mobile number, birth
+												date, nationality, and gender to create your account, schedule and process
+												the services you book, and issue your documents, as allowed by the Data
+												Privacy Act of 2012 (RA 10173). Your data is kept only as long as BOQ&apos;s
+												retention policy requires and is used only for the services you request.
+											</FieldDescription>
 											{isInvalid && <FieldError errors={field.state.meta.errors} />}
 										</Field>
 									)
