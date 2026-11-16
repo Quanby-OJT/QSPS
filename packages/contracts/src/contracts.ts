@@ -7,32 +7,6 @@
 export { v1Contract } from "./modules/v1/v1.contract.js"
 export type { V1Contract } from "./modules/v1/v1.contract.js"
 
-// Example todos schemas + types
-export {
-	TodoSchema,
-	CreateTodoSchema,
-	UpdateTodoRequestSchema,
-} from "./modules/v1/examples/todos/todos.schema.js"
-export type {
-	Todo,
-	CreateTodoInput,
-	UpdateTodoRequest,
-} from "./modules/v1/examples/todos/todos.schema.js"
-
-// Ticket schemas + inferred types (the web form is wired to these)
-export {
-	TicketSchema,
-	CreateTicketSchema,
-	TicketIdSchema,
-	TicketPrioritySchema,
-	TicketStatusSchema,
-} from "./modules/v1/tickets/tickets.schema.js"
-export type {
-	Ticket,
-	CreateTicketInput,
-	TicketIdInput,
-} from "./modules/v1/tickets/tickets.schema.js"
-
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"
 
