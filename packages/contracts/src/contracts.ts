@@ -57,3 +57,5 @@ export type { MePermissions } from "./modules/v1/me/me.schema.js"
 // Business timezone (PRD: schedules, cutoffs, and reports use Asia/Manila)
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
+
+export * from "./common/privacy-notice.js"
