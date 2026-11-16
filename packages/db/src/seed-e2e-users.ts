@@ -21,11 +21,7 @@ import { ALLOW_REMOTE_SEED_ENV, assertSeedAllowed, SeedRefusedError } from "./se
  * seeder still refuses to rotate a password unless `--force-password` is set.
  */
 
-const SEEDED_TEMPLATE_EMAILS = new Set([
-	"admin@qsps.local",
-	"alex@qsps.local",
-	"sam@qsps.local",
-])
+const SEEDED_TEMPLATE_EMAILS = new Set(["admin@qsps.local", "alex@qsps.local", "sam@qsps.local"])
 
 export class E2eSeedPasswordError extends Error {
 	readonly variable: "E2E_TEST_PASSWORD" | "E2E_TEST_PASSWORD_B"

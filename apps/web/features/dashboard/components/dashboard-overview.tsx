@@ -110,9 +110,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 									<div className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
 										<HugeiconsIcon icon={item.icon} strokeWidth={2} className="size-5" />
 									</div>
-									<span className="min-w-0 flex-1 truncate text-sm font-medium">
-										{item.label}
-									</span>
+									<span className="min-w-0 flex-1 truncate text-sm font-medium">{item.label}</span>
 									<HugeiconsIcon
 										icon={ArrowRight01Icon}
 										strokeWidth={2}

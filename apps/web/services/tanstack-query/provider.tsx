@@ -100,7 +100,6 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
 		if (persister) markPersistedCacheRestoring()
 	}
 
-
 	// Bridge real connectivity into TanStack Query's onlineManager so paused
 	// mutations resume when the network actually returns.
 	React.useEffect(() => {
