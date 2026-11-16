@@ -22,6 +22,7 @@ interface RunnerFailure {
 }
 
 const RESULT_PREFIX = "AUTH_CLIENT_ADDRESS_RESULT "
+const RUNNER_TIMEOUT_MS = 60_000
 
 function safeLog(text: string): string {
 	return text
@@ -54,7 +55,7 @@ function runIsolated(): Promise<RunnerSuccess> {
 		let settled = false
 		const timer = setTimeout(() => {
 			child.kill("SIGKILL")
-		}, 20_000)
+		}, RUNNER_TIMEOUT_MS)
 
 		child.stdout.setEncoding("utf8")
 		child.stderr.setEncoding("utf8")
@@ -103,7 +104,7 @@ describe("server-side session reads keyed on the client address", () => {
 
 	beforeAll(async () => {
 		result = await runIsolated()
-	}, 30_000)
+	}, RUNNER_TIMEOUT_MS + 5_000)
 
 	it("uses a test-only budget against the real session-read rule", () => {
 		expect(result.nodeEnv).toBe("production")

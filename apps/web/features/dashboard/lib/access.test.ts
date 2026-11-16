@@ -107,6 +107,12 @@ describe("navItems", () => {
 					section: "Administration",
 					requiredPermission: ["users.accounts:read", "users.accounts:manage"],
 				}),
+				expect.objectContaining({
+					label: "Locations",
+					href: "/locations",
+					section: "Administration",
+					requiredPermission: "settings.locations:manage",
+				}),
 			])
 		)
 	})
@@ -121,13 +127,20 @@ describe("navItems", () => {
 		).toContain("User Management")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["settings.locations:manage"] }).map(
+				item => item.label
+			)
+		).toContain("Locations")
+
+		expect(
 			getAccessibleNavItems({ roles: ["Super Admin"], permissions: [] }).map(item => item.label)
-		).toEqual(["Dashboard", "User Management"])
+		).toEqual(["Dashboard", "User Management", "Locations"])
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {
 		expect(getDashboardRouteTitle("/dashboard")).toBe("Dashboard")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")
+		expect(getDashboardRouteTitle("/locations")).toBe("Locations")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})
 })
