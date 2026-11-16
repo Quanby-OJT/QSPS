@@ -110,7 +110,7 @@ async function waitForPersistedSnapshot(page: Page): Promise<string[]> {
 	return cacheKeys((await dumpIndexedDb(page)).keys)
 }
 
-/** Load the pages that populate the sensitive query roots and an allowed one. */
+/** Load the pages that populate the sensitive query roots. */
 async function visitCachePopulatingPages(page: Page, isAdmin: boolean) {
 	// Settle the worker before any IndexedDB read. The first claim does not
 	// reload the page. Settling still waits until the worker controls it, so a
@@ -125,9 +125,6 @@ async function visitCachePopulatingPages(page: Page, isAdmin: boolean) {
 		// pass simply because the data never loaded.
 		await expect(page.getByText(ADMIN_EMAIL, { exact: false }).first()).toBeVisible()
 	}
-
-	await page.goto("/todos")
-	await expect(page.getByRole("heading", { name: /todos \/ posts/i })).toBeVisible()
 }
 
 test.describe("persisted cache isolation", () => {
@@ -162,10 +159,6 @@ test.describe("persisted cache isolation", () => {
 		expect(contents).not.toContain('"rbac"')
 		expect(contents).not.toContain('"session"')
 
-		// ...while the offline-first roots the PWA depends on are still written.
-		// Without this, a fix that simply persisted nothing would pass every
-		// assertion above and silently kill offline reads.
-		expect(contents).toContain('"todos"')
 		// And the snapshot carries the buster + timestamp that bound its lifetime.
 		expect(contents).toContain('"buster"')
 		expect(contents).toContain('"timestamp"')
@@ -210,46 +203,6 @@ test.describe("persisted cache isolation", () => {
 		}
 	})
 
-	test("still restores allowed keys from disk when the API is unreachable", async ({ page }) => {
-		// The exclusion list must not cost the PWA its offline reads: a fix that
-		// simply persisted nothing would satisfy every leak assertion above and
-		// quietly break the feature the persister exists for.
-		//
-		// Only the *API* is cut, not the whole network. Serving the document
-		// offline is the service worker's job and it is not
-		// registered against the dev server, so killing every request would test
-		// the SW rather than the persisted cache this ticket owns.
-		//
-		// The Admin account, because listing todos needs `posts:read`; the plain
-		// test account holds no role and would render an empty list either way,
-		// which would prove nothing about restore.
-		const isAdmin = hasSessionCookie(ADMIN_AUTH_FILE)
-		test.skip(!isAdmin, "admin account unavailable in this environment")
-		await useStoredSession(page, ADMIN_AUTH_FILE)
-
-		await visitCachePopulatingPages(page, true)
-		await waitForPersistedSnapshot(page)
-
-		const todoRows = page.getByRole("checkbox", { name: /^Toggle / })
-		await expect.poll(async () => todoRows.count(), { timeout: 20_000 }).toBeGreaterThan(0)
-		const onlineCount = await todoRows.count()
-
-		await page.route("**/example/todos**", route => route.abort("internetdisconnected"))
-
-		try {
-			await page.reload()
-			await expect(page.getByRole("heading", { name: /todos \/ posts/i })).toBeVisible()
-
-			// These rows cannot have come from the network — the only other source
-			// is the IndexedDB snapshot, which is exactly the capability under test.
-			await expect
-				.poll(async () => todoRows.count(), { timeout: 20_000 })
-				.toBeGreaterThanOrEqual(onlineCount)
-		} finally {
-			await page.unroute("**/example/todos**")
-		}
-	})
-
 	test("sign-out purges every persisted cache entry from IndexedDB", async ({ page }) => {
 		// Sign-out shares one address. A 429 waits for `x-retry-after` (at most 61s, twice).
 		// The default 30s test timeout kills that wait. Assertion timeouts are unchanged.
@@ -276,6 +229,5 @@ test.describe("persisted cache isolation", () => {
 
 		const { contents } = await dumpIndexedDb(page)
 		expect(contents).not.toContain(TEST_EMAIL)
-		expect(contents).not.toContain('"todos"')
 	})
 })

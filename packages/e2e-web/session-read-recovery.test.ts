@@ -18,7 +18,7 @@ describe("pageShowsFailedSessionRead", () => {
 	it("still repeats when a protected navigation lands on /login", () => {
 		assert.equal(
 			pageShowsFailedSessionRead({
-				requestedPath: "/submit-ticket",
+				requestedPath: "/user-management",
 				landedPath: "/login",
 				signal: "unknown",
 			}),
@@ -40,8 +40,8 @@ describe("pageShowsFailedSessionRead", () => {
 	it("does not repeat when the page is signed in", () => {
 		assert.equal(
 			pageShowsFailedSessionRead({
-				requestedPath: "/todos",
-				landedPath: "/todos",
+				requestedPath: "/dashboard",
+				landedPath: "/dashboard",
 				signal: "in",
 			}),
 			false
