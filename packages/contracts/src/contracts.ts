@@ -53,3 +53,7 @@ export type { MePermissions } from "./modules/v1/me/me.schema.js"
 // export { v2Contract, type V2Contract } from "./modules/v2/v2.contract.js"
 // export const v2 = { ... }
 // export type { Todo as V2Todo, ... } from "./modules/v2/..."
+
+// Business timezone (PRD: schedules, cutoffs, and reports use Asia/Manila)
+export { BUSINESS_TIMEZONE } from "./common/business-time.js"
+export type { BusinessTimezone } from "./common/business-time.js"
