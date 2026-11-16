@@ -2,10 +2,12 @@ import { createEnv } from "@t3-oss/env-core"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError } from "better-auth/api"
+import { eq } from "drizzle-orm"
 import { z } from "zod"
 
+import { PRIVACY_NOTICE_VERSION, type RoleName } from "@repo/contracts"
 import { createDBClient } from "@repo/db/client"
-import { accounts, sessions, users, verifications } from "@repo/db/schema"
+import { accounts, roles, sessions, userRoles, users, verifications } from "@repo/db/schema"
 
 import { isApiDocsEnabled } from "./api-docs.js"
 import { authLogger } from "./auth-logger.js"
@@ -81,6 +83,9 @@ export const authEnv = createEnv({
 	skipValidation:
 		process.env.SKIP_ENV_VALIDATION === "true" || process.env.npm_lifecycle_event === "lint",
 })
+
+/** The role every self-registered client account receives (AUTH-1). */
+const CLIENT_ROLE: RoleName = "Client"
 
 /**
  * Internal basePath used by Better Auth.
@@ -275,6 +280,10 @@ export function createAuth() {
 		emailAndPassword: {
 			enabled: true,
 			requireEmailVerification: verificationRequired,
+			// AUTH-1: a completed reset signs the account out everywhere, so a
+			// session opened with the old password does not outlive it. The reset
+			// token itself is single-use (Better Auth deletes it when consumed).
+			revokeSessionsOnPasswordReset: true,
 			/**
 			 * Send a password-reset link.
 			 *
@@ -310,6 +319,69 @@ export function createAuth() {
 				}
 			},
 		},
+		/**
+		 * QSPS columns on `users` that Better Auth reads or writes (AUTH-1).
+		 *
+		 * Only `privacyNoticeVersion` is accepted from the client, on sign-up; the
+		 * rest are set by the server. Profile details (mobile, birth date, …) are
+		 * written by the profile API, not through Better Auth.
+		 */
+		user: {
+			additionalFields: {
+				privacyNoticeVersion: { type: "string", required: false, input: true },
+				privacyAcceptedAt: { type: "date", required: false, input: false },
+				accountType: { type: "string", required: false, input: false, defaultValue: "client" },
+				profileCompletedAt: { type: "date", required: false, input: false },
+			},
+		},
+
+		databaseHooks: {
+			user: {
+				create: {
+					/**
+					 * Data Privacy Act consent (AUTH-1). No account is created unless the
+					 * sign-up names the notice version currently shown; the server, not
+					 * the client, stamps when it was accepted.
+					 */
+					before: async user => {
+						const accepted = (user as Record<string, unknown>).privacyNoticeVersion
+						if (accepted !== PRIVACY_NOTICE_VERSION) {
+							throw new APIError("BAD_REQUEST", {
+								message: "Please read and accept the privacy notice to create an account.",
+							})
+						}
+						return { data: { ...user, privacyAcceptedAt: new Date() } }
+					},
+					/**
+					 * Every self-registered account is a client and gets the Client role.
+					 * Staff accounts (ADM-1) are given their roles by an administrator.
+					 * Skipped when the Client role is missing (the catalog migration creates it).
+					 */
+					after: async user => {
+						if ((user as Record<string, unknown>).accountType === "staff") return
+						const [clientRole] = await db
+							.select({ id: roles.id })
+							.from(roles)
+							.where(eq(roles.name, CLIENT_ROLE))
+						if (!clientRole) return
+						await db
+							.insert(userRoles)
+							.values({ userId: user.id, roleId: clientRole.id })
+							.onConflictDoNothing()
+					},
+				},
+				update: {
+					/** Consent is recorded once, at sign-up; it cannot be edited afterwards. */
+					before: async data => {
+						const rest = { ...(data as Record<string, unknown>) }
+						delete rest.privacyNoticeVersion
+						delete rest.privacyAcceptedAt
+						return { data: rest }
+					},
+				},
+			},
+		},
+
 		/**
 		 * The Google provider is registered only when BOTH
 		 * credentials are present.
