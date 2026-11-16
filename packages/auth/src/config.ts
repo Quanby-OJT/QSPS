@@ -1,7 +1,7 @@
 import { createEnv } from "@t3-oss/env-core"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError } from "better-auth/api"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { eq } from "drizzle-orm"
 import { z } from "zod"
 
@@ -329,13 +329,32 @@ export function createAuth() {
 		user: {
 			additionalFields: {
 				privacyNoticeVersion: { type: "string", required: false, input: true },
-				privacyAcceptedAt: { type: "date", required: false, input: false },
+				// Not returned: on a duplicate sign-up Better Auth answers with a stand-in
+				// user, and a null here versus a timestamp on a real account would tell
+				// a caller which addresses are registered.
+				privacyAcceptedAt: { type: "date", required: false, input: false, returned: false },
 				accountType: { type: "string", required: false, input: false, defaultValue: "client" },
 				profileCompletedAt: { type: "date", required: false, input: false },
 			},
 		},
 
 		databaseHooks: {
+		/**
+		 * Consent is checked before Better Auth touches the database, so a missing
+		 * or outdated notice version gets a clear 400. The database hook below
+		 * keeps the same rule as a second line of defense.
+		 */
+		hooks: {
+			before: createAuthMiddleware(async ctx => {
+				if (ctx.path !== "/sign-up/email") return
+				const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
+				if (accepted !== PRIVACY_NOTICE_VERSION) {
+					throw ctx.error("BAD_REQUEST", {
+						message: "Please read and accept the privacy notice to create an account.",
+					})
+				}
+			}),
+		},
 			user: {
 				create: {
 					/**

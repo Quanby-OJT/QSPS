@@ -1,7 +1,7 @@
 import { inspect } from "node:util"
 import { describe, expect, it } from "vitest"
 
-import { withSafeDatabaseErrors } from "./safe-database-errors.js"
+import { safeDatabaseError, withSafeDatabaseErrors } from "./safe-database-errors.js"
 
 /** Drizzle's shape: bound values in the message and on `.params`, a pg cause with `detail`. */
 function drizzleError(): Error {
@@ -34,5 +34,15 @@ describe("withSafeDatabaseErrors", () => {
 
 		expect(adapter.id).toBe("drizzle")
 		await expect(adapter.findOne()).resolves.toBe(1)
+	})
+
+		it("passes a deliberate API error through unchanged, keeping its status", () => {
+		const apiError = Object.assign(new Error("Please read and accept the privacy notice."), {
+			name: "APIError",
+			status: "BAD_REQUEST",
+			statusCode: 400,
+		})
+
+		expect(safeDatabaseError(apiError)).toBe(apiError)
 	})
 })
