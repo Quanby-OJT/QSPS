@@ -5,7 +5,11 @@ import { eq } from "drizzle-orm"
 import type { ClientProfile, UpdateClientProfileInput } from "@repo/contracts"
 import { users } from "@repo/db/schema"
 
+import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+
+/** Audit domain for a user's own account changes (AUTH-1). */
+export const AUDIT_DOMAIN_ACCOUNT = "account"
 
 const profileColumns = {
 	name: users.name,
@@ -16,6 +20,8 @@ const profileColumns = {
 	gender: users.gender,
 	profileCompletedAt: users.profileCompletedAt,
 }
+
+const EDITABLE_FIELDS = ["name", "mobile", "birthDate", "nationality", "gender"] as const
 
 type ProfileRow = {
 	name: string
@@ -39,35 +45,56 @@ function toProfile(row: ProfileRow): ClientProfile {
  */
 @Injectable()
 export class MeProfileService {
+	constructor(private readonly auditService: AuditService) {}
+
 	async getProfile(userId: string): Promise<ClientProfile> {
 		const [row] = await db.select(profileColumns).from(users).where(eq(users.id, userId))
 		if (!row) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
 		return toProfile(row)
 	}
 
+	/**
+	 * Save the profile and its audit entry in one transaction, so a profile
+	 * change can never commit unrecorded. The entry names the fields that
+	 * changed, not their values: the audit log is read by staff and must not
+	 * become a second copy of clients' personal data.
+	 */
 	async updateProfile(userId: string, input: UpdateClientProfileInput): Promise<ClientProfile> {
-		const [current] = await db
-			.select({ profileCompletedAt: users.profileCompletedAt })
-			.from(users)
-			.where(eq(users.id, userId))
-		if (!current) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
+		return db.transaction(async tx => {
+			const [current] = await tx.select(profileColumns).from(users).where(eq(users.id, userId))
+			if (!current) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
 
-		const now = new Date()
-		const [row] = await db
-			.update(users)
-			.set({
-				name: input.name,
-				mobile: input.mobile,
-				birthDate: input.birthDate,
-				nationality: input.nationality,
-				gender: input.gender,
-				updatedAt: now,
-				profileCompletedAt: current.profileCompletedAt ?? now,
-			})
-			.where(eq(users.id, userId))
-			.returning(profileColumns)
+			const now = new Date()
+			const [row] = await tx
+				.update(users)
+				.set({
+					name: input.name,
+					mobile: input.mobile,
+					birthDate: input.birthDate,
+					nationality: input.nationality,
+					gender: input.gender,
+					updatedAt: now,
+					profileCompletedAt: current.profileCompletedAt ?? now,
+				})
+				.where(eq(users.id, userId))
+				.returning(profileColumns)
+			if (!row) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
 
-		if (!row) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
-		return toProfile(row)
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_ACCOUNT,
+					action: current.profileCompletedAt ? "profile.update" : "profile.complete",
+					actorId: userId,
+					targetType: "user",
+					targetId: userId,
+					newValue: {
+						changedFields: EDITABLE_FIELDS.filter(field => current[field] !== input[field]),
+					},
+				},
+				tx
+			)
+
+			return toProfile(row)
+		})
 	}
 }

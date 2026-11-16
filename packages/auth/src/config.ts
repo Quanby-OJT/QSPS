@@ -10,6 +10,7 @@ import { createDBClient } from "@repo/db/client"
 import { accounts, roles, sessions, userRoles, users, verifications } from "@repo/db/schema"
 
 import { isApiDocsEnabled } from "./api-docs.js"
+import { emitAuthEvent } from "./auth-events.js"
 import { authLogger } from "./auth-logger.js"
 import { buildAuthPlugins } from "./auth-plugins.js"
 import { AUTH_CLIENT_ADDRESS_HEADER } from "./client-address.js"
@@ -236,6 +237,10 @@ export function createAuth() {
 		},
 		emailVerification: {
 			sendOnSignUp: verificationEnabled,
+			// AUTH-1 audit: the backend records this through AuditService.
+			afterEmailVerification: async user => {
+				await emitAuthEvent({ type: "user.email_verified", userId: user.id })
+			},
 			sendVerificationEmail: async ({ user, token }) => {
 				// Honor disabled-sending config for both automatic signup sends
 				// and explicit resend-verification actions.
@@ -338,23 +343,24 @@ export function createAuth() {
 			},
 		},
 
+		/**
+		 * Consent is checked before Better Auth touches the database, so a missing
+		 * or outdated notice version gets a clear 400. The database hook below
+		 * keeps the same rule as a second line of defense.
+		 */
+		hooks: {
+			before: createAuthMiddleware(async ctx => {
+				if (ctx.path !== "/sign-up/email") return
+				const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
+				if (accepted !== PRIVACY_NOTICE_VERSION) {
+					throw ctx.error("BAD_REQUEST", {
+						message: "Please read and accept the privacy notice to create an account.",
+					})
+				}
+			}),
+		},
+
 		databaseHooks: {
-			/**
-			 * Consent is checked before Better Auth touches the database, so a missing
-			 * or outdated notice version gets a clear 400. The database hook below
-			 * keeps the same rule as a second line of defense.
-			 */
-			hooks: {
-				before: createAuthMiddleware(async ctx => {
-					if (ctx.path !== "/sign-up/email") return
-					const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
-					if (accepted !== PRIVACY_NOTICE_VERSION) {
-						throw ctx.error("BAD_REQUEST", {
-							message: "Please read and accept the privacy notice to create an account.",
-						})
-					}
-				}),
-			},
 			user: {
 				create: {
 					/**
@@ -377,6 +383,7 @@ export function createAuth() {
 					 * Skipped when the Client role is missing (the catalog migration creates it).
 					 */
 					after: async user => {
+						await emitAuthEvent({ type: "user.registered", userId: user.id })
 						if ((user as Record<string, unknown>).accountType === "staff") return
 						const [clientRole] = await db
 							.select({ id: roles.id })
@@ -396,6 +403,14 @@ export function createAuth() {
 						delete rest.privacyNoticeVersion
 						delete rest.privacyAcceptedAt
 						return { data: rest }
+					},
+				},
+			},
+			session: {
+				create: {
+					/** AUTH-1 audit: every new session is a sign-in. */
+					after: async session => {
+						await emitAuthEvent({ type: "session.created", userId: session.userId })
 					},
 				},
 			},
