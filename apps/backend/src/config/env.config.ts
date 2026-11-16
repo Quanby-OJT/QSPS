@@ -85,7 +85,7 @@ export const env = createEnv({
 		// starts only when BOTH the flag and an endpoint are set.
 		OTEL_ENABLED: exactlyTrueFromEnv,
 		OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
-		OTEL_SERVICE_NAME: z.string().default("turbo-template-api"),
+		OTEL_SERVICE_NAME: z.string().default("qsps-api"),
 		/** Deploy image tag, injected by the deploy compose file / env; reported as the Sentry release. */
 		IMAGE_TAG: z.string().optional(),
 
@@ -99,7 +99,7 @@ export const env = createEnv({
 		// instance that revoked it.
 		REDIS_URL: z.string().optional(),
 		/** Key prefix, so several environments can share one Redis safely. */
-		REDIS_KEY_PREFIX: z.string().optional().default("turbo-template"),
+		REDIS_KEY_PREFIX: z.string().optional().default("qsps"),
 
 		// Authentication.
 		// Same schema object the @repo/auth package validates with — the two

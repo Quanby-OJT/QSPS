@@ -13,8 +13,8 @@ import { resolveE2eAdminPassword } from "./e2e-admin-password"
  */
 const TEST_LIMIT = 3
 
-const ADMIN_EMAIL = "admin@turbo-template.local"
-const OTHER_EMAIL = "alex@turbo-template.local"
+const ADMIN_EMAIL = "admin@qsps.local"
+const OTHER_EMAIL = "alex@qsps.local"
 
 describe("per-user request limiter (e2e)", () => {
 	let app: INestApplication<App>
@@ -68,12 +68,12 @@ describe("per-user request limiter (e2e)", () => {
 
 	it("still returns 429 when an anonymous client passes the limit", async () => {
 		for (let i = 0; i < TEST_LIMIT; i++) {
-			const ok = await request(server()).get("/api/v1/example/todos")
+			const ok = await request(server()).get("/api/v1/health")
 			expect(ok.status).toBe(200)
 			expect(ok.headers["x-ratelimit-limit"]).toBe(String(TEST_LIMIT))
 		}
 
-		const blocked = await request(server()).get("/api/v1/example/todos")
+		const blocked = await request(server()).get("/api/v1/health")
 		expect(blocked.status).toBe(429)
 	})
 })

@@ -136,7 +136,7 @@ async function stop(child: ChildProcess) {
 async function exercise(port: number) {
 	const base = `http://127.0.0.1:${port}/api/v1`
 	const started = Date.now()
-	const todos = await fetch(`${base}/example/todos?token=tok-abc`, {
+	const todos = await fetch(`${base}/auth/get-session?token=tok-abc`, {
 		headers: {
 			"authorization": "Bearer secret-bearer-x",
 			"cookie": "sess=cookie-secret-y",
@@ -170,7 +170,7 @@ function traceChecks(spans: Span[], metrics: Metric[], receiverPort: number): st
 	const failures: string[] = []
 	const isTodos = (span: Span) =>
 		[attr(span, "http.route"), attr(span, "url.path"), attr(span, "http.target"), span.name].some(
-			value => typeof value === "string" && value.includes("/example/todos")
+			value => typeof value === "string" && value.includes("/auth/get-session")
 		)
 
 	const servers = spans.filter(span => span.kind === SPAN_KIND_SERVER && isTodos(span))
@@ -260,7 +260,7 @@ const loggedTraceIds = (output: string) =>
  */
 function logIdChecks(spans: Span[], output: string): string[] {
 	const server = spans.find(
-		span => span.kind === SPAN_KIND_SERVER && /todos/.test(JSON.stringify(span.attributes))
+		span => span.kind === SPAN_KIND_SERVER && /get-session/.test(JSON.stringify(span.attributes))
 	) as (Span & { traceId?: string }) | undefined
 	if (!server?.traceId) return ["no server span to match the log line against"]
 	if (!loggedTraceIds(output).has(server.traceId))

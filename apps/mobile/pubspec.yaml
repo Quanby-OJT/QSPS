@@ -1,5 +1,5 @@
 name: mobile
-description: "A Flutter mobile app for the Turbo Template monorepo."
+description: "A Flutter mobile app for the QSPS monorepo."
 publish_to: "none"
 
 version: 1.0.0+1

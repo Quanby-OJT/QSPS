@@ -54,6 +54,6 @@ resolveE2eAdminPassword()
  * developer configured.
  */
 function redisKeyPrefixBase(configured: string | undefined): string {
-	const prefix = configured?.trim() || "turbo-template"
+	const prefix = configured?.trim() || "qsps"
 	return prefix.replace(/:e2e:[0-9a-f-]{36}$/i, "")
 }

@@ -11,7 +11,7 @@
     <!-- Awesome Notifications: re-schedule after device reboot -->
 
     <application
-        android:label="mobile"
+        android:label="QSPS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false"

@@ -30,7 +30,7 @@ import {
 } from "./query-client"
 
 /** Prefix for every cache bucket this app writes to IndexedDB. */
-export const PERSISTED_CACHE_KEY_PREFIX = "turbo-template-query-cache"
+export const PERSISTED_CACHE_KEY_PREFIX = "qsps-query-cache"
 
 /**
  * The persister's default key is what was used before identity scoping.
@@ -57,7 +57,7 @@ export const PERSISTED_CACHE_MAX_AGE = 1000 * 60 * 60 * 2 // 2 hours
 export const ANONYMOUS_CACHE_IDENTITY = "anon"
 
 /** localStorage slot holding the *hashed* id of the last known signed-in user. */
-const IDENTITY_STORAGE_KEY = "turbo-template-cache-identity"
+const IDENTITY_STORAGE_KEY = "qsps-cache-identity"
 
 /**
  * FNV-1a. Not a security boundary — it only namespaces cache buckets. Hashing

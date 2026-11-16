@@ -18,19 +18,6 @@ test.describe("protected route guards", () => {
 		await expect(page).toHaveURL(/\/dashboard/)
 		await expect(page.getByTestId("session-unavailable")).toBeVisible()
 	})
-
-	test("redirects /examples/todos to /login when unauthenticated", async ({ page }) => {
-		test.skip(!sessionService, "Signed-out redirect needs a session service")
-		await page.goto("/examples/todos")
-		await expect(page).toHaveURL(/\/login/)
-	})
-
-	test("keeps the todos example open when the session read fails", async ({ page }) => {
-		test.skip(sessionService, "Requires the session service to be unreachable")
-		await page.goto("/examples/todos")
-		await expect(page).toHaveURL(/\/examples\/todos/)
-		await expect(page.getByText("Todos API Example")).toBeVisible()
-	})
 })
 
 test.describe("auth page cross-links", () => {

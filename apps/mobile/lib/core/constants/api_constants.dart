@@ -74,7 +74,4 @@ class ApiConstants {
   static String get signOut => '$versionedUrl/auth/sign-out';
   static String get getSession => '$versionedUrl/auth/get-session';
 
-  // Todo endpoints (NestJS - oRPC)
-  static String get todos => '$versionedUrl/example/todos';
-  static String todoById(int id) => '$versionedUrl/example/todos/$id';
 }

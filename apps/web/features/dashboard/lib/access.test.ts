@@ -86,12 +86,6 @@ describe("navItems", () => {
 		expect(navItems).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ label: "Dashboard", href: "/dashboard" }),
-				expect.objectContaining({ label: "Submit Ticket", href: "/submit-ticket" }),
-				expect.objectContaining({
-					label: "Todos / Posts",
-					href: "/todos",
-					requiredPermission: "posts:read",
-				}),
 				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
@@ -103,14 +97,7 @@ describe("navItems", () => {
 	})
 
 	it("filters visible items from the shared access helper", () => {
-		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual([
-			"Dashboard",
-			"Submit Ticket",
-		])
-
-		expect(
-			getAccessibleNavItems({ roles: [], permissions: ["posts:*"] }).map(item => item.label)
-		).toContain("Todos / Posts")
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual(["Dashboard"])
 
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["users:read"] }).map(item => item.label)
@@ -118,13 +105,11 @@ describe("navItems", () => {
 
 		expect(
 			getAccessibleNavItems({ roles: ["Admin"], permissions: [] }).map(item => item.label)
-		).toEqual(["Dashboard", "Submit Ticket", "Todos / Posts", "User Management"])
+		).toEqual(["Dashboard", "User Management"])
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {
 		expect(getDashboardRouteTitle("/dashboard")).toBe("Dashboard")
-		expect(getDashboardRouteTitle("/submit-ticket")).toBe("Submit Ticket")
-		expect(getDashboardRouteTitle("/todos")).toBe("Todos / Posts")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})

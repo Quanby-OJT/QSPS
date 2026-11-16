@@ -281,6 +281,10 @@ jobs:
             # Pull new images and restart
             cd /opt/staging
             docker compose pull
+            # Apply pending database migrations from the NEW backend image before
+            # any new container starts. A failure stops the deploy here and the
+            # running version stays up (FND-1, PRD D10).
+            docker compose run --rm --no-deps backend node packages/db/dist/migrate.js
             docker compose up -d --remove-orphans
             docker image prune -f
 

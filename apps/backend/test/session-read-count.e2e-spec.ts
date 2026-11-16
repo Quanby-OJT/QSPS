@@ -8,8 +8,8 @@ import { getAuth } from "@repo/auth"
 import { createApplication } from "../src/bootstrap"
 import { resolveE2eAdminPassword } from "./e2e-admin-password"
 
-const ADMIN_EMAIL = "admin@turbo-template.local"
-const USER_EMAIL = "alex@turbo-template.local"
+const ADMIN_EMAIL = "admin@qsps.local"
+const USER_EMAIL = "alex@qsps.local"
 const FORGED_COOKIE = "better-auth.session_token=forged"
 
 describe("session reads per request (e2e)", () => {
@@ -144,15 +144,6 @@ describe("session reads per request (e2e)", () => {
 		const response = await hit("/api/v1/health")
 
 		expect(response.status).toBe(200)
-		expect(calls).toBe(1)
-		expect(resolved).toBe(0)
-	})
-
-	it("keeps the public todo list reachable without a session", async () => {
-		const response = await hit("/api/v1/example/todos")
-
-		expect(response.status).toBe(200)
-		expect(Array.isArray(response.body)).toBe(true)
 		expect(calls).toBe(1)
 		expect(resolved).toBe(0)
 	})

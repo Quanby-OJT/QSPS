@@ -47,8 +47,6 @@ void main() {
         ApiConstants.signUp,
         ApiConstants.signOut,
         ApiConstants.getSession,
-        ApiConstants.todos,
-        ApiConstants.todoById(1),
       ]) {
         expect(url, startsWith(ApiConstants.versionedUrl));
       }

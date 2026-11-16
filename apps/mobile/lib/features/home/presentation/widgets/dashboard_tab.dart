@@ -44,7 +44,7 @@ class DashboardTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Welcome to Turbo Template',
+                    'Welcome to QSPS',
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       height: 1.47,

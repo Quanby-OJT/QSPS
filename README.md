@@ -1,6 +1,12 @@
-# Quanby Turbo Template
+# QSPS — Quarantine Services and Payment System
 
-A TypeScript-first monorepo template using **Turborepo** and **pnpm** for full-stack development.
+QSPS is the booking, payment, assessment, and document-verification system for the Bureau of Quarantine (BOQ). It is a TypeScript monorepo built with **Turborepo** and **pnpm**.
+
+Project documents:
+
+- [PRD](docs/PRD.md): problem, scope, constraints, and decisions
+- [DOMAIN-MODEL](docs/DOMAIN-MODEL.md): glossary, tables, state machines, and permission keys
+- [TICKETS](docs/TICKETS.md): epic map, build order, and risky flows
 
 ## Tech Stack
 
@@ -13,21 +19,9 @@ A TypeScript-first monorepo template using **Turborepo** and **pnpm** for full-s
 | Auth      | Better Auth                         |
 | Contracts | Zod schemas + DTOs                  |
 
-## Create a repo from this template
+## Origin
 
-The new repository's default branch follows this template's default branch, `dev`.
-
-On GitHub, open this repository and choose **Use this template**, then **Create a new repository**. Pick the owner, repository name, and visibility. Leave **Include all branches** unchecked.
-
-From the CLI, create a private repository:
-
-```bash
-gh repo create <org>/<name> --template Quanby-IT-Solutions/turbo-template --private
-```
-
-Pass `--public` instead of `--private` when the new repository should be public. Do not pass `--include-all-branches`. Leaving that flag off is the default, and it is the right choice for a normal app repository: only `dev` should copy, while leftover scratch branches such as `scratch/ci-workflow-call-check` and environment branches stay on the template remote.
-
-When the repository exists, continue with [Quick Start](#quick-start).
+This repository was created from [Quanby-IT-Solutions/turbo-template](https://github.com/Quanby-IT-Solutions/turbo-template). The template's example features (todos, tickets, and feature preview) have been removed.
 
 ## Quick Start
 
@@ -51,13 +45,13 @@ openssl rand -base64 32
 # the API use one local database. The examples ship <user>:<password>
 # placeholders, not a working credential.
 
-# Push the schema before seed, dev, and pnpm test. With Postgres configured,
-# pnpm test needs this schema. Non-interactive db:push applies only changes
-# that need no confirmation; run it in a terminal to answer prompts.
-pnpm db:push
+# Create an empty local database named qsps first, for example
+# postgresql://postgres@127.0.0.1:5432/qsps. Then apply the migrations before
+# seed, dev, and pnpm test. db:seed also applies them.
+pnpm db:migrate
 pnpm db:seed
 
-# Backend e2e (14 tests) against that seeded database
+# Backend e2e against that seeded database
 pnpm -F @repo/backend test:e2e
 
 # Build packages (required for first run)
@@ -72,9 +66,9 @@ pnpm dev
 
 Flutter is required only for mobile tests. Web and backend adopters can run `pnpm test` without Flutter on `PATH`. `@repo/mobile` skips those tests and prints `Flutter is required for mobile tests and was skipped.` When Flutter is installed, `pnpm test` and `pnpm test:cov` both run `flutter test --coverage`. CI runs `pnpm turbo test:cov`, which calls the same mobile script, so a Node-only clone and CI stay aligned.
 
-When Postgres is configured, run `pnpm db:push` before `pnpm test`. Database-backed tests soft-skip until that schema is present, and the skip message names `pnpm db:push`.
+When Postgres is configured, run `pnpm db:migrate` before `pnpm test`. Database-backed tests soft-skip until that schema is present. The skip message still names `pnpm db:push`; in this repository, run `pnpm db:migrate` instead.
 
-Audit and privilege-guard database unit specs expect seed data after `pnpm db:push`; full coverage of those specs needs `pnpm db:seed`.
+Audit and privilege-guard database unit specs expect seed data after `pnpm db:migrate`; full coverage of those specs needs `pnpm db:seed`.
 
 After `pnpm dev`:
 
@@ -86,11 +80,11 @@ After `pnpm dev`:
 
 ## Contributing
 
-Develop from [Quick Start](#quick-start). Open pull requests against `dev`. Keep commit messages and pull request text factual. This is a public template. Flutter is required only for mobile tests; `pnpm test` runs without it.
+Develop from [Quick Start](#quick-start). Open pull requests against `dev`. Keep commit messages and pull request text factual. Ship every schema change as a migration: edit `packages/db/src/schema.ts`, run `pnpm db:generate`, and commit the new folder in `packages/db/src/migrations`. CI fails when the schema and the migrations differ. Use `pnpm db:push` only on your own local database, never on a shared one. Flutter is required only for mobile tests; `pnpm test` runs without it.
 
 ## Coverage thresholds are a floor
 
-These coverage numbers are the minimum for the scaffold. In your real project, raise them as you add tested features following the template's patterns — never lower them. Example modules (todo/notes) are excluded from coverage because you'll replace them. See `docs/QA-SETUP-CHANGES.md` for the full table.
+These coverage numbers are the minimum for the scaffold. In your real project, raise them as you add tested features following the template's patterns — never lower them. See `docs/QA-SETUP-CHANGES.md` for the full table.
 
 ### Run on a single port (Docker + Nginx)
 
@@ -175,7 +169,7 @@ changes are needed; if it splits web/api across different domains, update
 | `E2E_AUTH_API_URL`                      | ❌            | Web e2e              | Auth API base, including the trailing slash. When set, Playwright runs setup, authenticated, and auth-negative projects. Local: `http://localhost:3000/api/v1/auth/`                                           |
 | `E2E_TEST_EMAIL`                        | ❌            | Web e2e              | userA address for `pnpm db:seed:e2e` and sign-in. Default `test@gmail.com`                                                                                                                                     |
 | `E2E_TEST_NAME`                         | ❌            | Web e2e              | userA display name. Default `E2E Test User`                                                                                                                                                                    |
-| `E2E_TEST_EMAIL_B`                      | ❌            | Web e2e              | userB address. Default `e2e-user-b@turbo-template.local`                                                                                                                                                       |
+| `E2E_TEST_EMAIL_B`                      | ❌            | Web e2e              | userB address. Default `e2e-user-b@qsps.local`                                                                                                                                                                 |
 | `E2E_TEST_PASSWORD`                     | ❌            | Web e2e              | Password for userA. Required by `pnpm db:seed:e2e` and by sign-in. No default                                                                                                                                  |
 | `E2E_TEST_PASSWORD_B`                   | ❌            | Web e2e              | Password for userB. Required by `pnpm db:seed:e2e` and by sign-in. No default                                                                                                                                  |
 | `BETTER_AUTH_SECRET`                    | ✅            | Backend              | Session signing secret. Must be >= 32 chars and NOT a placeholder — backend fails to boot otherwise. Generate: `openssl rand -base64 32` (see [Generating BETTER_AUTH_SECRET](#generating-better_auth_secret)) |
@@ -185,7 +179,7 @@ changes are needed; if it splits web/api across different domains, update
 | `GOOGLE_CLIENT_ID`                      | ❌            | Backend              | Google OAuth client ID                                                                                                                                                                                         |
 | `GOOGLE_CLIENT_SECRET`                  | ❌            | Backend              | Google OAuth client secret                                                                                                                                                                                     |
 | `REDIS_URL`                             | ❌            | Backend              | Shared throttle counters + RBAC cache (see below)                                                                                                                                                              |
-| `REDIS_KEY_PREFIX`                      | ❌            | Backend              | Key namespace (default: `turbo-template`)                                                                                                                                                                      |
+| `REDIS_KEY_PREFIX`                      | ❌            | Backend              | Key namespace (default: `qsps`)                                                                                                                                                                                |
 | `REDIS_PASSWORD`                        | ✅ Docker     | Docker               | Set in the **root** `.env`. Every `docker compose` command needs it — including `--no-deps` ones — because Compose interpolates the whole file before choosing services                                        |
 | `NEXT_PUBLIC_APP_URL`                   | ✅            | Web                  | Web app URL                                                                                                                                                                                                    |
 | `NEXT_PUBLIC_API_BASE_URL`              | ✅            | Web                  | Backend API base URL                                                                                                                                                                                           |
@@ -319,7 +313,7 @@ trade-offs.
 ## Seeding and backend e2e
 
 `pnpm db:seed` hashes `SEED_ADMIN_PASSWORD` from `packages/db/.env` into the
-seeded admin (`admin@turbo-template.local`). `pnpm -F @repo/backend test:e2e`
+seeded admin (`admin@qsps.local`). `pnpm -F @repo/backend test:e2e`
 loads that same file and signs in with that same value. Set the password in
 `packages/db/.env` only. `E2E_ADMIN_PASSWORD` is an optional override of the
 test process; the suite has no built-in password and exits at startup when
@@ -344,9 +338,9 @@ the same way `pnpm db:seed` does. Re-run it when a reused database still has
 an older password for those two users.
 
 From the repo root, with Postgres up. The suite's database is set up with
-`pnpm db:push` (as in Quick Start), `pnpm db:migrate` must not be run on a
-pushed database, and each database uses one method (to switch to migrations,
-start from an empty database). Start the backend with the e2e limiter
+`pnpm db:migrate` (as in Quick Start). A database uses one method only: never
+run `pnpm db:migrate` on a database that was set up with `pnpm db:push`. To
+switch a pushed database to migrations, start from an empty database. Start the backend with the e2e limiter
 and leave that process running across repeated suite runs. Production defaults
 stay 100 requests per 60000 ms.
 
@@ -399,20 +393,22 @@ Re-running `pnpm db:seed:e2e` stores the current `E2E_TEST_PASSWORD` and
 
 ## Scripts
 
-| Command                          | Description                                                                                                                                              |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                       | Start all apps in dev mode                                                                                                                               |
-| `pnpm build`                     | Build all apps                                                                                                                                           |
-| `pnpm lint`                      | Run ESLint                                                                                                                                               |
-| `pnpm typecheck`                 | Run TypeScript checks                                                                                                                                    |
-| `pnpm test`                      | Unit tests. Run `pnpm db:push` before this when using a database. Flutter is required only for mobile.                                                   |
-| `pnpm test:cov`                  | Same tests with coverage. Without Flutter, mobile skips; with it, `flutter test --coverage` runs. CI calls this through `pnpm turbo test:cov`.           |
-| `pnpm format:fix`                | Format code with Prettier                                                                                                                                |
-| `pnpm db:push`                   | Push schema to database (may prompt; needs an interactive terminal to answer prompts, non-interactive runs apply only changes that need no confirmation) |
-| `pnpm db:seed`                   | Seed local roles, users, and sample data (`SEED_ADMIN_PASSWORD` in `packages/db/.env`)                                                                   |
-| `pnpm db:seed:e2e`               | Upsert pre-verified userA and userB for web e2e (`E2E_TEST_PASSWORD` and `E2E_TEST_PASSWORD_B`, no defaults)                                             |
-| `pnpm -F @repo/backend test:e2e` | Run backend e2e against the seeded database                                                                                                              |
-| `pnpm db:studio`                 | Open Drizzle Studio                                                                                                                                      |
+| Command                          | Description                                                                                                                                           |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                       | Start all apps in dev mode                                                                                                                            |
+| `pnpm build`                     | Build all apps                                                                                                                                        |
+| `pnpm lint`                      | Run ESLint                                                                                                                                            |
+| `pnpm typecheck`                 | Run TypeScript checks                                                                                                                                 |
+| `pnpm test`                      | Unit tests. Run `pnpm db:migrate` before this when using a database. Flutter is required only for mobile.                                             |
+| `pnpm test:cov`                  | Same tests with coverage. Without Flutter, mobile skips; with it, `flutter test --coverage` runs. CI calls this through `pnpm turbo test:cov`.        |
+| `pnpm format:fix`                | Format code with Prettier                                                                                                                             |
+| `pnpm db:migrate`                | Apply the migrations in `packages/db/src/migrations`                                                                                                  |
+| `pnpm db:generate`               | Create a new migration from changes to `packages/db/src/schema.ts`                                                                                    |
+| `pnpm db:push`                   | Push the schema directly, for experiments on your own local database only. Never on a shared database, and never on one set up with `pnpm db:migrate` |
+| `pnpm db:seed`                   | Apply migrations, then seed local roles and users (`SEED_ADMIN_PASSWORD` in `packages/db/.env`)                                                       |
+| `pnpm db:seed:e2e`               | Upsert pre-verified userA and userB for web e2e (`E2E_TEST_PASSWORD` and `E2E_TEST_PASSWORD_B`, no defaults)                                          |
+| `pnpm -F @repo/backend test:e2e` | Run backend e2e against the seeded database                                                                                                           |
+| `pnpm db:studio`                 | Open Drizzle Studio                                                                                                                                   |
 
 ## From tickets to pull requests (GitHub Issues)
 
@@ -740,10 +736,10 @@ This avoids cases where a backend-only build misses required workspace package b
 // Auth configuration
 import { auth } from "@repo/auth"
 // API contracts & DTOs
-import { CreateTodoDto, TodoSchema } from "@repo/contracts"
+import { BUSINESS_TIMEZONE } from "@repo/contracts"
 // Database client & schema
 import { db } from "@repo/db"
-import { todos, users } from "@repo/db/schema"
+import { users } from "@repo/db/schema"
 ```
 
 ## Deployment
@@ -831,12 +827,12 @@ Before your first deploy, go to **Settings → Environments** and create `stagin
 | Variable                                | Description                                                                        | Staging                                      | Production                                                  |
 | --------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
 | `AWS_REGION`                            | AWS region                                                                         | `ap-southeast-1`                             | `ap-southeast-1`                                            |
-| `PROJECT_NAME`                          | Project identifier                                                                 | `turbo-template`                             | `turbo-template`                                            |
+| `PROJECT_NAME`                          | Project identifier                                                                 | `qsps`                                       | `qsps`                                                      |
 | `ECR_REGISTRY`                          | ECR registry host (staging only; production uses the ECR login output)             | `123...dkr.ecr.ap-southeast-1.amazonaws.com` |                                                             |
 | `STG_EC2_HOST`                          | Staging EC2 IP / hostname                                                          | `203.0.113.10`                               |                                                             |
 | `STG_EC2_HOST_KEY`                      | Pinned SSH host key (see below)                                                    | `203.0.113.10 ssh-ed25519 AAAAC3...`         |                                                             |
-| `ECR_REPOSITORY_WEB`                    | ECR repo name for web                                                              | `turbo-template-web-staging`                 | `turbo-template-web-production`                             |
-| `ECR_REPOSITORY_BACKEND`                | ECR repo name for backend                                                          | `turbo-template-backend-staging`             | `turbo-template-backend-production`                         |
+| `ECR_REPOSITORY_WEB`                    | ECR repo name for web                                                              | `qsps-web-staging`                           | `qsps-web-production`                                       |
+| `ECR_REPOSITORY_BACKEND`                | ECR repo name for backend                                                          | `qsps-backend-staging`                       | `qsps-backend-production`                                   |
 | `ASG_NAME`                              | Auto Scaling Group name                                                            |                                              | `<asg-name>`                                                |
 | `LAUNCH_TEMPLATE_ID`                    | Launch template id                                                                 |                                              | `<launch-template-id>`                                      |
 | `NEXT_PUBLIC_APP_URL`                   | Public web URL                                                                     | `https://stg-turbo.quanbyit.com`             | `https://turbo.quanbyit.com`                                |

@@ -24,7 +24,7 @@ const fallbacks: Record<string, string> = {
 	// The secret is 32+ chars and not a template placeholder, so it satisfies the rules
 	// rather than skipping them.
 	BETTER_AUTH_SECRET: "j8Kq2ZfP5xR7nT1wV4yB6cE9hL0mS3uA",
-	DATABASE_URL: "postgres://postgres:password@localhost:5432/turbo-template",
+	DATABASE_URL: "postgres://postgres:password@localhost:5432/qsps",
 }
 
 for (const [key, value] of Object.entries(fallbacks)) {

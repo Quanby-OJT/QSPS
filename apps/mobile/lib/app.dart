@@ -21,7 +21,7 @@ class App extends ConsumerWidget {
 
     return ToastificationWrapper(
       child: MaterialApp.router(
-        title: 'Turbo Template',
+        title: 'QSPS',
         debugShowCheckedModeBanner: false,
         themeMode: mode,
         theme: light,

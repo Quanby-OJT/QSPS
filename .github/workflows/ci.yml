@@ -153,17 +153,17 @@ jobs:
         image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d # 16.15 2026-10-21
         env:
           POSTGRES_USER: postgres
-          POSTGRES_DB: turbo-template
+          POSTGRES_DB: qsps
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d turbo-template"
+          --health-cmd "pg_isready -U postgres -d qsps"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres@localhost:5432/turbo-template
+      DATABASE_URL: postgres://postgres@localhost:5432/qsps
       CORS_ORIGINS: http://localhost:3000
       BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3000
     steps:
@@ -190,6 +190,19 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # FND-1 / PRD D10: every schema change ships as a committed migration.
+      # Generating from an up-to-date schema writes nothing; any new file here
+      # means schema.ts changed without its migration.
+      - name: Check migrations match the schema
+        run: |
+          set -euo pipefail
+          pnpm db:generate
+          if [ -n "$(git status --porcelain -- packages/db/src/migrations)" ]; then
+            echo "::error::packages/db/src/schema.ts changed without a migration. Run 'pnpm db:generate' and commit the result."
+            git status --porcelain -- packages/db/src/migrations
+            exit 1
+          fi
 
       - name: Generate ephemeral auth secret and seed password
         run: |
@@ -238,17 +251,17 @@ jobs:
         image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d # 16.15 2026-10-21
         env:
           POSTGRES_USER: postgres
-          POSTGRES_DB: turbo-template
+          POSTGRES_DB: qsps
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d turbo-template"
+          --health-cmd "pg_isready -U postgres -d qsps"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres@localhost:5432/turbo-template
+      DATABASE_URL: postgres://postgres@localhost:5432/qsps
       E2E_AUTH_API_URL: http://localhost:3000/api/v1/auth/
       BASE_URL: http://localhost:3001
       NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api
@@ -257,8 +270,8 @@ jobs:
       CORS_ORIGINS: http://localhost:3001
       BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3001
       APP_WEB_URL: http://localhost:3001
-      E2E_TEST_EMAIL: e2e-user-a@turbo-template.local
-      E2E_TEST_EMAIL_B: e2e-user-b@turbo-template.local
+      E2E_TEST_EMAIL: e2e-user-a@qsps.local
+      E2E_TEST_EMAIL_B: e2e-user-b@qsps.local
       # This job only. Code defaults stay 100 requests / 60000 ms.
       # Same numbers as packages/e2e-web/backend-throttle.ts and the README.
       THROTTLE_LIMIT: 5000

@@ -15,7 +15,7 @@ typedef AnalyticsScreenSink = void Function(String name);
 /// bottom bar records each tab the user taps ([recordTabTaps]).
 abstract final class AnalyticsScreens {
   /// One name per tab, in bottom-bar order. Keep in sync with HomeScreen.
-  static const tabs = ['/home', '/todos', '/profile', '/settings'];
+  static const tabs = ['/home', '/profile', '/settings'];
 
   /// The observer's name for a route: the root route is the Home tab, and the
   /// startup screen has none, so the observer skips it (it only covers the

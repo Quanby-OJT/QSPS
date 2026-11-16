@@ -80,7 +80,7 @@ describe("cache identity", () => {
 	it("never stores the raw user id in localStorage", () => {
 		writeCacheIdentity("seed-user-admin")
 
-		const stored = window.localStorage.getItem("turbo-template-cache-identity")
+		const stored = window.localStorage.getItem("qsps-cache-identity")
 
 		expect(stored).toBeTruthy()
 		expect(stored).not.toBe("seed-user-admin")
@@ -203,7 +203,7 @@ describe("cache key ownership", () => {
 		[persistedCacheKeyFor("anon"), true],
 		[persistedCacheKeyFor("abc123"), true],
 		[LEGACY_PERSISTED_CACHE_KEY, true],
-		["turbo-template-query-cache", false],
+		["qsps-query-cache", false],
 		["unrelated", false],
 		[42, false],
 	])("isPersistedCacheKey(%s) === %s", (key, expected) => {
@@ -216,14 +216,14 @@ describe("flushPersistedQueryCache", () => {
 		writeCacheIdentity("user-a")
 		const client = getQueryClient()
 		client.setQueryData(["todos"], [{ title: "buy milk" }])
-		client.setQueryData(["session"], { email: "admin@turbo-template.local" })
+		client.setQueryData(["session"], { email: "admin@qsps.local" })
 		client.setQueryData(["rbac", "users"], [{ email: "hidden@example.com" }])
 
 		await flushPersistedQueryCache()
 
 		const keys = [...idbState.keys()]
 		expect(keys).toEqual([persistedCacheKeyFor(readCacheIdentity())])
-		expect(keys[0]).toMatch(/^turbo-template-query-cache:/)
+		expect(keys[0]).toMatch(/^qsps-query-cache:/)
 
 		const raw = await storage.getItem(PERSISTED_CACHE_KEY_PREFIX)
 		expect(raw).toBe(idbState.get(keys[0]!))
@@ -243,7 +243,7 @@ describe("flushPersistedQueryCache", () => {
 		expect(roots).not.toContain("session")
 		expect(roots).not.toContain("rbac")
 		expect(raw).toContain("buy milk")
-		expect(raw).not.toContain("admin@turbo-template.local")
+		expect(raw).not.toContain("admin@qsps.local")
 		expect(raw).not.toContain("hidden@example.com")
 	})
 

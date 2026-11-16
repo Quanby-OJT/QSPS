@@ -21,11 +21,7 @@ import { ALLOW_REMOTE_SEED_ENV, assertSeedAllowed, SeedRefusedError } from "./se
  * seeder still refuses to rotate a password unless `--force-password` is set.
  */
 
-const SEEDED_TEMPLATE_EMAILS = new Set([
-	"admin@turbo-template.local",
-	"alex@turbo-template.local",
-	"sam@turbo-template.local",
-])
+const SEEDED_TEMPLATE_EMAILS = new Set(["admin@qsps.local", "alex@qsps.local", "sam@qsps.local"])
 
 export class E2eSeedPasswordError extends Error {
 	readonly variable: "E2E_TEST_PASSWORD" | "E2E_TEST_PASSWORD_B"
@@ -85,7 +81,7 @@ export function prepareE2eSeed(env: NodeJS.ProcessEnv, _argv: readonly string[])
 	})
 
 	const userAEmail = optionalText(env.E2E_TEST_EMAIL, "test@gmail.com")
-	const userBEmail = optionalText(env.E2E_TEST_EMAIL_B, "e2e-user-b@turbo-template.local")
+	const userBEmail = optionalText(env.E2E_TEST_EMAIL_B, "e2e-user-b@qsps.local")
 	for (const email of [userAEmail, userBEmail]) {
 		if (SEEDED_TEMPLATE_EMAILS.has(email)) {
 			throw new Error(

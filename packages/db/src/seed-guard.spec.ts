@@ -15,7 +15,7 @@ import {
 // production before any write, never use a fixed password, and never rotate an
 // existing password without an explicit opt-in.
 
-const LOCAL_URL = "postgres://postgres:password@localhost:5432/turbo-template"
+const LOCAL_URL = "postgres://postgres:password@localhost:5432/qsps"
 const REMOTE_URL = "postgres://app:hunter2@db.prod.example.com:5432/app"
 
 describe("assertSeedAllowed", () => {
