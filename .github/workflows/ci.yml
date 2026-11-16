@@ -191,6 +191,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # FND-1 / PRD D10: every schema change ships as a committed migration.
+      # Generating from an up-to-date schema writes nothing; any new file here
+      # means schema.ts changed without its migration.
+      - name: Check migrations match the schema
+        run: |
+          set -euo pipefail
+          pnpm db:generate
+          if [ -n "$(git status --porcelain -- packages/db/src/migrations)" ]; then
+            echo "::error::packages/db/src/schema.ts changed without a migration. Run 'pnpm db:generate' and commit the result."
+            git status --porcelain -- packages/db/src/migrations
+            exit 1
+          fi
+
       - name: Generate ephemeral auth secret and seed password
         run: |
           set -euo pipefail
