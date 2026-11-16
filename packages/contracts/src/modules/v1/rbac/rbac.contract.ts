@@ -20,7 +20,7 @@ import {
 /**
  * RBAC administration contract.
  *
- * Reads require `users:read`, writes require `users:manage` (enforced by the
+ * Reads require `audit.logs:read`, writes require `users.accounts:read` (enforced by the
  * backend RbacGuard). Permissions are a fixed catalog; this surface assigns
  * existing catalog permissions to roles, it does not mint new permissions.
  */
@@ -138,7 +138,8 @@ export const rbacContract = {
 				method: "GET",
 				path: "/rbac/audit-log",
 				summary: "List audit log entries",
-				description: "List privileged-mutation audit entries, newest first. Requires `users:read`.",
+				description:
+					"List privileged-mutation audit entries, newest first. Requires `users.roles:manage`.",
 				tags: ["RBAC"],
 			})
 			.input(ListAuditLogRequestSchema)
