@@ -24,7 +24,7 @@ void main() {
       NavBarConfig(
         selectedIndex: selectedIndex,
         items: [
-          for (final title in ['Home', 'Todos', 'Profile', 'Settings'])
+          for (final title in ['Home', 'Profile', 'Settings'])
             ItemConfig(icon: const Icon(Icons.circle), title: title),
         ],
         onItemSelected: taps.add,
@@ -59,10 +59,10 @@ void main() {
       config(selectedIndex: 0, taps: taps),
     );
 
-    wrapped.onItemSelected(3);
+    wrapped.onItemSelected(2);
 
     expect(screens, ['/settings']);
-    expect(taps, [3]);
+    expect(taps, [2]);
   });
 
   test('tapping the tab already shown records nothing', () {
@@ -78,6 +78,6 @@ void main() {
   });
 
   test('one screen name per tab', () {
-    expect(AnalyticsScreens.tabs, ['/home', '/todos', '/profile', '/settings']);
+    expect(AnalyticsScreens.tabs, ['/home', '/profile', '/settings']);
   });
 }

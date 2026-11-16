@@ -17,7 +17,7 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: TourItem(
-          tabIndex: 2,
+          tabIndex: 1,
           order: 0,
           title: 'Your Profile',
           description: 'View and manage your account details here.',
@@ -29,7 +29,7 @@ class ProfileScreen extends ConsumerWidget {
         children: [
           // Avatar + name header
           TourItem(
-            tabIndex: 2,
+            tabIndex: 1,
             order: 1,
             title: 'Profile Picture',
             description:
@@ -83,7 +83,7 @@ class ProfileScreen extends ConsumerWidget {
 
           // Account details section
           TourItem(
-            tabIndex: 2,
+            tabIndex: 1,
             order: 2,
             title: 'Account Details',
             description: 'View your account information at a glance.',

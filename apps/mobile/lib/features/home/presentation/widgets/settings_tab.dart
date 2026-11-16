@@ -29,7 +29,7 @@ class SettingsTab extends ConsumerWidget {
         children: [
           // User info section
           TourItem(
-            tabIndex: 3,
+            tabIndex: 2,
             order: 0,
             title: 'Your Profile',
             description: 'View your account details at a glance.',
@@ -82,7 +82,7 @@ class SettingsTab extends ConsumerWidget {
 
           // Theme section
           TourItem(
-            tabIndex: 3,
+            tabIndex: 2,
             order: 1,
             title: 'Theme Settings',
             description:
@@ -139,7 +139,7 @@ class SettingsTab extends ConsumerWidget {
           SettingsGroup(
             children: [
               TourItem(
-                tabIndex: 3,
+                tabIndex: 2,
                 order: 2,
                 title: 'Replay Tour',
                 description: 'Tap here anytime to replay this feature tour.',
