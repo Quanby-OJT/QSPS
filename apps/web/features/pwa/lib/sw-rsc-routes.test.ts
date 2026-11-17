@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest"
  */
 
 const appRoot = fileURLToPath(new URL("../../../", import.meta.url))
-const WORKER_BUNDLE_TIMEOUT_MS = 30_000
 
 async function bundleWorker(minify: boolean): Promise<string> {
 	const result = await esbuild.build({
@@ -51,35 +50,27 @@ describe("RSC page-data route registration", () => {
 		expect(sw).toContain("navigationPreload: true")
 	})
 
-	it(
-		"leaves the RSC caches out of a development worker",
-		async () => {
-			const source = await bundleWorker(false)
+	it("leaves the RSC caches out of a development worker", async () => {
+		const source = await bundleWorker(false)
 
-			expect(source).not.toContain("pages-rsc")
-			expect(source).not.toContain("E\\{")
-			expect(source).toContain("matcher: /.*/i")
-			expect(source).toContain("/~offline")
-			expect(source).toContain("SKIP_WAITING")
-			expect(source).toContain("stopImmediatePropagation")
-			expect(source).toContain('"token"')
-		},
-		WORKER_BUNDLE_TIMEOUT_MS
-	)
+		expect(source).not.toContain("pages-rsc")
+		expect(source).not.toContain("E\\{")
+		expect(source).toContain("matcher: /.*/i")
+		expect(source).toContain("/~offline")
+		expect(source).toContain("SKIP_WAITING")
+		expect(source).toContain("stopImmediatePropagation")
+		expect(source).toContain('"token"')
+	})
 
-	it(
-		"keeps the RSC caches and the error-flight guard in a production worker",
-		async () => {
-			const source = await bundleWorker(true)
+	it("keeps the RSC caches and the error-flight guard in a production worker", async () => {
+		const source = await bundleWorker(true)
 
-			expect(source).toContain("pages-rsc-prefetch")
-			expect(source).toContain("pages-rsc")
-			expect(source).toContain("E\\{")
-			expect(source).toContain("/~offline")
-			expect(source).toContain("SKIP_WAITING")
-			expect(source).toContain("stopImmediatePropagation")
-			expect(source).toContain('"token"')
-		},
-		WORKER_BUNDLE_TIMEOUT_MS
-	)
+		expect(source).toContain("pages-rsc-prefetch")
+		expect(source).toContain("pages-rsc")
+		expect(source).toContain("E\\{")
+		expect(source).toContain("/~offline")
+		expect(source).toContain("SKIP_WAITING")
+		expect(source).toContain("stopImmediatePropagation")
+		expect(source).toContain('"token"')
+	})
 })
