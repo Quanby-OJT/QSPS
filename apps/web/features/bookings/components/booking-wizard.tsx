@@ -11,6 +11,10 @@ import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
 import { useCreateBookingMutation } from "@/features/bookings/api/bookings.hooks"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
+import {
+	DEFAULT_PAYMENT_CHANNEL,
+	useCreatePaymentMutation,
+} from "@/features/payments/api/payments.hooks"
 import { useSlotAvailabilityQuery } from "@/features/schedules/api/schedules.hooks"
 import {
 	dateLabel,
@@ -42,6 +46,7 @@ export function BookingWizard() {
 	const services = useAvailableServicesQuery()
 	const locations = useAvailableLocationsQuery()
 	const createBooking = useCreateBookingMutation()
+	const createPayment = useCreatePaymentMutation()
 
 	const [step, setStep] = useState(0)
 	const [serviceId, setServiceId] = useState<number | null>(null)
@@ -51,6 +56,8 @@ export function BookingWizard() {
 	const [booking, setBooking] = useState<Booking | null>(null)
 	// One key per attempt, so a double click or a retry cannot book twice.
 	const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
+	// Its own key, so a double click on "Pay now" opens one checkout, not two.
+	const [paymentKey, setPaymentKey] = useState(newIdempotencyKey)
 
 	const service = services.data?.find(item => item.id === serviceId)
 	const location = locations.data?.find(item => item.id === locationId)
@@ -62,6 +69,24 @@ export function BookingWizard() {
 	})
 	const slotsByDate = useMemo(() => groupSlotsByDate(availability.data ?? []), [availability.data])
 	const currentMonth = manilaMonthOf(new Date())
+
+	// PAY-1: send the client to the provider's hosted checkout. The booking is
+	// marked paid only when the provider's signed notification arrives, never
+	// by this page or the return page.
+	async function payNow() {
+		if (!booking) return
+		try {
+			const checkout = await createPayment.mutateAsync({
+				bookingId: booking.id,
+				channelCode: DEFAULT_PAYMENT_CHANNEL,
+				idempotencyKey: paymentKey,
+			})
+			window.location.assign(checkout.checkoutUrl)
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Could not start the payment")
+			setPaymentKey(newIdempotencyKey())
+		}
+	}
 
 	async function confirm() {
 		if (!slot) return
@@ -330,7 +355,10 @@ export function BookingWizard() {
 						Keep your Reference Number. You will need it, or the QR code, when you pay and when you
 						arrive.
 					</p>
-					<div>
+					<div className="flex flex-wrap gap-2">
+						<Button type="button" onClick={() => void payNow()} disabled={createPayment.isPending}>
+							{createPayment.isPending ? "Opening checkout…" : "Pay now"}
+						</Button>
 						<Button type="button" variant="outline" onClick={startOver}>
 							Done
 						</Button>

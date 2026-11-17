@@ -34,6 +34,16 @@ export const env = createEnv({
 		// auto-cancelled. Read from env until the hold Policy is editable (ADM-6).
 		BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().default(60),
 
+		// Payments (PAY-1). The web app's base URL, where a gateway sends the
+		// client back after checkout (/payments/return).
+		APP_WEB_URL: z.string().default("http://localhost:3001"),
+		// This API's public base URL including the /api prefix. Gateways post
+		// their notifications to {this}/v1/payments/notifications/{code}.
+		PAYMENT_NOTIFY_BASE_URL: z.url().default("http://localhost:3000/api"),
+		// Signing secret for the fake gateway. The fake gateway is never
+		// registered in production, so this has no effect there.
+		FAKE_PAYMENT_SECRET: z.string().min(8).default("local-fake-payment-secret"),
+
 		// Proxy trust: the number of trusted reverse-proxy hops in front of the app.
 		//
 		// This value MUST equal the real hop count (see DOMAIN-MODEL.md):

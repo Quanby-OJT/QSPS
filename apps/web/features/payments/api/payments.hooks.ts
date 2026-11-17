@@ -1,0 +1,81 @@
+"use client"
+
+import { useMutation, useQuery } from "@tanstack/react-query"
+
+import type { CreatePaymentInput, PaymentCheckout, PaymentStatusResponse } from "@repo/contracts"
+
+import { ApiError } from "@/core/lib/api-error"
+import { env } from "@/env"
+
+const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
+
+/**
+ * The channel used until PAY-5 adds the channel list. "fake" is the local
+ * test gateway; it does not exist in production.
+ */
+export const DEFAULT_PAYMENT_CHANNEL = "fake"
+
+/** Statuses that mean the provider's notification has not been processed yet. */
+const WAITING_STATUSES = new Set(["initiated", "pending"])
+
+/** How often the return page asks again, and for how long. */
+const POLL_EVERY_MS = 3_000
+export const POLL_FOR_MS = 2 * 60_000
+
+async function readError(response: Response): Promise<ApiError> {
+	let message = `Request failed (${response.status})`
+	try {
+		const body = (await response.json()) as { message?: string; error?: { message?: string } }
+		message = body?.message ?? body?.error?.message ?? message
+	} catch {
+		// Error bodies may be empty or non-JSON.
+	}
+	return new ApiError(response.status, message)
+}
+
+/**
+ * Start paying a booking. Returns the provider's checkout URL; the caller
+ * sends the browser there. `idempotencyKey` makes a double click open one
+ * checkout, not two.
+ */
+export function useCreatePaymentMutation() {
+	return useMutation({
+		mutationFn: async ({
+			idempotencyKey,
+			...input
+		}: CreatePaymentInput & { idempotencyKey: string }): Promise<PaymentCheckout> => {
+			const response = await fetch(`${API_BASE}/payments`, {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+				body: JSON.stringify(input),
+			})
+			if (!response.ok) throw await readError(response)
+			return (await response.json()) as PaymentCheckout
+		},
+	})
+}
+
+export function isWaitingForProvider(status: PaymentStatusResponse["status"] | undefined): boolean {
+	return status === undefined || WAITING_STATUSES.has(status)
+}
+
+/**
+ * A payment's status, asked again every few seconds while the provider's
+ * notification is still on its way. Read-only: this never marks anything paid.
+ */
+export function usePaymentStatusQuery(paymentId: number | null, keepPolling: boolean) {
+	return useQuery({
+		queryKey: ["payments", paymentId],
+		enabled: paymentId !== null,
+		queryFn: async (): Promise<PaymentStatusResponse> => {
+			const response = await fetch(`${API_BASE}/payments/${paymentId}`, {
+				credentials: "include",
+			})
+			if (!response.ok) throw await readError(response)
+			return (await response.json()) as PaymentStatusResponse
+		},
+		refetchInterval: query =>
+			keepPolling && isWaitingForProvider(query.state.data?.status) ? POLL_EVERY_MS : false,
+	})
+}
