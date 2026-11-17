@@ -1,4 +1,8 @@
-import { DashboardSquare01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons"
+import {
+	AccountSetting01Icon,
+	DashboardSquare01Icon,
+	UserMultipleIcon,
+} from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
 
 import { type PermissionName } from "@repo/contracts"
@@ -28,6 +32,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		icon: UserMultipleIcon,
 		section: "Administration",
 		requiredPermission: ["users.accounts:read", "users.accounts:manage"],
+	},
+	{
+		label: "Locations",
+		href: "/locations",
+		icon: AccountSetting01Icon,
+		section: "Administration",
+		requiredPermission: "settings.locations:manage",
 	},
 ]
 

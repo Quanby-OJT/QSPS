@@ -10,6 +10,22 @@ export type { V1Contract } from "./modules/v1/v1.contract.js"
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"
 
+// Location management contracts + schemas
+export { locationsContract } from "./modules/v1/locations/locations.contract.js"
+export {
+	LocationSchema,
+	CreateLocationSchema,
+	LocationCodeParamSchema,
+	UpdateLocationRequestSchema,
+	SetLocationActiveRequestSchema,
+	DeleteLocationResponseSchema,
+} from "./modules/v1/locations/locations.schema.js"
+export type {
+	Location,
+	CreateLocationInput,
+	UpdateLocationRequest,
+} from "./modules/v1/locations/locations.schema.js"
+
 // RBAC administration contract + schemas
 export { rbacContract } from "./modules/v1/rbac/rbac.contract.js"
 export {

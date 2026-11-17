@@ -115,7 +115,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts`. Money 
 | `user_scopes` | `user_id`, `service_category_id?`, `location_id?` | A null column means "all". No rows means no scoped access for scoped roles. |
 | `roles`, `permissions`, `user_roles`, `role_permissions` (template) |  | Permissions are seeded from the catalog. |
 | `audit_log` (template) | * `actor_role`, `ip_address`, `user_agent`, `prev_hash`, `entry_hash` | Insert-only. Database trigger rejects update and delete. |
-| `locations` | `code`, `name`, `address`, `region`, `is_active` | Disable, never delete, once referenced. |
+| `locations` | `id` (primary key), `code` (unique, uppercase), `name`, `address`, `region`, `is_active` | Disabled locations are excluded from new-booking pickers; existing bookings are unchanged. Physical deletion is refused until booking references can be checked. |
 | `service_categories` | `code`, `name` | Seeded with the eight codes in the glossary. |
 | `services` | `service_category_id`, `code`, `name`, `fee_centavos`, `requires_approval`, `document_type?`, `is_active` | Fee changes apply to new Bookings only. |
 | `schedule_slots` | `service_id`, `location_id`, `starts_at`, `ends_at`, `capacity`, `booked_count`, `is_disabled` | `booked_count` changes only inside the booking transaction (Flow B). |
