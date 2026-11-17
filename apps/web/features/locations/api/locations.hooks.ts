@@ -102,14 +102,3 @@ export function useSetLocationActiveMutation() {
 		onSuccess: refresh,
 	})
 }
-
-export function useDeleteLocationMutation() {
-	const refresh = useRefreshLocationQueries()
-	return useMutation({
-		mutationFn: (code: string) =>
-			apiFetch<{ success: boolean; code: string }>(`/locations/${encodeURIComponent(code)}`, {
-				method: "DELETE",
-			}),
-		onSuccess: refresh,
-	})
-}

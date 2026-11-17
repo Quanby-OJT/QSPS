@@ -36,6 +36,9 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 	const canReadUsers = canAccess(access, {
 		requiredPermission: ["users.accounts:read", "users.accounts:manage"],
 	})
+	const canCreateOwnBookings = canAccess(access, {
+		requiredPermission: "bookings.own:create",
+	})
 
 	const users = useUsersQuery()
 	const roles = useRolesQuery()
@@ -65,7 +68,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 				) : null}
 			</header>
 
-			{access.roles.includes("Client") ? <ClientLocationPicker /> : null}
+			{canCreateOwnBookings ? <ClientLocationPicker /> : null}
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
@@ -108,7 +111,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 								<Link
 									key={item.href}
 									href={item.href}
-									className="group/action border-border hover:bg-muted/60 hover:border-ring/40 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 transition-colors outline-none focus-visible:ring-[3px]"
+									className="group/action border-border hover:bg-muted/60 hover:border-ring/40 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 outline-none transition-colors focus-visible:ring-[3px]"
 								>
 									<div className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
 										<HugeiconsIcon icon={item.icon} strokeWidth={2} className="size-5" />

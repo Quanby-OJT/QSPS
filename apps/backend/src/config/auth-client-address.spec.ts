@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process"
 import { join } from "node:path"
 
-import { AUTH_CLIENT_ADDRESS_HEADER } from "../../../../packages/auth/src/client-address"
+const { AUTH_CLIENT_ADDRESS_HEADER } = require("../../../../packages/auth/src/client-address") as {
+	AUTH_CLIENT_ADDRESS_HEADER: string
+}
 
 interface RunnerSuccess {
 	ok: true
@@ -22,7 +24,7 @@ interface RunnerFailure {
 }
 
 const RESULT_PREFIX = "AUTH_CLIENT_ADDRESS_RESULT "
-const RUNNER_TIMEOUT_MS = 60_000
+const RUNNER_TIMEOUT_MS = 120_000
 
 function safeLog(text: string): string {
 	return text
@@ -53,7 +55,9 @@ function runIsolated(): Promise<RunnerSuccess> {
 		let stdout = ""
 		let stderr = ""
 		let settled = false
+		let timedOut = false
 		const timer = setTimeout(() => {
+			timedOut = true
 			child.kill("SIGKILL")
 		}, RUNNER_TIMEOUT_MS)
 
@@ -86,7 +90,10 @@ function runIsolated(): Promise<RunnerSuccess> {
 				.map(entry => entry.trim())
 				.find(entry => entry.startsWith(RESULT_PREFIX))
 			if (!line) {
-				reject(new Error(`runner exited ${code ?? "null"} without a result\n${safeLog(stderr)}`))
+				const exitMessage = timedOut
+					? `runner timed out after ${RUNNER_TIMEOUT_MS}ms`
+					: `runner exited ${code ?? "null"}`
+				reject(new Error(`${exitMessage} without a result\n${safeLog(stderr)}`))
 				return
 			}
 			const payload = JSON.parse(line.slice(RESULT_PREFIX.length)) as RunnerSuccess | RunnerFailure

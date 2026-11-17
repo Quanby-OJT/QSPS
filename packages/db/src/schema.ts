@@ -229,7 +229,8 @@ export const auditLog = createTable(
 // ============================================================================
 
 export const locations = createTable("locations", t => ({
-	code: t.text("code").primaryKey(),
+	id: t.serial("id").primaryKey(),
+	code: t.text("code").notNull().unique(),
 	name: t.text("name").notNull(),
 	address: t.text("address").notNull(),
 	region: t.text("region").notNull(),

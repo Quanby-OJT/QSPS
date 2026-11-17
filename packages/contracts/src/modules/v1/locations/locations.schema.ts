@@ -10,6 +10,8 @@ const LocationCodeSchema = z
 	.min(1, "Code is required")
 	.max(32, "Code must be 32 characters or fewer")
 
+const NormalizedLocationCodeSchema = LocationCodeSchema.transform(code => code.toUpperCase())
+
 export const LocationSchema = z.object({
 	code: LocationCodeSchema,
 	name: z.string().min(1).max(150),
@@ -21,14 +23,14 @@ export const LocationSchema = z.object({
 })
 
 export const CreateLocationSchema = z.object({
-	code: LocationCodeSchema,
+	code: NormalizedLocationCodeSchema,
 	name: z.string().trim().min(1, "Name is required").max(150),
 	address: z.string().trim().min(1, "Address is required").max(500),
 	region: z.string().trim().min(1, "Region is required").max(120),
 })
 
 export const LocationCodeParamSchema = z.object({
-	code: LocationCodeSchema,
+	code: NormalizedLocationCodeSchema,
 })
 
 export const UpdateLocationRequestSchema = LocationCodeParamSchema.extend({

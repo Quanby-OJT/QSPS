@@ -163,6 +163,15 @@ describe("RbacGuard", () => {
 		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["bookings.own:create"])
 	})
 
+	it("returns 403 for a user without location-management permission", async () => {
+		reflector.getAllAndOverride.mockReturnValue(["settings.locations:manage"])
+		rbacService.hasAllPermissions.mockResolvedValue(false)
+		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
+
+		await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
+		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["settings.locations:manage"])
+	})
+
 	it("allows when authenticated and has permission", async () => {
 		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)

@@ -1,4 +1,7 @@
 import { ORPCError } from "@orpc/server"
+import { eq } from "drizzle-orm"
+
+import { locations } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -19,8 +22,33 @@ jest.mock("@orpc/server", () => ({
 jest.mock("@/common/database/database.client", () => ({
 	db: {
 		select: jest.fn(),
+		transaction: jest.fn(),
 	},
 }))
+
+const makeLocation = (
+	overrides: Partial<{
+		code: string
+		name: string
+		address: string
+		region: string
+		isActive: boolean
+	}> = {}
+) => ({
+	code: "MNL",
+	name: "Manila",
+	address: "Port Area, Manila",
+	region: "NCR",
+	isActive: true,
+	createdAt: new Date("2026-01-01T00:00:00.000Z"),
+	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+	...overrides,
+})
+
+function mockTransaction(tx: Record<string, unknown>) {
+	jest.mocked(db.transaction).mockImplementation(callback => callback(tx as never) as never)
+	return tx
+}
 
 describe("LocationsService", () => {
 	let service: LocationsService
@@ -32,16 +60,119 @@ describe("LocationsService", () => {
 		service = new LocationsService(auditService as unknown as AuditService)
 	})
 
+	it("writes a create audit entry in the mutation transaction", async () => {
+		const location = makeLocation()
+		const returning = jest.fn().mockResolvedValue([location])
+		const onConflictDoNothing = jest.fn().mockReturnValue({ returning })
+		const values = jest.fn().mockReturnValue({ onConflictDoNothing })
+		const tx = mockTransaction({
+			insert: jest.fn().mockReturnValue({ values }),
+		})
+
+		await expect(
+			service.create(
+				{ code: "MNL", name: "Manila", address: "Port Area, Manila", region: "NCR" },
+				"staff-1"
+			)
+		).resolves.toEqual(location)
+
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				domain: "locations",
+				action: "location.create",
+				actorId: "staff-1",
+				targetType: "location",
+				targetId: "MNL",
+				oldValue: null,
+				newValue: {
+					code: "MNL",
+					name: "Manila",
+					address: "Port Area, Manila",
+					region: "NCR",
+					isActive: true,
+				},
+			}),
+			tx
+		)
+	})
+
+	it("writes an update audit entry in the mutation transaction", async () => {
+		const current = makeLocation()
+		const updated = makeLocation({ name: "Manila City" })
+		const selectWhere = jest.fn().mockResolvedValue([current])
+		const selectFrom = jest.fn().mockReturnValue({ where: selectWhere })
+		const returning = jest.fn().mockResolvedValue([updated])
+		const updateWhere = jest.fn().mockReturnValue({ returning })
+		const set = jest.fn().mockReturnValue({ where: updateWhere })
+		const tx = mockTransaction({
+			select: jest.fn().mockReturnValue({ from: selectFrom }),
+			update: jest.fn().mockReturnValue({ set }),
+		})
+
+		await expect(service.update({ code: "MNL", name: "Manila City" }, "staff-1")).resolves.toEqual(
+			updated
+		)
+
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				domain: "locations",
+				action: "location.update",
+				actorId: "staff-1",
+				targetType: "location",
+				targetId: "MNL",
+				oldValue: expect.objectContaining({ name: "Manila" }),
+				newValue: expect.objectContaining({ name: "Manila City" }),
+			}),
+			tx
+		)
+	})
+
+	it("writes an active-state audit entry in the mutation transaction", async () => {
+		const current = makeLocation()
+		const updated = makeLocation({ isActive: false })
+		const selectWhere = jest.fn().mockResolvedValue([current])
+		const selectFrom = jest.fn().mockReturnValue({ where: selectWhere })
+		const returning = jest.fn().mockResolvedValue([updated])
+		const updateWhere = jest.fn().mockReturnValue({ returning })
+		const set = jest.fn().mockReturnValue({ where: updateWhere })
+		const tx = mockTransaction({
+			select: jest.fn().mockReturnValue({ from: selectFrom }),
+			update: jest.fn().mockReturnValue({ set }),
+		})
+
+		await expect(service.setActive({ code: "MNL", isActive: false }, "staff-1")).resolves.toEqual(
+			updated
+		)
+
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				domain: "locations",
+				action: "location.disable",
+				actorId: "staff-1",
+				targetType: "location",
+				targetId: "MNL",
+				oldValue: expect.objectContaining({ isActive: true }),
+				newValue: expect.objectContaining({ isActive: false }),
+			}),
+			tx
+		)
+	})
+
+	it("lists only active locations for availability", async () => {
+		const active = makeLocation()
+		const orderBy = jest.fn().mockResolvedValue([active])
+		const where = jest.fn().mockReturnValue({ orderBy })
+		const from = jest.fn().mockReturnValue({ where })
+		jest.mocked(db.select).mockReturnValue({ from } as never)
+
+		await expect(service.listAvailable()).resolves.toEqual([active])
+
+		expect(where).toHaveBeenCalledWith(eq(locations.isActive, true))
+		expect(orderBy).toHaveBeenCalledTimes(1)
+	})
+
 	it("audits and refuses physical deletion, directing callers to disable", async () => {
-		const location = {
-			code: "MNL",
-			name: "Manila",
-			address: "Port Area, Manila",
-			region: "NCR",
-			isActive: true,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		}
+		const location = makeLocation()
 		const where = jest.fn().mockResolvedValue([location])
 		const from = jest.fn().mockReturnValue({ where })
 		jest.mocked(db.select).mockReturnValue({ from } as never)

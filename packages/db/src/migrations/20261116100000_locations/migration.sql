@@ -1,5 +1,5 @@
 CREATE TABLE "locations" (
-	"code" text PRIMARY KEY NOT NULL,
+	"code" text PRIMARY KEY,
 	"name" text NOT NULL,
 	"address" text NOT NULL,
 	"region" text NOT NULL,
