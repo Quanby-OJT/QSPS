@@ -40,6 +40,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		section: "Administration",
 		requiredPermission: "settings.locations:manage",
 	},
+	{
+		label: "Services",
+		href: "/services",
+		icon: AccountSetting01Icon,
+		section: "Administration",
+		requiredPermission: "settings.services:manage",
+	},
 ]
 
 export const dashboardRouteTitles: readonly Pick<DashboardNavItem, "href" | "label">[] = [

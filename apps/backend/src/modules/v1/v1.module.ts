@@ -7,6 +7,7 @@ import { HealthModule } from "./health/health.module"
 import { LocationsModule } from "./locations/locations.module"
 import { MeModule } from "./me/me.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
+import { ServicesModule } from "./services/services.module"
 
 @Module({
 	imports: [
@@ -14,6 +15,7 @@ import { RbacAdminModule } from "./rbac/rbac.module"
 		LocationsModule,
 		MeModule,
 		RbacAdminModule,
+		ServicesModule,
 		// Sentry diagnostics exist ONLY in development. Conditional import rather
 		// than a runtime guard on the handler: the routes are then absent from the
 		// router entirely (404), so there is no guard to misconfigure and no

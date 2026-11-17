@@ -172,6 +172,22 @@ describe("RbacGuard", () => {
 		expect(rbacService.hasAllPermissions).toHaveBeenCalledWith("u1", ["settings.locations:manage"])
 	})
 
+	it("returns 403 and audits a user without service-management permission", async () => {
+		reflector.getAllAndOverride.mockReturnValue(["settings.services:manage"])
+		rbacService.hasAllPermissions.mockResolvedValue(false)
+		rbacService.getMissingPermissions.mockResolvedValue(["settings.services:manage"])
+		mockGetSession.mockResolvedValue({ user: { id: "u1" } })
+
+		await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
+		expect(rbacService.recordPermissionDenial).toHaveBeenCalledWith(
+			expect.objectContaining({
+				actorId: "u1",
+				requiredPermissions: ["settings.services:manage"],
+				missingPermissions: ["settings.services:manage"],
+			})
+		)
+	})
+
 	it("allows when authenticated and has permission", async () => {
 		reflector.getAllAndOverride.mockReturnValue(["bookings.own:create"])
 		rbacService.hasAllPermissions.mockResolvedValue(true)

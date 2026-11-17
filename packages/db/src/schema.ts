@@ -1,5 +1,5 @@
 import { defineRelations } from "drizzle-orm"
-import { index, primaryKey } from "drizzle-orm/pg-core"
+import { index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -240,6 +240,43 @@ export const locations = createTable("locations", t => ({
 }))
 
 // ============================================================================
+// SERVICES
+// ============================================================================
+
+export const serviceCategories = createTable("service_categories", t => ({
+	id: t.serial("id").primaryKey(),
+	code: t.text("code").notNull().unique(),
+	name: t.text("name").notNull(),
+}))
+
+export const services = createTable(
+	"services",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		serviceCategoryId: t
+			.integer("service_category_id")
+			.notNull()
+			.references(() => serviceCategories.id, { onDelete: "restrict" }),
+		/** Stable identifier, unique across all services, stored uppercase (same rule as location codes). */
+		code: t.text("code").notNull().unique(),
+		name: t.text("name").notNull(),
+		/** Integer centavos. Fee changes apply to new Bookings only. */
+		feeCentavos: t.integer("fee_centavos").notNull(),
+		/** Whether a Booking for this service needs head approval. */
+		requiresApproval: t.boolean("requires_approval").notNull().default(false),
+		/** Document issued when a booking item is cleared (CRT-1); null when the service issues none. */
+		documentType: t.text("document_type"),
+		isActive: t.boolean("is_active").notNull().default(true),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("services_category_name_idx").on(t.serviceCategoryId, t.name),
+		index("services_category_active_idx").on(t.serviceCategoryId, t.isActive),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -254,6 +291,8 @@ export const relations = defineRelations(
 		rolePermissions,
 		auditLog,
 		locations,
+		serviceCategories,
+		services,
 	},
 	r => ({
 		users: {
@@ -287,6 +326,15 @@ export const relations = defineRelations(
 			}),
 		},
 		locations: {},
+		serviceCategories: {
+			services: r.many.services(),
+		},
+		services: {
+			category: r.one.serviceCategories({
+				from: r.services.serviceCategoryId,
+				to: r.serviceCategories.id,
+			}),
+		},
 		userRoles: {
 			user: r.one.users({
 				from: r.userRoles.userId,
@@ -325,6 +373,8 @@ export const schema = Object.assign(
 		userRoles,
 		rolePermissions,
 		locations,
+		serviceCategories,
+		services,
 	},
 	relations
 )

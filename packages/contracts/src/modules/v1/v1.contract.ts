@@ -4,9 +4,10 @@ import { healthContract } from "./health/health.contract.js"
 import { locationsContract } from "./locations/locations.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
+import { servicesContract } from "./services/services.contract.js"
 
 /**
- * V1 contract router (versioned paths: /v1/health, /v1/me, /v1/rbac)
+ * V1 contract router for the versioned service API.
  * Assembles all v1 feature contracts and applies the /v1 prefix
  */
 export const v1Contract = oc.prefix("/v1").router(
@@ -15,6 +16,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		locations: locationsContract,
 		me: meContract,
 		rbac: rbacContract,
+		services: servicesContract,
 	})
 )
 
