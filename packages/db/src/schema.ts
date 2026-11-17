@@ -321,6 +321,108 @@ export const scheduleSlots = createTable(
 )
 
 // ============================================================================
+// BOOKINGS
+// ============================================================================
+
+/**
+ * A client's reservation (BKG-1). Status follows state machine 5.1 in
+ * DOMAIN-MODEL.md and is changed only by `BookingService`. Money is integer
+ * centavos; timestamps are UTC.
+ */
+export const bookings = createTable(
+	"bookings",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		/** Shown to the client and encoded in the QR code: QSPS-YYMMDD-XXXXXX. */
+		referenceNumber: t.text("reference_number").notNull().unique(),
+		clientId: t
+			.text("client_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		status: t
+			.text("status")
+			.notNull()
+			.$type<
+				| "pending_approval"
+				| "pending_payment"
+				| "paid"
+				| "completed"
+				| "cancelled"
+				| "rejected"
+				| "forfeited"
+				| "refund_requested"
+				| "refunded"
+			>(),
+		kind: t
+			.text("kind")
+			.notNull()
+			.default("regular")
+			.$type<"regular" | "expedite" | "vip" | "walk-in">(),
+		totalCentavos: t.integer("total_centavos").notNull(),
+		/** When an unpaid booking stops holding its slot; null once paid. */
+		holdExpiresAt: t.timestamp("hold_expires_at"),
+		/** Who created it: the client, or staff for VIP and walk-in bookings. */
+		createdBy: t
+			.text("created_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("bookings_client_status_idx").on(t.clientId, t.status),
+		index("bookings_status_hold_idx").on(t.status, t.holdExpiresAt),
+	]
+)
+
+/** One Service in a Booking, with its own Schedule Slot, fee and processing status (5.2). */
+export const bookingItems = createTable(
+	"booking_items",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		serviceId: t
+			.integer("service_id")
+			.notNull()
+			.references(() => services.id, { onDelete: "restrict" }),
+		scheduleSlotId: t
+			.integer("schedule_slot_id")
+			.notNull()
+			.references(() => scheduleSlots.id, { onDelete: "restrict" }),
+		locationId: t
+			.integer("location_id")
+			.notNull()
+			.references(() => locations.id, { onDelete: "restrict" }),
+		/** The service fee when booked; later fee changes do not alter it. */
+		feeCentavos: t.integer("fee_centavos").notNull(),
+		status: t
+			.text("status")
+			.notNull()
+			.default("booked")
+			.$type<
+				| "booked"
+				| "checked_in"
+				| "in_assessment"
+				| "returned"
+				| "cleared"
+				| "pending_head_approval"
+				| "issued"
+				| "rejected"
+				| "no_show"
+			>(),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("booking_items_booking_idx").on(t.bookingId),
+		index("booking_items_slot_idx").on(t.scheduleSlotId),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -338,6 +440,8 @@ export const relations = defineRelations(
 		serviceCategories,
 		services,
 		scheduleSlots,
+		bookings,
+		bookingItems,
 	},
 	r => ({
 		users: {
@@ -382,6 +486,31 @@ export const relations = defineRelations(
 				to: r.serviceCategories.id,
 			}),
 			scheduleSlots: r.many.scheduleSlots(),
+		},
+		bookings: {
+			client: r.one.users({
+				from: r.bookings.clientId,
+				to: r.users.id,
+			}),
+			items: r.many.bookingItems(),
+		},
+		bookingItems: {
+			booking: r.one.bookings({
+				from: r.bookingItems.bookingId,
+				to: r.bookings.id,
+			}),
+			service: r.one.services({
+				from: r.bookingItems.serviceId,
+				to: r.services.id,
+			}),
+			scheduleSlot: r.one.scheduleSlots({
+				from: r.bookingItems.scheduleSlotId,
+				to: r.scheduleSlots.id,
+			}),
+			location: r.one.locations({
+				from: r.bookingItems.locationId,
+				to: r.locations.id,
+			}),
 		},
 		scheduleSlots: {
 			service: r.one.services({
@@ -434,6 +563,8 @@ export const schema = Object.assign(
 		serviceCategories,
 		services,
 		scheduleSlots,
+		bookings,
+		bookingItems,
 	},
 	relations
 )

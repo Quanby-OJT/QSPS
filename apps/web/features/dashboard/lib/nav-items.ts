@@ -1,5 +1,6 @@
 import {
 	AccountSetting01Icon,
+	Add01Icon,
 	DashboardSquare01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
@@ -25,6 +26,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		label: "Dashboard",
 		href: "/dashboard",
 		icon: DashboardSquare01Icon,
+	},
+	{
+		label: "Book an appointment",
+		href: "/book",
+		icon: Add01Icon,
+		requiredPermission: "bookings.own:create",
 	},
 	{
 		label: "User Management",

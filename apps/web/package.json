@@ -47,6 +47,7 @@
 		"next": "catalog:",
 		"next-themes": "^0.4.6",
 		"posthog-js": "^1.445.1",
+		"qrcode.react": "^4.2.0",
 		"react": "catalog:",
 		"react-day-picker": "^9.13.0",
 		"react-dom": "catalog:",

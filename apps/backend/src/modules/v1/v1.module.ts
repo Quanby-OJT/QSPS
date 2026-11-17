@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common"
 
 import { env } from "@/config/env.config"
 
+import { BookingsModule } from "./bookings/bookings.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
 import { HealthModule } from "./health/health.module"
 import { LocationsModule } from "./locations/locations.module"
@@ -12,6 +13,7 @@ import { ServicesModule } from "./services/services.module"
 
 @Module({
 	imports: [
+		BookingsModule,
 		HealthModule,
 		LocationsModule,
 		MeModule,
