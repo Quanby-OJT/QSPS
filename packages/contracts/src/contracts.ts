@@ -24,6 +24,30 @@ export type {
 	UpdateServiceRequest,
 } from "./modules/v1/services/services.schema.js"
 
+// Booking contracts + schemas
+export { bookingsContract } from "./modules/v1/bookings/bookings.contract.js"
+export {
+	BOOKING_STATUSES,
+	BOOKING_KINDS,
+	BOOKING_ITEM_STATUSES,
+	REFERENCE_NUMBER_PATTERN,
+	BookingStatusSchema,
+	BookingKindSchema,
+	BookingItemStatusSchema,
+	ReferenceNumberSchema,
+	BookingItemSchema,
+	BookingSchema,
+	CreateBookingSchema,
+} from "./modules/v1/bookings/bookings.schema.js"
+export type {
+	BookingStatus,
+	BookingKind,
+	BookingItemStatus,
+	BookingItem,
+	Booking,
+	CreateBookingInput,
+} from "./modules/v1/bookings/bookings.schema.js"
+
 // Schedule slot contracts + schemas
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {

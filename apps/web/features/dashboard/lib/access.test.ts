@@ -102,6 +102,11 @@ describe("navItems", () => {
 			expect.arrayContaining([
 				expect.objectContaining({ label: "Dashboard", href: "/dashboard" }),
 				expect.objectContaining({
+					label: "Book an appointment",
+					href: "/book",
+					requiredPermission: "bookings.own:create",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -151,6 +156,12 @@ describe("navItems", () => {
 		).toContain("Services")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:create"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Book an appointment"])
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["schedules.slots:manage"] }).map(
 				item => item.label
 			)
@@ -158,7 +169,14 @@ describe("navItems", () => {
 
 		expect(
 			getAccessibleNavItems({ roles: ["Super Admin"], permissions: [] }).map(item => item.label)
-		).toEqual(["Dashboard", "User Management", "Locations", "Services", "Schedules"])
+		).toEqual([
+			"Dashboard",
+			"Book an appointment",
+			"User Management",
+			"Locations",
+			"Services",
+			"Schedules",
+		])
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {
@@ -167,6 +185,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/locations")).toBe("Locations")
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
+		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})
 })

@@ -30,6 +30,10 @@ export const env = createEnv({
 		THROTTLE_STRICT_TTL: z.coerce.number().int().positive().default(60000),
 		THROTTLE_STRICT_LIMIT: z.coerce.number().int().positive().default(10),
 
+		// Bookings: minutes an unpaid Booking holds its slot before it can be
+		// auto-cancelled. Read from env until the hold Policy is editable (ADM-6).
+		BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().default(60),
+
 		// Proxy trust: the number of trusted reverse-proxy hops in front of the app.
 		//
 		// This value MUST equal the real hop count (see DOMAIN-MODEL.md):

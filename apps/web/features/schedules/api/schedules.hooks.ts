@@ -8,6 +8,7 @@ import type {
 	ListSlotsRequest,
 	ScheduleSlot,
 	SetSlotDisabledRequest,
+	SlotAvailability,
 	UpdateSlotCapacityRequest,
 } from "@repo/contracts"
 
@@ -89,6 +90,42 @@ export function useScheduleSlotsQuery(request: {
 			})
 			const slots = await apiFetch<SlotJson[]>(`/schedules/slots?${query.toString()}`)
 			return slots.map(toSlot)
+		},
+	})
+}
+
+type AvailabilityJson = Omit<SlotAvailability, "startsAt" | "endsAt"> & {
+	startsAt: string
+	endsAt: string
+}
+
+/**
+ * What a client can book: each slot's remaining capacity for one service at
+ * one location in a month. Waits until both are chosen.
+ */
+export function useSlotAvailabilityQuery(request: {
+	serviceId: number | null
+	locationId: number | null
+	month: string
+}) {
+	const { serviceId, locationId, month } = request
+	return useQuery({
+		queryKey: ["schedules", "availability", serviceId, locationId, month] as const,
+		enabled: serviceId !== null && locationId !== null,
+		queryFn: async (): Promise<SlotAvailability[]> => {
+			const query = new URLSearchParams({
+				serviceId: String(serviceId),
+				locationId: String(locationId),
+				month,
+			})
+			const slots = await apiFetch<AvailabilityJson[]>(
+				`/schedules/availability?${query.toString()}`
+			)
+			return slots.map(slot => ({
+				...slot,
+				startsAt: new Date(slot.startsAt),
+				endsAt: new Date(slot.endsAt),
+			}))
 		},
 	})
 }
