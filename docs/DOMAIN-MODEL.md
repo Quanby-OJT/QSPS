@@ -118,7 +118,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts`. Money 
 | `locations` | `id` (primary key), `code` (unique, uppercase), `name`, `address`, `region`, `is_active` | Disabled locations are excluded from new-booking pickers; existing bookings are unchanged. Physical deletion is refused until booking references can be checked. |
 | `service_categories` | `code`, `name` | Seeded with the eight codes in the glossary. |
 | `services` | `service_category_id`, `code`, `name`, `fee_centavos`, `requires_approval`, `document_type?`, `is_active` | Fee changes apply to new Bookings only. |
-| `schedule_slots` | `service_id`, `location_id`, `starts_at`, `ends_at`, `capacity`, `booked_count`, `is_disabled` | `booked_count` changes only inside the booking transaction (Flow B). |
+| `schedule_slots` | `id` (primary key), `service_id`, `location_id`, `starts_at`, `ends_at`, `capacity`, `booked_count`, `is_disabled` | Unique on `service_id`, `location_id`, `starts_at`. `booked_count` changes only inside the booking transaction (Flow B). Capacity cannot go below `booked_count`; a slot with bookings is disabled, never deleted. A disabled slot takes no new bookings and keeps existing ones. |
 | `form_templates`, `form_fields` | `service_id`, `version`, `is_active`; field `type`, `label`, `required`, `options`, `position` | Editing a published template creates a new version. |
 | `form_submissions` | `booking_item_id`, `form_template_id`, `answers` (jsonb) | Immutable after payment; staff corrections go in `assessments`. |
 | `bookings` | `reference_number` (unique), `client_id`, `status`, `kind` (`regular`/`expedite`/`vip`/`walk-in`), `total_centavos`, `hold_expires_at`, `created_by` | State machine 5.1. |

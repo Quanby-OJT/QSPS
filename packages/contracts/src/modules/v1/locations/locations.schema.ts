@@ -13,6 +13,8 @@ const LocationCodeSchema = z
 const NormalizedLocationCodeSchema = LocationCodeSchema.transform(code => code.toUpperCase())
 
 export const LocationSchema = z.object({
+	/** Primary key; other tables (such as schedule_slots) reference a location by this. */
+	id: z.number().int().positive(),
 	code: LocationCodeSchema,
 	name: z.string().min(1).max(150),
 	address: z.string().min(1).max(500),

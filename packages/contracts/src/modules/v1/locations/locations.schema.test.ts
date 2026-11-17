@@ -36,6 +36,7 @@ describe("location schemas", () => {
 		expect(UpdateLocationRequestSchema.safeParse({ code: "MNL" }).success).toBe(false)
 		expect(
 			LocationSchema.safeParse({
+				id: 1,
 				code: "MNL",
 				name: "Manila",
 				address: "Port Area, Manila",

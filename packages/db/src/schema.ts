@@ -277,6 +277,50 @@ export const services = createTable(
 )
 
 // ============================================================================
+// SCHEDULES
+// ============================================================================
+
+/**
+ * Capacity for one Service at one Location on one date and time window (SCH-1).
+ *
+ * `starts_at` and `ends_at` are UTC; the Asia/Manila date and time the admin
+ * typed are converted at the edge. `booked_count` is created here but changed
+ * only by `BookingService`, with a row lock (DOMAIN-MODEL.md section 6).
+ */
+export const scheduleSlots = createTable(
+	"schedule_slots",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		serviceId: t
+			.integer("service_id")
+			.notNull()
+			.references(() => services.id, { onDelete: "restrict" }),
+		locationId: t
+			.integer("location_id")
+			.notNull()
+			.references(() => locations.id, { onDelete: "restrict" }),
+		startsAt: t.timestamp("starts_at").notNull(),
+		endsAt: t.timestamp("ends_at").notNull(),
+		capacity: t.integer("capacity").notNull(),
+		bookedCount: t.integer("booked_count").notNull().default(0),
+		/** A disabled slot takes no new bookings; existing bookings stay. */
+		isDisabled: t.boolean("is_disabled").notNull().default(false),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		// One slot per service, location and start time: generating the same
+		// range twice skips what already exists.
+		uniqueIndex("schedule_slots_service_location_start_idx").on(
+			t.serviceId,
+			t.locationId,
+			t.startsAt
+		),
+		index("schedule_slots_location_start_idx").on(t.locationId, t.startsAt),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -293,6 +337,7 @@ export const relations = defineRelations(
 		locations,
 		serviceCategories,
 		services,
+		scheduleSlots,
 	},
 	r => ({
 		users: {
@@ -325,7 +370,9 @@ export const relations = defineRelations(
 				to: r.users.id,
 			}),
 		},
-		locations: {},
+		locations: {
+			scheduleSlots: r.many.scheduleSlots(),
+		},
 		serviceCategories: {
 			services: r.many.services(),
 		},
@@ -333,6 +380,17 @@ export const relations = defineRelations(
 			category: r.one.serviceCategories({
 				from: r.services.serviceCategoryId,
 				to: r.serviceCategories.id,
+			}),
+			scheduleSlots: r.many.scheduleSlots(),
+		},
+		scheduleSlots: {
+			service: r.one.services({
+				from: r.scheduleSlots.serviceId,
+				to: r.services.id,
+			}),
+			location: r.one.locations({
+				from: r.scheduleSlots.locationId,
+				to: r.locations.id,
 			}),
 		},
 		userRoles: {
@@ -375,6 +433,7 @@ export const schema = Object.assign(
 		locations,
 		serviceCategories,
 		services,
+		scheduleSlots,
 	},
 	relations
 )

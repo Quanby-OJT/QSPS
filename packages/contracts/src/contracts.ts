@@ -24,6 +24,34 @@ export type {
 	UpdateServiceRequest,
 } from "./modules/v1/services/services.schema.js"
 
+// Schedule slot contracts + schemas
+export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
+export {
+	MAX_GENERATE_DAYS,
+	BusinessDateSchema,
+	BusinessMonthSchema,
+	TimeWindowSchema,
+	ScheduleSlotSchema,
+	GenerateSlotsSchema,
+	GenerateSlotsResponseSchema,
+	ListSlotsRequestSchema,
+	SlotIdParamSchema,
+	UpdateSlotCapacityRequestSchema,
+	SetSlotDisabledRequestSchema,
+	DeleteSlotResponseSchema,
+	SlotAvailabilitySchema,
+} from "./modules/v1/schedules/schedules.schema.js"
+export type {
+	TimeWindow,
+	ScheduleSlot,
+	GenerateSlotsInput,
+	GenerateSlotsResponse,
+	ListSlotsRequest,
+	UpdateSlotCapacityRequest,
+	SetSlotDisabledRequest,
+	SlotAvailability,
+} from "./modules/v1/schedules/schedules.schema.js"
+
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"
 

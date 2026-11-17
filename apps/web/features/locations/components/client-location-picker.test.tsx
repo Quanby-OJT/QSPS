@@ -22,6 +22,7 @@ vi.mock("@/features/locations/api/locations.hooks", () => ({
 }))
 
 const location: Location = {
+	id: 1,
 	code: "MNL",
 	name: "Manila",
 	address: "Port Area, Manila",
