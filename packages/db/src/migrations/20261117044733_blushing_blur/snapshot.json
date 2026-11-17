@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "97676376-70fe-4fe9-8350-984636691ba2",
+  "id": "b8faccb2-96db-4d3f-90c1-9e6a1e6e9f84",
   "prevIds": [
-    "2fe0eb9f-fbf8-419c-aa53-0bf2d8e72db9"
+    "bfffd5c3-9d84-40b9-b152-220635b4fb98"
   ],
   "ddl": [
     {
@@ -794,6 +794,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "services"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "name",
       "entityType": "columns",
       "schema": "public",
@@ -820,7 +833,20 @@
       "default": "false",
       "generated": null,
       "identity": null,
-      "name": "requires_head_approval",
+      "name": "requires_approval",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "services"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "document_type",
       "entityType": "columns",
       "schema": "public",
       "table": "services"
@@ -1762,6 +1788,17 @@
       "name": "service_categories_code_key",
       "schema": "public",
       "table": "service_categories",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "services_code_key",
+      "schema": "public",
+      "table": "services",
       "entityType": "uniques"
     },
     {

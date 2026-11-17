@@ -257,9 +257,15 @@ export const services = createTable(
 			.integer("service_category_id")
 			.notNull()
 			.references(() => serviceCategories.id, { onDelete: "restrict" }),
+		/** Stable identifier, unique across all services, stored uppercase (same rule as location codes). */
+		code: t.text("code").notNull().unique(),
 		name: t.text("name").notNull(),
+		/** Integer centavos. Fee changes apply to new Bookings only. */
 		feeCentavos: t.integer("fee_centavos").notNull(),
-		requiresHeadApproval: t.boolean("requires_head_approval").notNull().default(false),
+		/** Whether a Booking for this service needs head approval. */
+		requiresApproval: t.boolean("requires_approval").notNull().default(false),
+		/** Document issued when a booking item is cleared (CRT-1); null when the service issues none. */
+		documentType: t.text("document_type"),
 		isActive: t.boolean("is_active").notNull().default(true),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),

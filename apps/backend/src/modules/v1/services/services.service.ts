@@ -24,15 +24,21 @@ function serviceResponse(service: ServiceRow, category: CategoryRow): Service {
 		serviceCategoryId: service.serviceCategoryId,
 		categoryCode: category.code,
 		categoryName: category.name,
+		code: service.code,
 		name: service.name,
 		feeCentavos: service.feeCentavos,
-		requiresHeadApproval: service.requiresHeadApproval,
+		requiresApproval: service.requiresApproval,
+		documentType: service.documentType,
 		isActive: service.isActive,
 		createdAt: service.createdAt,
 		updatedAt: service.updatedAt,
 	}
 }
 
+/**
+ * Service catalog (ADM-5). Fees are integer centavos and apply to new Bookings
+ * only; every change is audited with old and new values in the same transaction.
+ */
 @Injectable()
 export class ServicesService {
 	constructor(private readonly auditService: AuditService) {}
@@ -43,28 +49,20 @@ export class ServicesService {
 
 	async list(): Promise<Service[]> {
 		const rows = await db
-			.select({
-				service: services,
-				category: serviceCategories,
-			})
+			.select({ service: services, category: serviceCategories })
 			.from(services)
 			.innerJoin(serviceCategories, eq(services.serviceCategoryId, serviceCategories.id))
 			.orderBy(asc(serviceCategories.name), asc(services.name))
-
 		return rows.map(({ service, category }) => serviceResponse(service, category))
 	}
 
 	async listAvailable(): Promise<Service[]> {
 		const rows = await db
-			.select({
-				service: services,
-				category: serviceCategories,
-			})
+			.select({ service: services, category: serviceCategories })
 			.from(services)
 			.innerJoin(serviceCategories, eq(services.serviceCategoryId, serviceCategories.id))
 			.where(eq(services.isActive, true))
 			.orderBy(asc(serviceCategories.name), asc(services.name))
-
 		return rows.map(({ service, category }) => serviceResponse(service, category))
 	}
 
@@ -80,18 +78,29 @@ export class ServicesService {
 				})
 			}
 
+			const [sameCode] = await tx
+				.select({ id: services.id })
+				.from(services)
+				.where(eq(services.code, input.code))
+				.limit(1)
+			if (sameCode) {
+				throw new ORPCError("CONFLICT", {
+					message: `Service code "${input.code}" is already in use`,
+				})
+			}
+
 			const [service] = await tx
 				.insert(services)
 				.values({
 					serviceCategoryId: input.serviceCategoryId,
+					code: input.code,
 					name: input.name,
 					feeCentavos: input.feeCentavos,
-					requiresHeadApproval: input.requiresHeadApproval,
+					requiresApproval: input.requiresApproval,
+					documentType: input.documentType ?? null,
 					isActive: true,
 				})
-				.onConflictDoNothing({
-					target: [services.serviceCategoryId, services.name],
-				})
+				.onConflictDoNothing()
 				.returning()
 			if (!service) {
 				throw new ORPCError("CONFLICT", {
@@ -111,7 +120,6 @@ export class ServicesService {
 				},
 				tx
 			)
-
 			return serviceResponse(service, category)
 		})
 	}
@@ -134,20 +142,21 @@ export class ServicesService {
 				})
 			}
 
+			const name = input.name ?? current.name
 			const [duplicate] = await tx
 				.select({ id: services.id })
 				.from(services)
 				.where(
 					and(
 						eq(services.serviceCategoryId, serviceCategoryId),
-						eq(services.name, input.name ?? current.name),
+						eq(services.name, name),
 						ne(services.id, current.id)
 					)
 				)
 				.limit(1)
 			if (duplicate) {
 				throw new ORPCError("CONFLICT", {
-					message: `A service named "${input.name ?? current.name}" already exists in this category`,
+					message: `A service named "${name}" already exists in this category`,
 				})
 			}
 
@@ -155,9 +164,12 @@ export class ServicesService {
 				.update(services)
 				.set({
 					serviceCategoryId,
-					name: input.name ?? current.name,
+					name,
 					feeCentavos: input.feeCentavos ?? current.feeCentavos,
-					requiresHeadApproval: input.requiresHeadApproval ?? current.requiresHeadApproval,
+					requiresApproval: input.requiresApproval ?? current.requiresApproval,
+					// undefined = leave as is; null = clear it.
+					documentType:
+						input.documentType === undefined ? current.documentType : input.documentType,
 					updatedAt: new Date(),
 				})
 				.where(eq(services.id, current.id))
@@ -179,7 +191,6 @@ export class ServicesService {
 				},
 				tx
 			)
-
 			return serviceResponse(updated, category)
 		})
 	}
@@ -227,7 +238,6 @@ export class ServicesService {
 				},
 				tx
 			)
-
 			return serviceResponse(updated, category)
 		})
 	}
@@ -236,9 +246,11 @@ export class ServicesService {
 		return {
 			id: service.id,
 			serviceCategoryId: service.serviceCategoryId,
+			code: service.code,
 			name: service.name,
 			feeCentavos: service.feeCentavos,
-			requiresHeadApproval: service.requiresHeadApproval,
+			requiresApproval: service.requiresApproval,
+			documentType: service.documentType,
 			isActive: service.isActive,
 		}
 	}

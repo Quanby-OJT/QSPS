@@ -28,19 +28,26 @@ jest.mock("@/common/database/database.client", () => ({
 const makeService = (overrides: Record<string, unknown> = {}) => ({
 	id: 42,
 	serviceCategoryId: 3,
+	code: "YF-VAX",
 	name: "Yellow fever vaccination",
 	feeCentavos: 12500,
-	requiresHeadApproval: true,
+	requiresApproval: true,
+	documentType: null,
 	isActive: true,
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 	...overrides,
 })
 
-const makeCategory = () => ({
-	id: 3,
-	code: "immunization",
-	name: "Immunization",
+const makeCategory = () => ({ id: 3, code: "immunization", name: "Immunization" })
+
+/** select().from().where() resolving to rows. */
+const selectRows = (rows: unknown[]) => ({
+	from: () => ({ where: () => Promise.resolve(rows) }),
+})
+/** select().from().where().limit() resolving to rows. */
+const selectLimited = (rows: unknown[]) => ({
+	from: () => ({ where: () => ({ limit: () => Promise.resolve(rows) }) }),
 })
 
 function mockTransaction(tx: Record<string, unknown>) {
@@ -58,111 +65,124 @@ describe("ServicesService", () => {
 		service = new ServicesService(auditService as unknown as AuditService)
 	})
 
-	it("audits fee changes with the previous and current centavo values in the transaction", async () => {
-		const current = makeService()
-		const updated = makeService({ feeCentavos: 15000 })
-		const select = jest
-			.fn()
-			.mockReturnValueOnce({
-				from: () => ({ where: () => Promise.resolve([current]) }),
-			})
-			.mockReturnValueOnce({
-				from: () => ({ where: () => Promise.resolve([makeCategory()]) }),
-			})
-			.mockReturnValueOnce({
-				from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
-			})
-		const returning = jest.fn().mockResolvedValue([updated])
-		const updateWhere = jest.fn().mockReturnValue({ returning })
-		const set = jest.fn().mockReturnValue({ where: updateWhere })
+	it("creates a service with its code, fee, approval setting and document type, and audits it", async () => {
+		const created = makeService({ documentType: "Vaccination Certificate" })
+		const values = jest.fn().mockReturnValue({
+			onConflictDoNothing: () => ({ returning: () => Promise.resolve([created]) }),
+		})
 		const tx = mockTransaction({
-			select,
-			update: jest.fn().mockReturnValue({ set }),
-		})
-
-		await expect(service.update({ id: 42, feeCentavos: 15000 }, "staff-1")).resolves.toMatchObject({
-			id: 42,
-			feeCentavos: 15000,
-			categoryCode: "immunization",
-		})
-
-		expect(auditService.record).toHaveBeenCalledWith(
-			expect.objectContaining({
-				domain: "services",
-				action: "service.fee.update",
-				actorId: "staff-1",
-				targetType: "service",
-				targetId: "42",
-				oldValue: expect.objectContaining({ feeCentavos: 12500 }),
-				newValue: expect.objectContaining({ feeCentavos: 15000 }),
-			}),
-			tx
-		)
-		expect(set).toHaveBeenCalledWith(expect.objectContaining({ feeCentavos: 15000 }))
-	})
-
-	it("makes a created service available in the client catalog", async () => {
-		const category = makeCategory()
-		let persisted = makeService()
-		const returning = jest.fn().mockImplementation(async () => [persisted])
-		const onConflictDoNothing = jest.fn().mockReturnValue({ returning })
-		const values = jest.fn().mockImplementation(input => {
-			persisted = { ...persisted, ...input }
-			return { onConflictDoNothing }
-		})
-		mockTransaction({
-			select: jest.fn().mockReturnValue({
-				from: () => ({ where: () => Promise.resolve([category]) }),
-			}),
+			select: jest
+				.fn()
+				.mockReturnValueOnce(selectRows([makeCategory()]))
+				.mockReturnValueOnce(selectLimited([])),
 			insert: jest.fn().mockReturnValue({ values }),
 		})
 
 		await expect(
 			service.create(
 				{
-					serviceCategoryId: category.id,
+					serviceCategoryId: 3,
+					code: "YF-VAX",
 					name: "Yellow fever vaccination",
 					feeCentavos: 12500,
-					requiresHeadApproval: true,
+					requiresApproval: true,
+					documentType: "Vaccination Certificate",
 				},
 				"staff-1"
 			)
 		).resolves.toMatchObject({
-			name: "Yellow fever vaccination",
-			feeCentavos: 12500,
-			requiresHeadApproval: true,
+			code: "YF-VAX",
+			categoryCode: "immunization",
+			requiresApproval: true,
+			documentType: "Vaccination Certificate",
 			isActive: true,
 		})
 
-		const orderBy = jest.fn().mockResolvedValue([{ service: persisted, category }])
-		const where = jest.fn().mockReturnValue({ orderBy })
-		const innerJoin = jest.fn().mockReturnValue({ where })
-		jest.mocked(db.select).mockReturnValue({
-			from: () => ({ innerJoin }),
-		} as never)
-
-		await expect(service.listAvailable()).resolves.toMatchObject([
-			{
-				name: "Yellow fever vaccination",
-				feeCentavos: 12500,
-				requiresHeadApproval: true,
-				categoryCode: "immunization",
-			},
-		])
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ code: "YF-VAX", documentType: "Vaccination Certificate" })
+		)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				domain: "services",
+				action: "service.create",
+				actorId: "staff-1",
+				targetId: "42",
+				oldValue: null,
+				newValue: expect.objectContaining({ code: "YF-VAX", feeCentavos: 12500 }),
+			}),
+			tx
+		)
 	})
 
-	it("lists only active services in the client catalog", async () => {
-		const active = makeService()
-		const orderBy = jest.fn().mockResolvedValue([{ service: active, category: makeCategory() }])
+	it("refuses a duplicate service code without writing or auditing", async () => {
+		const insert = jest.fn()
+		mockTransaction({
+			select: jest
+				.fn()
+				.mockReturnValueOnce(selectRows([makeCategory()]))
+				.mockReturnValueOnce(selectLimited([{ id: 7 }])),
+			insert,
+		})
+
+		await expect(
+			service.create(
+				{
+					serviceCategoryId: 3,
+					code: "YF-VAX",
+					name: "Another name",
+					feeCentavos: 100,
+					requiresApproval: false,
+				},
+				"staff-1"
+			)
+		).rejects.toMatchObject({ code: "CONFLICT" })
+		expect(insert).not.toHaveBeenCalled()
+		expect(auditService.record).not.toHaveBeenCalled()
+	})
+
+	it("audits fee changes with the previous and current centavo values in the transaction", async () => {
+		const current = makeService()
+		const updated = makeService({ feeCentavos: 15000 })
+		const returning = jest.fn().mockResolvedValue([updated])
+		const set = jest.fn().mockReturnValue({ where: () => ({ returning }) })
+		const tx = mockTransaction({
+			select: jest
+				.fn()
+				.mockReturnValueOnce(selectRows([current]))
+				.mockReturnValueOnce(selectRows([makeCategory()]))
+				.mockReturnValueOnce(selectLimited([])),
+			update: jest.fn().mockReturnValue({ set }),
+		})
+
+		await expect(service.update({ id: 42, feeCentavos: 15000 }, "staff-1")).resolves.toMatchObject({
+			id: 42,
+			feeCentavos: 15000,
+		})
+
+		// An update that does not mention the document type keeps it.
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({ feeCentavos: 15000, documentType: null })
+		)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "service.fee.update",
+				targetId: "42",
+				oldValue: expect.objectContaining({ feeCentavos: 12500 }),
+				newValue: expect.objectContaining({ feeCentavos: 15000 }),
+			}),
+			tx
+		)
+	})
+
+	it("lists only active services in the catalog", async () => {
+		const orderBy = jest.fn().mockResolvedValue([{ service: makeService(), category: makeCategory() }])
 		const where = jest.fn().mockReturnValue({ orderBy })
 		const innerJoin = jest.fn().mockReturnValue({ where })
-		const from = jest.fn().mockReturnValue({ innerJoin })
-		jest.mocked(db.select).mockReturnValue({ from } as never)
+		jest.mocked(db.select).mockReturnValue({ from: () => ({ innerJoin }) } as never)
 
 		await expect(service.listAvailable()).resolves.toMatchObject([
-			{ id: 42, feeCentavos: 12500, categoryCode: "immunization" },
+			{ id: 42, code: "YF-VAX", categoryCode: "immunization" },
 		])
-
 		expect(where).toHaveBeenCalledWith(eq(services.isActive, true))
 	})
 })

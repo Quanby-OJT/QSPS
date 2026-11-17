@@ -117,7 +117,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts`. Money 
 | `audit_log` (template) | * `actor_role`, `ip_address`, `user_agent`, `prev_hash`, `entry_hash` | Insert-only. Database trigger rejects update and delete. |
 | `locations` | `id` (primary key), `code` (unique, uppercase), `name`, `address`, `region`, `is_active` | Disabled locations are excluded from new-booking pickers; existing bookings are unchanged. Physical deletion is refused until booking references can be checked. |
 | `service_categories` | `code`, `name` | Seeded with the eight codes in the glossary. |
-| `services` | `service_category_id`, `name`, `fee_centavos`, `requires_head_approval`, `is_active` | Fees are integer centavos; fee changes are audited and apply to new Bookings only. Deactivated services are excluded from the client catalog. |
+| `services` | `service_category_id`, `code`, `name`, `fee_centavos`, `requires_approval`, `document_type?`, `is_active` | Fee changes apply to new Bookings only. |
 | `schedule_slots` | `service_id`, `location_id`, `starts_at`, `ends_at`, `capacity`, `booked_count`, `is_disabled` | `booked_count` changes only inside the booking transaction (Flow B). |
 | `form_templates`, `form_fields` | `service_id`, `version`, `is_active`; field `type`, `label`, `required`, `options`, `position` | Editing a published template creates a new version. |
 | `form_submissions` | `booking_item_id`, `form_template_id`, `answers` (jsonb) | Immutable after payment; staff corrections go in `assessments`. |

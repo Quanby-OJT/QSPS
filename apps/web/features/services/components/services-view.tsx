@@ -35,32 +35,24 @@ import {
 	useSetServiceActiveMutation,
 	useUpdateServiceMutation,
 } from "@/features/services/api/services.hooks"
+import { feeInPesos, parseFeeCentavos } from "@/features/services/lib/fee"
 
 type ServiceForm = {
 	serviceCategoryId: number | ""
+	code: string
 	name: string
 	fee: string
-	requiresHeadApproval: boolean
+	requiresApproval: boolean
+	documentType: string
 }
 
 const emptyForm: ServiceForm = {
 	serviceCategoryId: "",
+	code: "",
 	name: "",
 	fee: "",
-	requiresHeadApproval: false,
-}
-
-function parseFeeCentavos(value: string): number | null {
-	if (!/^\d+(\.\d{1,2})?$/.test(value)) {
-		return null
-	}
-	const [whole, fraction = ""] = value.split(".")
-	const amount = Number(whole) * 100 + Number(fraction.padEnd(2, "0"))
-	return Number.isSafeInteger(amount) && amount <= 2_147_483_647 ? amount : null
-}
-
-function feeInPesos(feeCentavos: number): string {
-	return (feeCentavos / 100).toFixed(2)
+	requiresApproval: false,
+	documentType: "",
 }
 
 export function ServicesView() {
@@ -69,6 +61,7 @@ export function ServicesView() {
 	const createService = useCreateServiceMutation()
 	const updateService = useUpdateServiceMutation()
 	const setActive = useSetServiceActiveMutation()
+
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<Service | null>(null)
 	const [form, setForm] = useState<ServiceForm>(emptyForm)
@@ -76,10 +69,7 @@ export function ServicesView() {
 
 	function startCreate() {
 		setEditing(null)
-		setForm({
-			...emptyForm,
-			serviceCategoryId: categories.data?.[0]?.id ?? "",
-		})
+		setForm({ ...emptyForm, serviceCategoryId: categories.data?.[0]?.id ?? "" })
 		setDialogOpen(true)
 	}
 
@@ -87,9 +77,11 @@ export function ServicesView() {
 		setEditing(service)
 		setForm({
 			serviceCategoryId: service.serviceCategoryId,
+			code: service.code,
 			name: service.name,
 			fee: feeInPesos(service.feeCentavos),
-			requiresHeadApproval: service.requiresHeadApproval,
+			requiresApproval: service.requiresApproval,
+			documentType: service.documentType ?? "",
 		})
 		setDialogOpen(true)
 	}
@@ -102,21 +94,32 @@ export function ServicesView() {
 		}
 		const feeCentavos = parseFeeCentavos(form.fee)
 		if (feeCentavos === null) {
-			toast.error("Enter a fee with no more than two decimal places")
+			toast.error("Enter a fee in pesos with no more than two decimal places")
 			return
 		}
+		const documentType = form.documentType.trim() === "" ? null : form.documentType.trim()
 
 		try {
-			const input: CreateServiceInput = {
-				serviceCategoryId: form.serviceCategoryId,
-				name: form.name,
-				feeCentavos,
-				requiresHeadApproval: form.requiresHeadApproval,
-			}
 			if (editing) {
-				await updateService.mutateAsync({ id: editing.id, ...input })
+				// The code is fixed at creation, so it is not sent on update.
+				await updateService.mutateAsync({
+					id: editing.id,
+					serviceCategoryId: form.serviceCategoryId,
+					name: form.name,
+					feeCentavos,
+					requiresApproval: form.requiresApproval,
+					documentType,
+				})
 				toast.success("Service updated")
 			} else {
+				const input: CreateServiceInput = {
+					serviceCategoryId: form.serviceCategoryId,
+					code: form.code,
+					name: form.name,
+					feeCentavos,
+					requiresApproval: form.requiresApproval,
+					documentType,
+				}
 				await createService.mutateAsync(input)
 				toast.success("Service added")
 			}
@@ -139,7 +142,7 @@ export function ServicesView() {
 		<section className="flex w-full flex-col gap-6">
 			<PageHeader
 				title="Services"
-				description="Manage bookable services, their fees, and head-approval requirements."
+				description="Manage bookable services, their fees, and approval requirements."
 				actions={
 					<Button type="button" onClick={startCreate} disabled={!categories.data?.length}>
 						<HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
@@ -182,9 +185,11 @@ export function ServicesView() {
 						<TableHeader>
 							<TableRow>
 								<TableHead>Category</TableHead>
+								<TableHead>Code</TableHead>
 								<TableHead>Service</TableHead>
 								<TableHead>Fee</TableHead>
-								<TableHead>Head approval</TableHead>
+								<TableHead>Approval</TableHead>
+								<TableHead>Document</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
@@ -193,11 +198,11 @@ export function ServicesView() {
 							{services.data.map(service => (
 								<TableRow key={service.id}>
 									<TableCell>{service.categoryName}</TableCell>
+									<TableCell className="font-mono text-xs">{service.code}</TableCell>
 									<TableCell className="font-medium">{service.name}</TableCell>
 									<TableCell>₱{feeInPesos(service.feeCentavos)}</TableCell>
-									<TableCell>
-										{service.requiresHeadApproval ? "Required" : "Not required"}
-									</TableCell>
+									<TableCell>{service.requiresApproval ? "Required" : "Not required"}</TableCell>
+									<TableCell>{service.documentType ?? "—"}</TableCell>
 									<TableCell>
 										<Badge variant={service.isActive ? "default" : "secondary"}>
 											{service.isActive ? "Active" : "Inactive"}
@@ -232,10 +237,11 @@ export function ServicesView() {
 							<DialogTitle>{editing ? "Edit service" : "Add service"}</DialogTitle>
 							<DialogDescription>
 								{editing
-									? "Update the service details and fee. Changes apply to new bookings."
-									: "Enter the category, name, fee, and head-approval requirement."}
+									? "Update the service details and fee. Fee changes apply to new bookings only."
+									: "Enter the category, code, name, fee, and approval requirement."}
 							</DialogDescription>
 						</DialogHeader>
+
 						<div className="grid gap-4">
 							<div className="grid gap-2">
 								<Label htmlFor="service-category">Service category</Label>
@@ -261,6 +267,26 @@ export function ServicesView() {
 									))}
 								</select>
 							</div>
+
+							<div className="grid gap-2">
+								<Label htmlFor="service-code">Service code</Label>
+								<Input
+									id="service-code"
+									value={form.code}
+									onChange={event => setForm({ ...form, code: event.target.value })}
+									placeholder="YF-VAX"
+									maxLength={32}
+									required
+									disabled={Boolean(editing)}
+									aria-describedby="service-code-help"
+								/>
+								<p id="service-code-help" className="text-muted-foreground text-xs">
+									{editing
+										? "The code cannot be changed after the service is created."
+										: "A short unique code, saved in uppercase."}
+								</p>
+							</div>
+
 							<div className="grid gap-2">
 								<Label htmlFor="service-name">Service name</Label>
 								<Input
@@ -271,6 +297,7 @@ export function ServicesView() {
 									maxLength={150}
 								/>
 							</div>
+
 							<div className="grid gap-2">
 								<Label htmlFor="service-fee">Fee (PHP)</Label>
 								<Input
@@ -284,19 +311,30 @@ export function ServicesView() {
 									required
 								/>
 							</div>
+
+							<div className="grid gap-2">
+								<Label htmlFor="service-document-type">Document issued (optional)</Label>
+								<Input
+									id="service-document-type"
+									value={form.documentType}
+									onChange={event => setForm({ ...form, documentType: event.target.value })}
+									placeholder="e.g. Vaccination Certificate"
+									maxLength={100}
+								/>
+							</div>
+
 							<label className="flex items-center gap-2 text-sm" htmlFor="service-approval">
 								<input
 									id="service-approval"
 									type="checkbox"
-									checked={form.requiresHeadApproval}
-									onChange={event =>
-										setForm({ ...form, requiresHeadApproval: event.target.checked })
-									}
+									checked={form.requiresApproval}
+									onChange={event => setForm({ ...form, requiresApproval: event.target.checked })}
 									className="accent-primary size-4"
 								/>
 								Requires head approval
 							</label>
 						</div>
+
 						<DialogFooter>
 							<Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
 								Cancel
