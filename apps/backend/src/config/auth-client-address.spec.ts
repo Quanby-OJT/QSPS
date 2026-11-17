@@ -1,9 +1,7 @@
 import { spawn } from "node:child_process"
 import { join } from "node:path"
 
-const { AUTH_CLIENT_ADDRESS_HEADER } = require("../../../../packages/auth/src/client-address") as {
-	AUTH_CLIENT_ADDRESS_HEADER: string
-}
+import { AUTH_CLIENT_ADDRESS_HEADER } from "../../../../packages/auth/src/client-address"
 
 interface RunnerSuccess {
 	ok: true
@@ -24,7 +22,6 @@ interface RunnerFailure {
 }
 
 const RESULT_PREFIX = "AUTH_CLIENT_ADDRESS_RESULT "
-const RUNNER_TIMEOUT_MS = 120_000
 
 function safeLog(text: string): string {
 	return text
@@ -55,11 +52,9 @@ function runIsolated(): Promise<RunnerSuccess> {
 		let stdout = ""
 		let stderr = ""
 		let settled = false
-		let timedOut = false
 		const timer = setTimeout(() => {
-			timedOut = true
 			child.kill("SIGKILL")
-		}, RUNNER_TIMEOUT_MS)
+		}, 20_000)
 
 		child.stdout.setEncoding("utf8")
 		child.stderr.setEncoding("utf8")
@@ -90,10 +85,7 @@ function runIsolated(): Promise<RunnerSuccess> {
 				.map(entry => entry.trim())
 				.find(entry => entry.startsWith(RESULT_PREFIX))
 			if (!line) {
-				const exitMessage = timedOut
-					? `runner timed out after ${RUNNER_TIMEOUT_MS}ms`
-					: `runner exited ${code ?? "null"}`
-				reject(new Error(`${exitMessage} without a result\n${safeLog(stderr)}`))
+				reject(new Error(`runner exited ${code ?? "null"} without a result\n${safeLog(stderr)}`))
 				return
 			}
 			const payload = JSON.parse(line.slice(RESULT_PREFIX.length)) as RunnerSuccess | RunnerFailure
@@ -111,7 +103,7 @@ describe("server-side session reads keyed on the client address", () => {
 
 	beforeAll(async () => {
 		result = await runIsolated()
-	}, RUNNER_TIMEOUT_MS + 5_000)
+	}, 30_000)
 
 	it("uses a test-only budget against the real session-read rule", () => {
 		expect(result.nodeEnv).toBe("production")

@@ -77,6 +77,7 @@ function listen(limit: number) {
 				close: () =>
 					new Promise((done, reject) => {
 						server.close(error => (error ? reject(error) : done()))
+						server.closeAllConnections()
 					}),
 			})
 		})
@@ -198,7 +199,7 @@ describe("auth body limit", () => {
 
 		afterEach(async () => {
 			await open.close()
-		})
+		}, 30_000)
 
 		it("forwards a JSON body under the limit as the original text on an ended stream", async () => {
 			const raw = '{"email":"a@b.co","password":"secret"}'
