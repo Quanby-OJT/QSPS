@@ -7,6 +7,23 @@
 export { v1Contract } from "./modules/v1/v1.contract.js"
 export type { V1Contract } from "./modules/v1/v1.contract.js"
 
+// Service catalog contracts + schemas
+export { servicesContract } from "./modules/v1/services/services.contract.js"
+export {
+	ServiceCategorySchema,
+	ServiceSchema,
+	CreateServiceSchema,
+	ServiceIdParamSchema,
+	UpdateServiceRequestSchema,
+	SetServiceActiveRequestSchema,
+} from "./modules/v1/services/services.schema.js"
+export type {
+	ServiceCategory,
+	Service,
+	CreateServiceInput,
+	UpdateServiceRequest,
+} from "./modules/v1/services/services.schema.js"
+
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"
 
