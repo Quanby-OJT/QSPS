@@ -1,6 +1,7 @@
 import {
 	AccountSetting01Icon,
 	Add01Icon,
+	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
@@ -32,6 +33,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/book",
 		icon: Add01Icon,
 		requiredPermission: "bookings.own:create",
+	},
+	{
+		label: "Processing",
+		href: "/processing",
+		icon: CheckmarkCircle02Icon,
+		requiredPermission: "processing.queue:read",
 	},
 	{
 		label: "User Management",

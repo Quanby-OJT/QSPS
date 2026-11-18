@@ -1,14 +1,15 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, eq, sql } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 
-import type { Booking, CreateBookingInput } from "@repo/contracts"
+import type { Booking, BookingItemStatus, BookingStatus, CreateBookingInput } from "@repo/contracts"
 import { bookingItems, bookings, locations, scheduleSlots, services, users } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { env } from "@/config/env.config"
 
+import { canTransitionItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
@@ -21,9 +22,16 @@ const MS_PER_MINUTE = 60_000
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
+/** What happened when staff tried to check a Booking in (PRC-1). */
+export type CheckInResult =
+	| { ok: true; bookingItemIds: number[]; checkedInIds: number[] }
+	| { ok: false; reason: "payment_required"; bookingStatus: BookingStatus }
+	| { ok: false; reason: "no_items_here" }
+
 /**
- * Bookings (BKG-1). The only code that changes `bookings.status` and
- * `schedule_slots.booked_count` (DOMAIN-MODEL.md section 6).
+ * Bookings (BKG-1). The only code that changes `bookings.status`,
+ * `booking_items.status` (PRC-1) and `schedule_slots.booked_count`
+ * (DOMAIN-MODEL.md section 6).
  */
 @Injectable()
 export class BookingService {
@@ -234,6 +242,135 @@ export class BookingService {
 			tx
 		)
 		return true
+	}
+
+	/**
+	 * Check a client in at one Location (PRC-1, state machine 5.2).
+	 *
+	 * Locks the Booking, then its items at that Location. Annex B: no service
+	 * is rendered unless payment is completed, so nothing changes unless the
+	 * Booking is `paid`. Items already past `booked` are left as they are, so
+	 * scanning the same QR twice is harmless. Runs in the caller's transaction.
+	 */
+	async checkInItems(
+		tx: Transaction,
+		bookingId: number,
+		locationId: number,
+		actorId: string,
+		now: Date = new Date()
+	): Promise<CheckInResult> {
+		const [booking] = await tx
+			.select({ id: bookings.id, status: bookings.status })
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.for("update")
+		if (!booking) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking "${bookingId}" was not found` })
+		}
+
+		const items = await tx
+			.select({ id: bookingItems.id, status: bookingItems.status })
+			.from(bookingItems)
+			.where(and(eq(bookingItems.bookingId, bookingId), eq(bookingItems.locationId, locationId)))
+			.orderBy(asc(bookingItems.id))
+			.for("update")
+		if (items.length === 0) {
+			return { ok: false, reason: "no_items_here" }
+		}
+		if (booking.status !== "paid") {
+			return { ok: false, reason: "payment_required", bookingStatus: booking.status }
+		}
+
+		const toCheckIn = items.filter(item => canTransitionItem(item.status, "checked_in"))
+		for (const item of toCheckIn) {
+			await tx
+				.update(bookingItems)
+				.set({ status: "checked_in", updatedAt: now })
+				.where(eq(bookingItems.id, item.id))
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "booking_item.check_in",
+					actorId,
+					targetType: "booking_item",
+					targetId: String(item.id),
+					oldValue: { status: item.status },
+					newValue: { status: "checked_in" },
+				},
+				tx
+			)
+		}
+
+		return {
+			ok: true,
+			bookingItemIds: items.map(item => item.id),
+			checkedInIds: toCheckIn.map(item => item.id),
+		}
+	}
+
+	/**
+	 * Move one Booking Item along state machine 5.2 (PRC-1).
+	 *
+	 * Locks the item, refuses any move that is not an arrow in the machine or
+	 * that starts from a status the caller does not expect, then writes the
+	 * item and its Audit Entry in the caller's transaction. Asking for
+	 * `cleared` from `in_assessment` gives `pending_head_approval` instead when
+	 * the Service has `requires_approval`. Returns the status actually set.
+	 */
+	async transitionItem(
+		tx: Transaction,
+		bookingItemId: number,
+		to: BookingItemStatus,
+		options: { actorId: string; allowedFrom: readonly BookingItemStatus[]; now?: Date }
+	): Promise<{ from: BookingItemStatus; to: BookingItemStatus }> {
+		const now = options.now ?? new Date()
+		const [item] = await tx
+			.select({
+				id: bookingItems.id,
+				status: bookingItems.status,
+				serviceId: bookingItems.serviceId,
+			})
+			.from(bookingItems)
+			.where(eq(bookingItems.id, bookingItemId))
+			.for("update")
+		if (!item) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking item "${bookingItemId}" was not found` })
+		}
+
+		let target = to
+		if (to === "cleared" && item.status === "in_assessment") {
+			const [service] = await tx
+				.select({ requiresApproval: services.requiresApproval })
+				.from(services)
+				.where(eq(services.id, item.serviceId))
+			if (service?.requiresApproval) target = "pending_head_approval"
+		}
+
+		if (!options.allowedFrom.includes(item.status) || !canTransitionItem(item.status, target)) {
+			throw new ORPCError("CONFLICT", {
+				message: `This item is ${item.status.replaceAll("_", " ")} and cannot be moved to ${target.replaceAll("_", " ")}`,
+			})
+		}
+
+		await tx
+			.update(bookingItems)
+			.set({ status: target, updatedAt: now })
+			.where(eq(bookingItems.id, item.id))
+
+		await this.auditService.record(
+			{
+				domain: AUDIT_DOMAIN_BOOKINGS,
+				action: `booking_item.${target}`,
+				actorId: options.actorId,
+				targetType: "booking_item",
+				targetId: String(item.id),
+				oldValue: { status: item.status },
+				newValue: { status: target },
+			},
+			tx
+		)
+
+		return { from: item.status, to: target }
 	}
 
 	/** Draw Reference Numbers until one is not already in use. */

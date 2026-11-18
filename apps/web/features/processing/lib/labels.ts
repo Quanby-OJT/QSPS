@@ -1,0 +1,49 @@
+import type { AssessmentOutcome, BookingItemStatus } from "@repo/contracts"
+
+const ITEM_STATUS_LABELS: Record<BookingItemStatus, string> = {
+	booked: "Booked",
+	checked_in: "Checked in",
+	in_assessment: "In assessment",
+	returned: "Returned for correction",
+	cleared: "Cleared",
+	pending_head_approval: "Awaiting head approval",
+	issued: "Issued",
+	rejected: "Rejected",
+	no_show: "No show",
+}
+
+/** Plain words for a Booking Item status (state machine 5.2). */
+export function itemStatusLabel(status: BookingItemStatus): string {
+	return ITEM_STATUS_LABELS[status]
+}
+
+const OUTCOME_LABELS: Record<AssessmentOutcome, string> = {
+	cleared: "Cleared",
+	returned: "Returned for correction",
+	rejected: "Rejected",
+}
+
+export function outcomeLabel(outcome: AssessmentOutcome): string {
+	return OUTCOME_LABELS[outcome]
+}
+
+/** Staff may open an item for assessment from these statuses. */
+export function canOpen(status: BookingItemStatus): boolean {
+	return status === "checked_in" || status === "returned"
+}
+
+/**
+ * Turns the correction rows on the form into the map the API stores: blank
+ * rows are dropped, names and values are trimmed, and a repeated field name
+ * keeps its last value.
+ */
+export function correctionsFromRows(
+	rows: readonly { field: string; value: string }[]
+): Record<string, string> {
+	const corrections: Record<string, string> = {}
+	for (const row of rows) {
+		const field = row.field.trim()
+		if (field) corrections[field] = row.value.trim()
+	}
+	return corrections
+}

@@ -83,6 +83,7 @@ function query(rows: unknown[], lock?: jest.Mock) {
 	const chain: Record<string, unknown> = {
 		from: () => chain,
 		where: () => chain,
+		orderBy: () => chain,
 		limit: () => Promise.resolve(rows),
 		for: (mode: string) => {
 			lock?.(mode)
@@ -432,5 +433,187 @@ describe("BookingService.markPaid", () => {
 		await expect(bookingService.markPaid(tx as never, 99, null, NOW)).rejects.toMatchObject({
 			code: "NOT_FOUND",
 		})
+	})
+})
+
+/** A transaction whose selects answer in order; records every lock and status write. */
+function itemTransaction(selects: unknown[][]) {
+	const locks = jest.fn()
+	const sets = jest.fn()
+	const select = jest.fn()
+	for (const rows of selects) select.mockReturnValueOnce(query(rows, locks))
+	const tx = {
+		select,
+		update: jest.fn().mockReturnValue({
+			set: (values: unknown) => {
+				sets(values)
+				return { where: () => Promise.resolve(undefined) }
+			},
+		}),
+	}
+	return { tx, locks, sets }
+}
+
+describe("BookingService.checkInItems (PRC-1)", () => {
+	let bookingService: BookingService
+	let auditService: { record: jest.Mock }
+
+	beforeEach(() => {
+		jest.clearAllMocks()
+		auditService = { record: jest.fn().mockResolvedValue(undefined) }
+		bookingService = new BookingService(auditService as unknown as AuditService)
+	})
+
+	it("checks in the booked items of a paid booking, under locks, with an audit entry each", async () => {
+		const { tx, locks, sets } = itemTransaction([
+			[{ id: 31, status: "paid" }],
+			[{ id: 44, status: "booked" }],
+		])
+
+		const result = await bookingService.checkInItems(tx as never, 31, 2, "staff-1", NOW)
+
+		expect(result).toEqual({ ok: true, bookingItemIds: [44], checkedInIds: [44] })
+		expect(locks).toHaveBeenCalledTimes(2)
+		expect(locks).toHaveBeenCalledWith("update")
+		expect(sets).toHaveBeenCalledWith({ status: "checked_in", updatedAt: NOW })
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking_item.check_in",
+				actorId: "staff-1",
+				targetType: "booking_item",
+				targetId: "44",
+				oldValue: { status: "booked" },
+				newValue: { status: "checked_in" },
+			}),
+			tx
+		)
+	})
+
+	it.each(["pending_payment", "cancelled", "pending_approval"])(
+		"refuses with payment_required when the booking is %s, changing nothing",
+		async status => {
+			const { tx, sets } = itemTransaction([[{ id: 31, status }], [{ id: 44, status: "booked" }]])
+
+			await expect(
+				bookingService.checkInItems(tx as never, 31, 2, "staff-1", NOW)
+			).resolves.toEqual({ ok: false, reason: "payment_required", bookingStatus: status })
+			expect(sets).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		}
+	)
+
+	it("reports when the booking has no item at this location", async () => {
+		const { tx, sets } = itemTransaction([[{ id: 31, status: "paid" }], []])
+
+		await expect(bookingService.checkInItems(tx as never, 31, 9, "staff-1", NOW)).resolves.toEqual({
+			ok: false,
+			reason: "no_items_here",
+		})
+		expect(sets).not.toHaveBeenCalled()
+	})
+
+	it("leaves an item that is already checked in alone, so a second scan is harmless", async () => {
+		const { tx, sets } = itemTransaction([
+			[{ id: 31, status: "paid" }],
+			[{ id: 44, status: "in_assessment" }],
+		])
+
+		await expect(bookingService.checkInItems(tx as never, 31, 2, "staff-1", NOW)).resolves.toEqual({
+			ok: true,
+			bookingItemIds: [44],
+			checkedInIds: [],
+		})
+		expect(sets).not.toHaveBeenCalled()
+	})
+})
+
+describe("BookingService.transitionItem (PRC-1)", () => {
+	let bookingService: BookingService
+	let auditService: { record: jest.Mock }
+
+	beforeEach(() => {
+		jest.clearAllMocks()
+		auditService = { record: jest.fn().mockResolvedValue(undefined) }
+		bookingService = new BookingService(auditService as unknown as AuditService)
+	})
+
+	const options = { actorId: "staff-1", allowedFrom: ["in_assessment"] as const, now: NOW }
+
+	it("locks the item, moves it and audits the move", async () => {
+		const { tx, locks, sets } = itemTransaction([
+			[{ id: 44, status: "in_assessment", serviceId: 1 }],
+		])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 44, "returned", options)
+		).resolves.toEqual({ from: "in_assessment", to: "returned" })
+
+		expect(locks).toHaveBeenCalledWith("update")
+		expect(sets).toHaveBeenCalledWith({ status: "returned", updatedAt: NOW })
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking_item.returned",
+				targetId: "44",
+				oldValue: { status: "in_assessment" },
+				newValue: { status: "returned" },
+			}),
+			tx
+		)
+	})
+
+	it("clears an item whose service needs no approval", async () => {
+		const { tx } = itemTransaction([
+			[{ id: 44, status: "in_assessment", serviceId: 1 }],
+			[{ requiresApproval: false }],
+		])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 44, "cleared", options)
+		).resolves.toEqual({ from: "in_assessment", to: "cleared" })
+	})
+
+	it("sends a cleared item to head approval when its service requires approval", async () => {
+		const { tx, sets } = itemTransaction([
+			[{ id: 44, status: "in_assessment", serviceId: 1 }],
+			[{ requiresApproval: true }],
+		])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 44, "cleared", options)
+		).resolves.toEqual({ from: "in_assessment", to: "pending_head_approval" })
+		expect(sets).toHaveBeenCalledWith({ status: "pending_head_approval", updatedAt: NOW })
+	})
+
+	it("refuses a move that is not an arrow in the state machine", async () => {
+		const { tx, sets } = itemTransaction([[{ id: 44, status: "booked", serviceId: 1 }]])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 44, "in_assessment", {
+				...options,
+				allowedFrom: ["booked"],
+			})
+		).rejects.toMatchObject({ code: "CONFLICT" })
+		expect(sets).not.toHaveBeenCalled()
+	})
+
+	it("refuses a move from a status the caller did not expect", async () => {
+		// pending_head_approval -> cleared is an arrow, but only head approval (PRC-3) may take it.
+		const { tx, sets } = itemTransaction([
+			[{ id: 44, status: "pending_head_approval", serviceId: 1 }],
+		])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 44, "cleared", options)
+		).rejects.toMatchObject({ code: "CONFLICT" })
+		expect(sets).not.toHaveBeenCalled()
+		expect(auditService.record).not.toHaveBeenCalled()
+	})
+
+	it("fails when the item does not exist", async () => {
+		const { tx } = itemTransaction([[]])
+
+		await expect(
+			bookingService.transitionItem(tx as never, 99, "returned", options)
+		).rejects.toMatchObject({ code: "NOT_FOUND" })
 	})
 })

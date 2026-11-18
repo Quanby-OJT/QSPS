@@ -107,6 +107,11 @@ describe("navItems", () => {
 					requiredPermission: "bookings.own:create",
 				}),
 				expect.objectContaining({
+					label: "Processing",
+					href: "/processing",
+					requiredPermission: "processing.queue:read",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -156,6 +161,12 @@ describe("navItems", () => {
 		).toContain("Services")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["processing.queue:read"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Processing"])
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:create"] }).map(
 				item => item.label
 			)
@@ -172,6 +183,7 @@ describe("navItems", () => {
 		).toEqual([
 			"Dashboard",
 			"Book an appointment",
+			"Processing",
 			"User Management",
 			"Locations",
 			"Services",
@@ -186,6 +198,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
+		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})
 })

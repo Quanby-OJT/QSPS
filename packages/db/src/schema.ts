@@ -28,6 +28,12 @@ export const users = createTable("users", t => ({
 	/** Data Privacy Act consent: which notice version was accepted, and when. */
 	privacyNoticeVersion: t.text("privacy_notice_version"),
 	privacyAcceptedAt: t.timestamp("privacy_accepted_at"),
+	/**
+	 * Staff Location claim (PRC-1): the BOQ station a staff user works at.
+	 * Processing screens show only this Location's Booking Items. Null means
+	 * no processing access. Kept until ADM-2's `user_scopes` replaces it.
+	 */
+	locationId: t.integer("location_id").references(() => locations.id, { onDelete: "restrict" }),
 }))
 
 export const sessions = createTable("sessions", t => ({
@@ -423,6 +429,37 @@ export const bookingItems = createTable(
 )
 
 // ============================================================================
+// PROCESSING (PRC-1)
+// ============================================================================
+
+/**
+ * One staff verification of one Booking Item (PRC-1): cleared, returned for
+ * correction, or rejected. Insert-only history; the item's current status
+ * lives on `booking_items` and only `BookingService` changes it. Staff
+ * corrections go here because Form Submissions are immutable after payment.
+ */
+export const assessments = createTable(
+	"assessments",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingItemId: t
+			.integer("booking_item_id")
+			.notNull()
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		staffId: t
+			.text("staff_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		outcome: t.text("outcome").notNull().$type<"cleared" | "returned" | "rejected">(),
+		notes: t.text("notes"),
+		/** Field name to corrected value, as recorded by staff. */
+		corrections: t.jsonb("corrections").$type<Record<string, string>>().notNull().default({}),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [index("assessments_booking_item_idx").on(t.bookingItemId, t.createdAt)]
+)
+
+// ============================================================================
 // PAYMENTS (PAY-1)
 // ============================================================================
 
@@ -518,6 +555,7 @@ export const relations = defineRelations(
 		bookingItems,
 		payments,
 		paymentEvents,
+		assessments,
 	},
 	r => ({
 		users: {
@@ -601,6 +639,17 @@ export const relations = defineRelations(
 				from: r.bookingItems.locationId,
 				to: r.locations.id,
 			}),
+			assessments: r.many.assessments(),
+		},
+		assessments: {
+			bookingItem: r.one.bookingItems({
+				from: r.assessments.bookingItemId,
+				to: r.bookingItems.id,
+			}),
+			staff: r.one.users({
+				from: r.assessments.staffId,
+				to: r.users.id,
+			}),
 		},
 		scheduleSlots: {
 			service: r.one.services({
@@ -657,6 +706,7 @@ export const schema = Object.assign(
 		bookingItems,
 		payments,
 		paymentEvents,
+		assessments,
 	},
 	relations
 )
