@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common"
 
-import { paymentEvents, payments } from "@repo/db/schema"
+import { paymentEvents, payments, receipts } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -55,6 +55,7 @@ function fakeDatabase(options: { selects?: unknown[][]; inserts?: unknown[][] })
 		const chain: Record<string, unknown> = {
 			from: () => chain,
 			innerJoin: () => chain,
+			leftJoin: () => chain,
 			where: () => chain,
 			limit: () => Promise.resolve(rows),
 			for: (mode: string) => {
@@ -311,6 +312,33 @@ describe("PaymentService", () => {
 			)
 		})
 
+		it("issues exactly one e-Receipt in the confirming transaction", async () => {
+			const database = fakeDatabase({
+				selects: [[{ id: 90, amountCentavos: 150000 }], [savedPayment]],
+				inserts: [[{ id: 500 }], [{ id: 7, receiptNumber: "QSPS-R-261117-000090" }]],
+			})
+
+			await makeService().handleNotification("fake", notification, NOW)
+
+			expect(database.inserted[1]).toEqual({
+				table: receipts,
+				values: {
+					paymentId: 90,
+					receiptNumber: "QSPS-R-261117-000090",
+					verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+					issuedAt: NOW,
+				},
+			})
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "receipt.issue",
+					targetId: "7",
+					newValue: { paymentId: 90, receiptNumber: "QSPS-R-261117-000090" },
+				}),
+				expect.anything()
+			)
+		})
+
 		it("does nothing the second time the same notification arrives", async () => {
 			// The unique (provider_code, provider_event_id) index turns the insert into a no-op.
 			const database = fakeDatabase({
@@ -437,6 +465,8 @@ describe("PaymentService", () => {
 			expect(result).toEqual({ alreadyConfirmed: true, needsReview: false })
 			expect(bookingService.markPaid).not.toHaveBeenCalled()
 			expect(database.updated).toEqual([])
+			// No second receipt for a payment that was already confirmed.
+			expect(database.inserted).toEqual([])
 		})
 
 		it("records late money on a cancelled booking and flags it for review", async () => {
@@ -452,6 +482,8 @@ describe("PaymentService", () => {
 			expect(alerts).toHaveBeenCalledWith(
 				expect.objectContaining({ reason: "paid_unpayable_booking" })
 			)
+			// The money arrived, so the client still gets proof of payment.
+			expect(database.inserted.map(entry => entry.table)).toEqual([receipts])
 		})
 
 		it("refuses to confirm a refunded payment", async () => {
@@ -484,6 +516,7 @@ describe("PaymentService", () => {
 				status: "pending",
 				bookingStatus: "pending_payment",
 				amountCentavos: 150000,
+				receiptNumber: null,
 			})
 		})
 

@@ -2,7 +2,12 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query"
 
-import type { CreatePaymentInput, PaymentCheckout, PaymentStatusResponse } from "@repo/contracts"
+import type {
+	CreatePaymentInput,
+	PaymentCheckout,
+	PaymentStatusResponse,
+	ReceiptVerification,
+} from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -89,6 +94,36 @@ export function usePaymentStatusQuery(paymentId: number | null, keepPolling: boo
 			const data = query.state.data
 			if (!keepPolling || query.state.status === "error" || data === undefined) return false
 			return isWaitingForProvider(data.status) ? POLL_EVERY_MS : false
+		},
+	})
+}
+
+/**
+ * Where a paid payment's e-Receipt PDF is served (PAY-2). Opened as a normal
+ * link so the browser shows its PDF viewer, with download and print.
+ */
+export function receiptPdfUrl(paymentId: number): string {
+	return `${API_BASE}/payments/${paymentId}/receipt`
+}
+
+/** JSON turns the issue date into text. */
+type ReceiptVerificationJson = Omit<ReceiptVerification, "issuedAt"> & { issuedAt: string }
+
+/**
+ * The public check behind a receipt's QR code. Needs no sign-in; a 404 means
+ * no receipt has that token. Keyed under "payments" so it is never saved to
+ * browser storage (NON_PERSISTED_QUERY_ROOTS).
+ */
+export function useReceiptVerificationQuery(token: string) {
+	return useQuery({
+		queryKey: ["payments", "receipts", "verify", token],
+		retry: retryUnlessClientError,
+		queryFn: async (): Promise<ReceiptVerification | null> => {
+			const response = await fetch(`${API_BASE}/receipts/verify/${encodeURIComponent(token)}`)
+			if (response.status === 404) return null
+			if (!response.ok) throw await readError(response)
+			const body = (await response.json()) as ReceiptVerificationJson
+			return { ...body, issuedAt: new Date(body.issuedAt) }
 		},
 	})
 }

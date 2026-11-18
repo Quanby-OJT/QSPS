@@ -52,9 +52,33 @@ export const PaymentStatusResponseSchema = z.object({
 	status: PaymentStatusSchema,
 	bookingStatus: BookingStatusSchema,
 	amountCentavos: z.number().int().min(0),
+	/** Set once the Payment succeeded and its e-Receipt exists (PAY-2). */
+	receiptNumber: z.string().nullable(),
+})
+
+/** A Receipt Verification Token: 128 random bits, base64url (22 characters). */
+export const ReceiptTokenSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9_-]{22}$/, "Not a receipt verification token")
+
+export const ReceiptTokenParamSchema = z.object({ token: ReceiptTokenSchema })
+
+/**
+ * What the public verification page shows for a scanned receipt QR code.
+ * Read from the database, never from the PDF; carries no personal data.
+ */
+export const ReceiptVerificationSchema = z.object({
+	receiptNumber: z.string(),
+	amountCentavos: z.number().int().min(0),
+	issuedAt: z
+		.union([z.date(), z.string()])
+		.transform(value => (typeof value === "string" ? new Date(value) : value)),
+	/** `valid` while the money is kept; `refunded` once the Payment is refunded. */
+	status: z.enum(["valid", "refunded"]),
 })
 
 export type PaymentStatus = z.infer<typeof PaymentStatusSchema>
 export type CreatePaymentInput = z.infer<typeof CreatePaymentSchema>
 export type PaymentCheckout = z.infer<typeof PaymentCheckoutSchema>
 export type PaymentStatusResponse = z.infer<typeof PaymentStatusResponseSchema>
+export type ReceiptVerification = z.infer<typeof ReceiptVerificationSchema>
