@@ -249,3 +249,17 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/v1/payments/notif
 Sending the same body again changes nothing (duplicate). Changing the amount or
 the signature stores the event, changes nothing, and logs
 `payments.notification.alert`.
+
+## e-Receipts (PAY-2)
+
+`PaymentService.confirm` creates one row in `receipts` in the same transaction
+that marks a Payment `succeeded`. Receipts are never stored as files:
+
+- `GET /api/v1/payments/{paymentId}/receipt` renders the PDF on demand for the
+  client who owns the Booking (`bookings.own:read`); anyone else gets 404.
+- `GET /api/v1/receipts/verify/{token}` is public and returns only the receipt
+  number, amount, issue date and status. The web page
+  `/receipts/verify/{token}` shows it; the PDF's QR code links there.
+
+`PdfService` (`src/common/pdf/`) renders PDFs with `pdfkit` and QR codes with
+`qrcode`; the certificates epic reuses it.

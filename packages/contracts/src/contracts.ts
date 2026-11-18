@@ -58,12 +58,16 @@ export {
 	PaymentCheckoutSchema,
 	PaymentIdParamSchema,
 	PaymentStatusResponseSchema,
+	ReceiptTokenSchema,
+	ReceiptTokenParamSchema,
+	ReceiptVerificationSchema,
 } from "./modules/v1/payments/payments.schema.js"
 export type {
 	PaymentStatus,
 	CreatePaymentInput,
 	PaymentCheckout,
 	PaymentStatusResponse,
+	ReceiptVerification,
 } from "./modules/v1/payments/payments.schema.js"
 
 // Schedule slot contracts + schemas

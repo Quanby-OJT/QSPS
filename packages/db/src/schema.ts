@@ -496,6 +496,25 @@ export const paymentEvents = createTable(
 	]
 )
 
+/**
+ * The e-Receipt for one succeeded Payment (PAY-2). Created once, in the same
+ * transaction that marks the Payment `succeeded`; never updated. The PDF is
+ * rendered on demand from this row and its Payment, never stored as a file.
+ */
+export const receipts = createTable("receipts", t => ({
+	id: t.serial("id").primaryKey(),
+	paymentId: t
+		.integer("payment_id")
+		.notNull()
+		.unique()
+		.references(() => payments.id, { onDelete: "restrict" }),
+	/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
+	receiptNumber: t.text("receipt_number").notNull().unique(),
+	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
+	verificationToken: t.text("verification_token").notNull().unique(),
+	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+}))
+
 // ============================================================================
 // RELATIONS
 // ============================================================================
@@ -518,6 +537,7 @@ export const relations = defineRelations(
 		bookingItems,
 		payments,
 		paymentEvents,
+		receipts,
 	},
 	r => ({
 		users: {
@@ -577,6 +597,16 @@ export const relations = defineRelations(
 				to: r.bookings.id,
 			}),
 			events: r.many.paymentEvents(),
+			receipt: r.one.receipts({
+				from: r.payments.id,
+				to: r.receipts.paymentId,
+			}),
+		},
+		receipts: {
+			payment: r.one.payments({
+				from: r.receipts.paymentId,
+				to: r.payments.id,
+			}),
 		},
 		paymentEvents: {
 			payment: r.one.payments({
@@ -657,6 +687,7 @@ export const schema = Object.assign(
 		bookingItems,
 		payments,
 		paymentEvents,
+		receipts,
 	},
 	relations
 )

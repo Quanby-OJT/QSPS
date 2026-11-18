@@ -9,7 +9,7 @@ import type {
 	PaymentStatus,
 	PaymentStatusResponse,
 } from "@repo/contracts"
-import { bookings, paymentEvents, payments } from "@repo/db/schema"
+import { bookings, paymentEvents, payments, receipts } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -19,6 +19,7 @@ import { BookingService } from "../bookings/bookings.service"
 import { canTransitionPayment } from "./payment-state"
 import type { ParsedNotification, RawNotification } from "./providers/payment-provider"
 import { PaymentProviderRegistry } from "./providers/provider-registry"
+import { newVerificationToken, receiptNumberFor } from "./receipt-number"
 
 const AUDIT_DOMAIN_PAYMENTS = "payments"
 
@@ -225,9 +226,11 @@ export class PaymentService {
 				clientId: bookings.clientId,
 				referenceNumber: bookings.referenceNumber,
 				bookingStatus: bookings.status,
+				receiptNumber: receipts.receiptNumber,
 			})
 			.from(payments)
 			.innerJoin(bookings, eq(bookings.id, payments.bookingId))
+			.leftJoin(receipts, eq(receipts.paymentId, payments.id))
 			.where(eq(payments.id, paymentId))
 			.limit(1)
 
@@ -243,6 +246,7 @@ export class PaymentService {
 			status: row.status,
 			bookingStatus: row.bookingStatus,
 			amountCentavos: row.amountCentavos,
+			receiptNumber: row.receiptNumber ?? null,
 		}
 	}
 
@@ -406,8 +410,34 @@ export class PaymentService {
 				.set({ status: "succeeded", needsReview, updatedAt: now })
 				.where(eq(payments.id, paymentId))
 
-			// PAY-2 issues the e-Receipt here, and the notifications epic enqueues
-			// the client's message here, both inside this transaction.
+			// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
+			// transaction. The unique payment_id makes a second insert a no-op.
+			const [receipt] = await tx
+				.insert(receipts)
+				.values({
+					paymentId,
+					receiptNumber: receiptNumberFor(paymentId, now),
+					verificationToken: newVerificationToken(),
+					issuedAt: now,
+				})
+				.onConflictDoNothing({ target: receipts.paymentId })
+				.returning({ id: receipts.id, receiptNumber: receipts.receiptNumber })
+			if (receipt) {
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_PAYMENTS,
+						action: "receipt.issue",
+						actorId: options.actorId,
+						targetType: "receipt",
+						targetId: String(receipt.id),
+						oldValue: null,
+						newValue: { paymentId, receiptNumber: receipt.receiptNumber },
+					},
+					tx
+				)
+			}
+
+			// The notifications epic enqueues the client's message here.
 
 			await this.auditService.record(
 				{
