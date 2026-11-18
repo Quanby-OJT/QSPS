@@ -17,8 +17,11 @@ export function buildPaymentProviders(): PaymentProvider[] {
 	const providers: PaymentProvider[] = []
 
 	// The fake gateway keeps local development and tests working until a real
-	// gateway is selected. It is never available in production.
-	if (env.NODE_ENV !== "production") {
+	// gateway is selected. It needs PAYMENT_FAKE_ENABLED=true and is never
+	// available in production, whatever the flag says. Its secret has a public
+	// default, so leaving it on by default would let anyone fake a payment on
+	// any non-production server.
+	if (env.PAYMENT_FAKE_ENABLED && env.NODE_ENV !== "production") {
 		providers.push(new FakePaymentProvider({ secret: env.FAKE_PAYMENT_SECRET }))
 	}
 

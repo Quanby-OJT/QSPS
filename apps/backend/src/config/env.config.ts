@@ -40,9 +40,13 @@ export const env = createEnv({
 		// This API's public base URL including the /api prefix. Gateways post
 		// their notifications to {this}/v1/payments/notifications/{code}.
 		PAYMENT_NOTIFY_BASE_URL: z.url().default("http://localhost:3000/api"),
-		// Signing secret for the fake gateway. The fake gateway is never
-		// registered in production, so this has no effect there.
+		// Signing secret for the fake gateway. Its default is public, so the
+		// fake gateway only exists when PAYMENT_FAKE_ENABLED is true and
+		// NODE_ENV is not production.
 		FAKE_PAYMENT_SECRET: z.string().min(8).default("local-fake-payment-secret"),
+		// Turns on the fake gateway (local development and tests only). Off by
+		// default so a non-production server never accepts fake payments.
+		PAYMENT_FAKE_ENABLED: booleanFromEnv.optional().default(false),
 
 		// Proxy trust: the number of trusted reverse-proxy hops in front of the app.
 		//

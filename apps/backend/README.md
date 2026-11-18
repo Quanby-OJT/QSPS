@@ -229,11 +229,14 @@ The route is public (gateways have no session); trust comes only from the
 signature over the raw body. Every notification is stored in
 `payment_events` before it is checked.
 
-**Local testing with the fake gateway** (never available in production): pay a
-booking with channel `fake`. You land on `/payments/return?paymentId=…`, which
-shows "Confirming payment" until a notification arrives. Find the payment's
-`provider_reference` and `amount_centavos` in the `payments` table, then send a
-signed success notification (PowerShell):
+**Local testing with the fake gateway** (never available in production): set
+`PAYMENT_FAKE_ENABLED=true` in `apps/backend/.env` and restart the backend. The
+fake gateway is off by default, and it stays off when `NODE_ENV=production` even
+if the flag is set. Then pay a booking with channel `fake`. You land on
+`/payments/return?paymentId=…`, which shows "Confirming payment" until a
+notification arrives. Find the payment's `provider_reference` and
+`amount_centavos` in the `payments` table, then send a signed success
+notification (PowerShell):
 
 ```powershell
 $secret = "local-fake-payment-secret"   # FAKE_PAYMENT_SECRET

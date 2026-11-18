@@ -1,9 +1,13 @@
+import { env } from "@/config/env.config"
+
 import type { PaymentProvider } from "./payment-provider"
-import { PaymentProviderRegistry } from "./provider-registry"
+import { buildPaymentProviders, PaymentProviderRegistry } from "./provider-registry"
 
 jest.mock("@/config/env.config", () => ({
-	env: { NODE_ENV: "test", FAKE_PAYMENT_SECRET: "test-secret" },
+	env: { NODE_ENV: "test", FAKE_PAYMENT_SECRET: "test-secret", PAYMENT_FAKE_ENABLED: true },
 }))
+
+const mutableEnv = env as unknown as { NODE_ENV: string; PAYMENT_FAKE_ENABLED: boolean }
 
 function stubProvider(code: string): PaymentProvider {
 	return {
@@ -28,5 +32,26 @@ describe("PaymentProviderRegistry", () => {
 		expect(() => new PaymentProviderRegistry([stubProvider("a"), stubProvider("a")])).toThrow(
 			'Two payment providers use the code "a"'
 		)
+	})
+})
+
+describe("buildPaymentProviders", () => {
+	afterEach(() => {
+		mutableEnv.NODE_ENV = "test"
+		mutableEnv.PAYMENT_FAKE_ENABLED = true
+	})
+
+	it("includes the fake gateway when it is turned on outside production", () => {
+		expect(buildPaymentProviders().map(p => p.code)).toContain("fake")
+	})
+
+	it("leaves the fake gateway out when the flag is off", () => {
+		mutableEnv.PAYMENT_FAKE_ENABLED = false
+		expect(buildPaymentProviders().map(p => p.code)).not.toContain("fake")
+	})
+
+	it("leaves the fake gateway out in production even when the flag is on", () => {
+		mutableEnv.NODE_ENV = "production"
+		expect(buildPaymentProviders().map(p => p.code)).not.toContain("fake")
 	})
 })

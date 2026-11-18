@@ -5,7 +5,7 @@
  * Nothing outside `providers/<gateway-code>/` may import a gateway's own
  * types; the rest of the system sees only what is declared here. Adding a
  * gateway means a new folder that implements this interface, passes the
- * shared contract tests (payment-provider.contract.ts) and has one entry in
+ * shared contract tests (payment-provider.contract-spec.ts) and has one entry in
  * provider-registry.ts.
  */
 
