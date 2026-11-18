@@ -312,7 +312,10 @@ export class PaymentService {
 
 		if (!event) {
 			this.logger.log({ event: "payments.notification.duplicate", providerCode, providerEventId })
-			return "duplicate"
+			// A resent unverified notification is still refused. Answering 200 would
+			// make a real gateway stop retrying while our secret is misconfigured,
+			// and its payment would never be confirmed.
+			return parsed.signatureValid ? "duplicate" : "invalid_signature"
 		}
 
 		if (!parsed.signatureValid) {

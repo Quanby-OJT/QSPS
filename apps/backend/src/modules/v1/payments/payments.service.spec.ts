@@ -325,6 +325,23 @@ describe("PaymentService", () => {
 			expect(bookingService.markPaid).not.toHaveBeenCalled()
 		})
 
+		it("still refuses a resent notification with a bad signature, so the gateway keeps retrying", async () => {
+			const database = fakeDatabase({
+				selects: [[{ id: 90, amountCentavos: 150000 }]],
+				inserts: [[]],
+			})
+
+			const outcome = await makeService(stubProvider({ signatureValid: false })).handleNotification(
+				"fake",
+				notification,
+				NOW
+			)
+
+			expect(outcome).toBe("invalid_signature")
+			expect(database.updated).toEqual([])
+			expect(bookingService.markPaid).not.toHaveBeenCalled()
+		})
+
 		it("keeps a notification with a bad signature, changes nothing, and alerts", async () => {
 			const database = fakeDatabase({
 				selects: [[{ id: 90, amountCentavos: 150000 }]],
