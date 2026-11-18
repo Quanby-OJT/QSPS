@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
 	isWaitingForProvider,
 	POLL_FOR_MS,
+	receiptPdfUrl,
 	usePaymentStatusQuery,
 } from "@/features/payments/api/payments.hooks"
 import { feeInPesos } from "@/features/services/lib/fee"
@@ -84,6 +85,24 @@ export function PaymentReturn({ paymentId }: { paymentId: number | null }) {
 						<>
 							<Badge>Paid</Badge>
 							<p>Your payment is confirmed and your slot is secured.</p>
+							{payment.data?.receiptNumber && paymentId !== null ? (
+								<div className="flex flex-col gap-1">
+									<p className="text-muted-foreground text-sm">
+										e-Receipt{" "}
+										<span className="text-foreground font-mono">{payment.data.receiptNumber}</span>
+									</p>
+									<div>
+										<a
+											href={receiptPdfUrl(paymentId)}
+											target="_blank"
+											rel="noopener noreferrer"
+											className={buttonVariants({ variant: "default" })}
+										>
+											View or download e-Receipt (PDF)
+										</a>
+									</div>
+								</div>
+							) : null}
 						</>
 					) : null}
 

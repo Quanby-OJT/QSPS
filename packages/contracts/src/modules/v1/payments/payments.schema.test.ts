@@ -5,6 +5,8 @@ import {
 	PaymentCodeSchema,
 	PaymentIdParamSchema,
 	PaymentStatusResponseSchema,
+	ReceiptTokenSchema,
+	ReceiptVerificationSchema,
 } from "./payments.schema.js"
 
 describe("payment schemas", () => {
@@ -37,8 +39,25 @@ describe("payment schemas", () => {
 			status: "pending",
 			bookingStatus: "pending_payment",
 			amountCentavos: 150000,
+			receiptNumber: null,
 		}
 		expect(PaymentStatusResponseSchema.safeParse(base).success).toBe(true)
 		expect(PaymentStatusResponseSchema.safeParse({ ...base, status: "paid" }).success).toBe(false)
+	})
+
+	it("accepts only 22-character base64url receipt tokens", () => {
+		expect(ReceiptTokenSchema.safeParse("AbCdEfGhIjKlMnOpQrSt_-").success).toBe(true)
+		expect(ReceiptTokenSchema.safeParse("too-short").success).toBe(false)
+		expect(ReceiptTokenSchema.safeParse("AbCdEfGhIjKlMnOpQrSt/=").success).toBe(false)
+	})
+
+	it("turns the issue date of a verified receipt back into a date", () => {
+		const verified = ReceiptVerificationSchema.parse({
+			receiptNumber: "QSPS-R-261118-000001",
+			amountCentavos: 150000,
+			issuedAt: "2026-11-18T01:00:00.000Z",
+			status: "valid",
+		})
+		expect(verified.issuedAt).toEqual(new Date("2026-11-18T01:00:00.000Z"))
 	})
 })

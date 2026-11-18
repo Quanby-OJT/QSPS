@@ -5,6 +5,8 @@ import {
 	PaymentCheckoutSchema,
 	PaymentIdParamSchema,
 	PaymentStatusResponseSchema,
+	ReceiptTokenParamSchema,
+	ReceiptVerificationSchema,
 } from "./payments.schema.js"
 
 /**
@@ -35,4 +37,15 @@ export const paymentsContract = {
 		})
 		.input(PaymentIdParamSchema)
 		.output(PaymentStatusResponseSchema),
+	verifyReceipt: oc
+		.route({
+			method: "GET",
+			path: "/receipts/verify/{token}",
+			summary: "Verify an e-Receipt",
+			description:
+				"Public. Looks up the receipt behind a scanned QR code and returns its number, amount, issue date and status from the database. An unknown token answers 404 and nothing else.",
+			tags: ["Payments"],
+		})
+		.input(ReceiptTokenParamSchema)
+		.output(ReceiptVerificationSchema),
 }

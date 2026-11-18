@@ -28,12 +28,6 @@ export const users = createTable("users", t => ({
 	/** Data Privacy Act consent: which notice version was accepted, and when. */
 	privacyNoticeVersion: t.text("privacy_notice_version"),
 	privacyAcceptedAt: t.timestamp("privacy_accepted_at"),
-	/**
-	 * Staff Location claim (PRC-1): the BOQ station a staff user works at.
-	 * Processing screens show only this Location's Booking Items. Null means
-	 * no processing access. Kept until ADM-2's `user_scopes` replaces it.
-	 */
-	locationId: t.integer("location_id").references(() => locations.id, { onDelete: "restrict" }),
 }))
 
 export const sessions = createTable("sessions", t => ({
@@ -280,6 +274,34 @@ export const services = createTable(
 		uniqueIndex("services_category_name_idx").on(t.serviceCategoryId, t.name),
 		index("services_category_active_idx").on(t.serviceCategoryId, t.isActive),
 	]
+)
+
+// ============================================================================
+// USER SCOPES
+// ============================================================================
+
+/**
+ * The Service Categories and Locations a staff user may act on
+ * (DOMAIN-MODEL.md section 4). A null column means "all"; no rows means no
+ * scoped access. PRC-1 reads the Location from here; ADM-2 adds the admin
+ * screen and `ScopeService` on top of this table.
+ */
+export const userScopes = createTable(
+	"user_scopes",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		serviceCategoryId: t
+			.integer("service_category_id")
+			.references(() => serviceCategories.id, { onDelete: "restrict" }),
+		locationId: t.integer("location_id").references(() => locations.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [index("user_scopes_user_idx").on(t.userId)]
 )
 
 // ============================================================================
@@ -533,6 +555,25 @@ export const paymentEvents = createTable(
 	]
 )
 
+/**
+ * The e-Receipt for one succeeded Payment (PAY-2). Created once, in the same
+ * transaction that marks the Payment `succeeded`; never updated. The PDF is
+ * rendered on demand from this row and its Payment, never stored as a file.
+ */
+export const receipts = createTable("receipts", t => ({
+	id: t.serial("id").primaryKey(),
+	paymentId: t
+		.integer("payment_id")
+		.notNull()
+		.unique()
+		.references(() => payments.id, { onDelete: "restrict" }),
+	/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
+	receiptNumber: t.text("receipt_number").notNull().unique(),
+	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
+	verificationToken: t.text("verification_token").notNull().unique(),
+	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+}))
+
 // ============================================================================
 // RELATIONS
 // ============================================================================
@@ -556,12 +597,15 @@ export const relations = defineRelations(
 		payments,
 		paymentEvents,
 		assessments,
+		receipts,
+		userScopes,
 	},
 	r => ({
 		users: {
 			sessions: r.many.sessions(),
 			accounts: r.many.accounts(),
 			userRoles: r.many.userRoles(),
+			userScopes: r.many.userScopes(),
 		},
 		sessions: {
 			user: r.one.users({
@@ -615,6 +659,16 @@ export const relations = defineRelations(
 				to: r.bookings.id,
 			}),
 			events: r.many.paymentEvents(),
+			receipt: r.one.receipts({
+				from: r.payments.id,
+				to: r.receipts.paymentId,
+			}),
+		},
+		receipts: {
+			payment: r.one.payments({
+				from: r.receipts.paymentId,
+				to: r.payments.id,
+			}),
 		},
 		paymentEvents: {
 			payment: r.one.payments({
@@ -659,6 +713,20 @@ export const relations = defineRelations(
 			location: r.one.locations({
 				from: r.scheduleSlots.locationId,
 				to: r.locations.id,
+			}),
+		},
+		userScopes: {
+			user: r.one.users({
+				from: r.userScopes.userId,
+				to: r.users.id,
+			}),
+			location: r.one.locations({
+				from: r.userScopes.locationId,
+				to: r.locations.id,
+			}),
+			serviceCategory: r.one.serviceCategories({
+				from: r.userScopes.serviceCategoryId,
+				to: r.serviceCategories.id,
 			}),
 		},
 		userRoles: {
@@ -707,6 +775,8 @@ export const schema = Object.assign(
 		payments,
 		paymentEvents,
 		assessments,
+		receipts,
+		userScopes,
 	},
 	relations
 )

@@ -21,6 +21,7 @@ import {
 	scheduleSlots,
 	services,
 	users,
+	userScopes,
 } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
@@ -57,9 +58,10 @@ interface StaffLocation {
 /**
  * BOQ staff assessment (PRC-1, TOR §VIII.3).
  *
- * Every read and write is limited to the staff user's Location claim
- * (`users.location_id`) until ADM-2 adds `ScopeService`. Item status changes
- * go through `BookingService`; this service writes only `assessments`.
+ * Every read and write is limited to the staff user's Location, read from
+ * `user_scopes` (DOMAIN-MODEL.md section 4) until ADM-2 adds `ScopeService`.
+ * Item status changes go through `BookingService`; this service writes only
+ * `assessments`.
  */
 @Injectable()
 export class ProcessingService {
@@ -264,13 +266,20 @@ export class ProcessingService {
 		return this.loadItem(input.bookingItemId)
 	}
 
-	/** The staff user's Location claim, or null when they have none. */
+	/**
+	 * The staff user's Location from `user_scopes`, or null when they have none.
+	 *
+	 * PRC-1 supports one Location per staff user: the first scope row that names
+	 * a Location. A row with a null `location_id` ("all Locations") and several
+	 * Locations per user are handled by ADM-2's `ScopeService`.
+	 */
 	private async staffLocation(staffId: string): Promise<StaffLocation | null> {
 		const [row] = await db
 			.select({ id: locations.id, name: locations.name })
-			.from(users)
-			.innerJoin(locations, eq(locations.id, users.locationId))
-			.where(eq(users.id, staffId))
+			.from(userScopes)
+			.innerJoin(locations, eq(locations.id, userScopes.locationId))
+			.where(eq(userScopes.userId, staffId))
+			.orderBy(asc(userScopes.id))
 			.limit(1)
 		return row ?? null
 	}
