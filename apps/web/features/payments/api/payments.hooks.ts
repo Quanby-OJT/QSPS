@@ -60,6 +60,12 @@ export function isWaitingForProvider(status: PaymentStatusResponse["status"] | u
 	return status === undefined || WAITING_STATUSES.has(status)
 }
 
+/** A 4xx answer (not found, not signed in) will not change by asking again. */
+function retryUnlessClientError(failureCount: number, error: Error): boolean {
+	if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false
+	return failureCount < 2
+}
+
 /**
  * A payment's status, asked again every few seconds while the provider's
  * notification is still on its way. Read-only: this never marks anything paid.
@@ -75,7 +81,14 @@ export function usePaymentStatusQuery(paymentId: number | null, keepPolling: boo
 			if (!response.ok) throw await readError(response)
 			return (await response.json()) as PaymentStatusResponse
 		},
-		refetchInterval: query =>
-			keepPolling && isWaitingForProvider(query.state.data?.status) ? POLL_EVERY_MS : false,
+		retry: retryUnlessClientError,
+		// Poll only after a real answer that says "still waiting". An error
+		// (not found, signed out) stops polling, so a stranger's tab cannot
+		// keep hitting the API and filling the audit log.
+		refetchInterval: query => {
+			const data = query.state.data
+			if (!keepPolling || query.state.status === "error" || data === undefined) return false
+			return isWaitingForProvider(data.status) ? POLL_EVERY_MS : false
+		},
 	})
 }

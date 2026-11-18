@@ -30,7 +30,8 @@ export function PaymentReturn({ paymentId }: { paymentId: number | null }) {
 	}, [])
 
 	const status = payment.data?.status
-	const waiting = isWaitingForProvider(status)
+	// Only "waiting" once the API has answered; before that we know nothing yet.
+	const waiting = payment.data !== undefined && isWaitingForProvider(status)
 
 	return (
 		<section className="mx-auto flex max-w-xl flex-col gap-6">
@@ -48,6 +49,10 @@ export function PaymentReturn({ paymentId }: { paymentId: number | null }) {
 							<span className="text-foreground font-mono">{payment.data.referenceNumber}</span> · ₱
 							{feeInPesos(payment.data.amountCentavos)}
 						</p>
+					) : null}
+
+					{payment.isPending ? (
+						<p className="text-muted-foreground">Checking your payment…</p>
 					) : null}
 
 					{waiting && keepPolling ? (
