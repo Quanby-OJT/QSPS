@@ -374,3 +374,63 @@ describe("BookingService.create", () => {
 		expect(db.transaction).not.toHaveBeenCalled()
 	})
 })
+
+describe("BookingService.markPaid", () => {
+	let bookingService: BookingService
+	let auditService: { record: jest.Mock }
+
+	function paymentTransaction(rows: unknown[]) {
+		const lock = jest.fn()
+		const set = jest.fn()
+		const tx = {
+			select: jest.fn().mockReturnValue(query(rows, lock)),
+			update: jest.fn().mockReturnValue({
+				set: (values: unknown) => {
+					set(values)
+					return { where: () => Promise.resolve(undefined) }
+				},
+			}),
+		}
+		return { tx, lock, set }
+	}
+
+	beforeEach(() => {
+		jest.clearAllMocks()
+		auditService = { record: jest.fn().mockResolvedValue(undefined) }
+		bookingService = new BookingService(auditService as unknown as AuditService)
+	})
+
+	it("locks the booking, marks it paid, clears the hold and audits", async () => {
+		const { tx, lock, set } = paymentTransaction([{ id: 31, status: "pending_payment" }])
+
+		await expect(bookingService.markPaid(tx as never, 31, null, NOW)).resolves.toBe(true)
+
+		expect(lock).toHaveBeenCalledWith("update")
+		expect(set).toHaveBeenCalledWith({ status: "paid", holdExpiresAt: null, updatedAt: NOW })
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking.paid",
+				targetId: "31",
+				oldValue: { status: "pending_payment" },
+				newValue: { status: "paid" },
+			}),
+			tx
+		)
+	})
+
+	it("leaves a cancelled booking alone and says so", async () => {
+		const { tx, set } = paymentTransaction([{ id: 31, status: "cancelled" }])
+
+		await expect(bookingService.markPaid(tx as never, 31, null, NOW)).resolves.toBe(false)
+		expect(set).not.toHaveBeenCalled()
+		expect(auditService.record).not.toHaveBeenCalled()
+	})
+
+	it("fails when the booking does not exist", async () => {
+		const { tx } = paymentTransaction([])
+
+		await expect(bookingService.markPaid(tx as never, 99, null, NOW)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		})
+	})
+})

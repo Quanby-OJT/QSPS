@@ -1,0 +1,42 @@
+import { Controller, UseInterceptors } from "@nestjs/common"
+import { Implement } from "@orpc/nest"
+import { implement } from "@orpc/server"
+import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
+
+import { v1 } from "@/config/api-versions.config"
+import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
+import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
+import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interceptor"
+
+import { PaymentService } from "./payments.service"
+
+function actorId(session?: UserSession): string | null {
+	return session?.user?.id ?? null
+}
+
+@Controller()
+export class PaymentsController {
+	constructor(private readonly paymentService: PaymentService) {}
+
+	// Idempotent: a double click or a retried request with the same
+	// Idempotency-Key replays the first checkout instead of opening a second.
+	@StrictThrottle()
+	@RequirePermissions("payments.own:create")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.payments.create)
+	async create(@Session() session?: UserSession) {
+		return implement(v1.payments.create).handler(({ input }) =>
+			this.paymentService.create(input, actorId(session))
+		)
+	}
+
+	// Read-only. The same key as paying: whoever may pay a booking may watch
+	// that payment; ownership is checked in the service.
+	@RequirePermissions("payments.own:create")
+	@Implement(v1.payments.status)
+	async status(@Session() session?: UserSession) {
+		return implement(v1.payments.status).handler(({ input }) =>
+			this.paymentService.getStatus(input.paymentId, actorId(session))
+		)
+	}
+}

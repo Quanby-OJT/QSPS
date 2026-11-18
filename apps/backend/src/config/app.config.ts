@@ -32,6 +32,24 @@ const logger = new Logger("AppConfig")
  */
 export const MAX_REQUEST_BODY_SIZE = 100 * 1024
 
+/** Path prefix of the payment gateway notification endpoint (PAY-1). */
+const PAYMENT_NOTIFICATION_PATH = "/v1/payments/notifications/"
+
+/**
+ * Keep the exact request bytes for payment gateway notifications only.
+ * Gateways sign the raw body, and a parsed-then-reserialized body would not
+ * match the signature. Other routes skip this so no body is held twice.
+ */
+function keepPaymentNotificationBody(
+	request: { url?: string; rawBody?: Buffer },
+	_response: unknown,
+	buffer: Buffer
+): void {
+	if (request.url?.includes(PAYMENT_NOTIFICATION_PATH)) {
+		request.rawBody = buffer
+	}
+}
+
 /**
  * Configure body parser middleware for non-auth routes
  * Note: bodyParser is disabled in bootstrap.ts to allow Better Auth to handle its own body parsing.
@@ -39,8 +57,16 @@ export const MAX_REQUEST_BODY_SIZE = 100 * 1024
  */
 function configureBodyParser(app: INestApplication): void {
 	const httpAdapter = app.getHttpAdapter()
-	httpAdapter.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }))
-	httpAdapter.use(express.urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }))
+	httpAdapter.use(
+		express.json({ limit: MAX_REQUEST_BODY_SIZE, verify: keepPaymentNotificationBody })
+	)
+	httpAdapter.use(
+		express.urlencoded({
+			extended: true,
+			limit: MAX_REQUEST_BODY_SIZE,
+			verify: keepPaymentNotificationBody,
+		})
+	)
 	// Directly after the parsers. Nest turns a JSON SyntaxError into
 	// BadRequestException and keeps the parser message; this hands the filter
 	// a plain error that still carries the client status and type.

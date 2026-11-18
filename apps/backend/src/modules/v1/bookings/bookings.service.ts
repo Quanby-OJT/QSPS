@@ -9,7 +9,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { env } from "@/config/env.config"
 
-import { initialStatus } from "./booking-state"
+import { canTransition, initialStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
 const AUDIT_DOMAIN_BOOKINGS = "bookings"
@@ -19,7 +19,7 @@ const MAX_REFERENCE_ATTEMPTS = 5
 
 const MS_PER_MINUTE = 60_000
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * Bookings (BKG-1). The only code that changes `bookings.status` and
@@ -186,6 +186,54 @@ export class BookingService {
 				],
 			}
 		})
+	}
+
+	/**
+	 * Mark a Booking paid (Flow C step 5, PAY-1).
+	 *
+	 * Called only by `PaymentService.confirm`, inside its transaction, so the
+	 * Payment and the Booking change together or not at all. Locks the Booking
+	 * row first. Returns false and changes nothing when the Booking can no
+	 * longer be paid (for example it was cancelled while the client was at
+	 * checkout); the caller then flags the Payment for review.
+	 */
+	async markPaid(
+		tx: Transaction,
+		bookingId: number,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<boolean> {
+		const [booking] = await tx
+			.select({ id: bookings.id, status: bookings.status })
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.for("update")
+		if (!booking) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking "${bookingId}" was not found` })
+		}
+		if (!canTransition(booking.status, "paid")) {
+			return false
+		}
+
+		// A paid booking keeps its slot, so the hold no longer applies.
+		await tx
+			.update(bookings)
+			.set({ status: "paid", holdExpiresAt: null, updatedAt: now })
+			.where(eq(bookings.id, bookingId))
+
+		await this.auditService.record(
+			{
+				domain: AUDIT_DOMAIN_BOOKINGS,
+				action: "booking.paid",
+				actorId,
+				targetType: "booking",
+				targetId: String(bookingId),
+				oldValue: { status: booking.status },
+				newValue: { status: "paid" },
+			},
+			tx
+		)
+		return true
 	}
 
 	/** Draw Reference Numbers until one is not already in use. */

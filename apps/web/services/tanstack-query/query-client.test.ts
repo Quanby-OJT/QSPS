@@ -30,6 +30,10 @@ describe("shouldPersistQuery", () => {
 		expect(shouldPersistQuery(query(key))).toBe(false)
 	})
 
+	it("never saves a payment's status to browser storage", () => {
+		expect(shouldPersistQuery(query(["payments", 1]))).toBe(false)
+	})
+
 	it("excludes a sensitive root even when it appears inside an oRPC path segment", () => {
 		expect(shouldPersistQuery(query(orpcKey("rbac", "users", "list")))).toBe(false)
 	})
@@ -53,8 +57,8 @@ describe("shouldPersistQuery", () => {
 		expect(shouldPersistQuery(query([{ scope: "session" }]))).toBe(true)
 	})
 
-	it("lists both sensitive roots the audit called out", () => {
-		expect([...NON_PERSISTED_QUERY_ROOTS]).toEqual(["session", "rbac"])
+	it("lists the sensitive roots: the two the audit called out, plus payments (PAY-1)", () => {
+		expect([...NON_PERSISTED_QUERY_ROOTS]).toEqual(["session", "rbac", "payments"])
 	})
 })
 

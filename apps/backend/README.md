@@ -211,3 +211,41 @@ From the repo root: `pnpm -F @repo/backend test:e2e`.
 | `pnpm test`     | Run unit tests                                                              |
 | `pnpm test:e2e` | Run e2e tests (needs `pnpm db:seed` and `SEED_ADMIN_PASSWORD`; see above)  |
 | `pnpm test:cov` | Run tests with coverage                                                     |
+
+## Payments (PAY-1)
+
+Every payment gateway sits behind the `PaymentProvider` interface in
+`src/modules/v1/payments/providers/payment-provider.ts`. One folder per
+gateway under `providers/<gateway-code>/`; nothing outside that folder may
+import it (ESLint enforces this), except `provider-registry.ts`.
+
+**Adding a gateway:** create `providers/<code>/`, implement `PaymentProvider`
+from the gateway's merchant integration guide, add a spec that calls
+`describePaymentProviderContract` (see `providers/fake/fake.provider.spec.ts`),
+and register it in `buildPaymentProviders()`.
+
+**Notifications** arrive at `POST /api/v1/payments/notifications/{code}`.
+The route is public (gateways have no session); trust comes only from the
+signature over the raw body. Every notification is stored in
+`payment_events` before it is checked.
+
+**Local testing with the fake gateway** (never available in production): set
+`PAYMENT_FAKE_ENABLED=true` in `apps/backend/.env` and restart the backend. The
+fake gateway is off by default, and it stays off when `NODE_ENV=production` even
+if the flag is set. Then pay a booking with channel `fake`. You land on
+`/payments/return?paymentId=…`, which shows "Confirming payment" until a
+notification arrives. Find the payment's `provider_reference` and
+`amount_centavos` in the `payments` table, then send a signed success
+notification (PowerShell):
+
+```powershell
+$secret = "local-fake-payment-secret"   # FAKE_PAYMENT_SECRET
+$body = '{"eventId":"evt-local-1","reference":"fake_1_0123456789ab","status":"succeeded","amountCentavos":150000}'
+$hmac = [System.Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($secret))
+$signature = -join ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($body)) | ForEach-Object { $_.ToString("x2") })
+Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/v1/payments/notifications/fake" -ContentType "application/json" -Headers @{ "x-fake-signature" = $signature } -Body $body
+```
+
+Sending the same body again changes nothing (duplicate). Changing the amount or
+the signature stores the event, changes nothing, and logs
+`payments.notification.alert`.

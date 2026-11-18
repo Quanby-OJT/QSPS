@@ -423,6 +423,80 @@ export const bookingItems = createTable(
 )
 
 // ============================================================================
+// PAYMENTS (PAY-1)
+// ============================================================================
+
+/**
+ * One attempt to pay a Booking (PAY-1). Status follows state machine 5.3 in
+ * DOMAIN-MODEL.md and only `PaymentService` writes this table. Money is
+ * integer centavos: `amount_centavos` is the full amount charged (the Booking
+ * total plus `convenience_fee_centavos`).
+ */
+export const payments = createTable(
+	"payments",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		/** What the client picked at checkout. Equals the provider code until PAY-5 adds channels. */
+		channelCode: t.text("channel_code").notNull(),
+		/** The `PaymentProvider` that handles this payment, e.g. "fake", "linkbiz", "onsite". */
+		providerCode: t.text("provider_code").notNull(),
+		/** The provider's id for this payment; set once checkout is created. */
+		providerReference: t.text("provider_reference"),
+		amountCentavos: t.integer("amount_centavos").notNull(),
+		convenienceFeeCentavos: t.integer("convenience_fee_centavos").notNull().default(0),
+		status: t
+			.text("status")
+			.notNull()
+			.default("initiated")
+			.$type<"initiated" | "pending" | "succeeded" | "failed" | "expired" | "refunded">(),
+		/** Set when money arrived for a Booking that can no longer be paid (late payment, D7). */
+		needsReview: t.boolean("needs_review").notNull().default(false),
+		/** The cashier who took an onsite payment; null for online payments. */
+		collectedBy: t.text("collected_by").references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("payments_booking_idx").on(t.bookingId),
+		// A provider reference identifies one payment. Nulls (not yet sent to
+		// checkout) do not collide in Postgres.
+		uniqueIndex("payments_provider_reference_uq").on(t.providerCode, t.providerReference),
+		// No unique index on "one succeeded per booking": if a client pays twice,
+		// the second success is real money and must still be recorded. It is
+		// kept with needs_review = true instead (PaymentService.confirm).
+	]
+)
+
+/**
+ * Raw log of every provider notification (PAY-1). Stored before anything is
+ * checked, including forged and duplicate ones. Insert-only: the one later
+ * write is `processed_at`, set when the event changed a Payment.
+ */
+export const paymentEvents = createTable(
+	"payment_events",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		/** Null when the notification names no payment we know. */
+		paymentId: t.integer("payment_id").references(() => payments.id, { onDelete: "restrict" }),
+		providerCode: t.text("provider_code").notNull(),
+		providerEventId: t.text("provider_event_id").notNull(),
+		payload: t.jsonb("payload").notNull().$type<unknown>(),
+		signatureValid: t.boolean("signature_valid").notNull(),
+		processedAt: t.timestamp("processed_at"),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [
+		// A redelivered notification hits this and is not processed twice.
+		uniqueIndex("payment_events_provider_event_uq").on(t.providerCode, t.providerEventId),
+		index("payment_events_payment_idx").on(t.paymentId),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -442,6 +516,8 @@ export const relations = defineRelations(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		payments,
+		paymentEvents,
 	},
 	r => ({
 		users: {
@@ -493,6 +569,20 @@ export const relations = defineRelations(
 				to: r.users.id,
 			}),
 			items: r.many.bookingItems(),
+			payments: r.many.payments(),
+		},
+		payments: {
+			booking: r.one.bookings({
+				from: r.payments.bookingId,
+				to: r.bookings.id,
+			}),
+			events: r.many.paymentEvents(),
+		},
+		paymentEvents: {
+			payment: r.one.payments({
+				from: r.paymentEvents.paymentId,
+				to: r.payments.id,
+			}),
 		},
 		bookingItems: {
 			booking: r.one.bookings({
@@ -565,6 +655,8 @@ export const schema = Object.assign(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		payments,
+		paymentEvents,
 	},
 	relations
 )

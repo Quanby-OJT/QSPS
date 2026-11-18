@@ -48,6 +48,24 @@ export type {
 	CreateBookingInput,
 } from "./modules/v1/bookings/bookings.schema.js"
 
+// Payment contracts + schemas
+export { paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export {
+	PAYMENT_STATUSES,
+	PaymentStatusSchema,
+	PaymentCodeSchema,
+	CreatePaymentSchema,
+	PaymentCheckoutSchema,
+	PaymentIdParamSchema,
+	PaymentStatusResponseSchema,
+} from "./modules/v1/payments/payments.schema.js"
+export type {
+	PaymentStatus,
+	CreatePaymentInput,
+	PaymentCheckout,
+	PaymentStatusResponse,
+} from "./modules/v1/payments/payments.schema.js"
+
 // Schedule slot contracts + schemas
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
