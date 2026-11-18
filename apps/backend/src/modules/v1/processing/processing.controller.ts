@@ -5,7 +5,6 @@ import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
 import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
-import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interceptor"
 
 import { ProcessingService } from "./processing.service"
@@ -17,6 +16,10 @@ function actorId(session?: UserSession): string | null {
 /**
  * BOQ staff assessment (PRC-1). RbacGuard checks the permission key (403 and
  * a denied Audit Entry without it); ProcessingService checks the Location.
+ *
+ * These routes use the normal throttle, not the strict one: staff make three
+ * calls per client (check in, open, assess), and every route already needs a
+ * staff session and a processing permission.
  */
 @Controller()
 export class ProcessingController {
@@ -39,7 +42,6 @@ export class ProcessingController {
 	}
 
 	// Scanning the same QR twice is harmless: items already checked in stay as they are.
-	@StrictThrottle()
 	@RequirePermissions("processing.assessments:perform")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.processing.checkIn)
@@ -49,7 +51,6 @@ export class ProcessingController {
 		)
 	}
 
-	@StrictThrottle()
 	@RequirePermissions("processing.assessments:perform")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.processing.open)
@@ -61,7 +62,6 @@ export class ProcessingController {
 
 	// Idempotent: a double click with the same Idempotency-Key replays the
 	// first result instead of adding a second Assessment.
-	@StrictThrottle()
 	@RequirePermissions("processing.assessments:perform")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.processing.assess)
