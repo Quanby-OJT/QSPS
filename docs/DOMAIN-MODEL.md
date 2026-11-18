@@ -128,7 +128,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts`. Money 
 | `payment_events` | `payment_id?`, `provider_code`, `provider_event_id` (unique per provider), `payload`, `signature_valid`, `processed_at`, `created_at` | Raw log of every provider notification, stored before it is checked. Insert-only; `processed_at` is the one later write. `payment_id` is null when the notification names no known payment. An event whose signature does not verify is stored under `unverified:<sha256 of body>` instead of the provider's event id, so a forged event can never block the real one as a duplicate. |
 | `receipts` | `payment_id` (unique), `receipt_number` (unique), `verification_token` (unique), `issued_at` | Created once, in the same transaction that marks the Payment `succeeded` (PAY-2), including a late success flagged `needs_review`. `receipt_number` is `QSPS-R-YYMMDD-NNNNNN` (Manila issue date, Payment id); it is the e-Receipt number, not BOQ's Official Receipt series. `verification_token` is 128 random bits, base64url, and is what the receipt QR code links to. The PDF is rendered on demand from this row and is never stored. |
 | `refund_requests` | `booking_id`, `kind` (`refund`/`forfeiture`), `status`, `reason`, `requested_by`, `decided_by` | `requested → approved → settled`, or `rejected`. |
-| `assessments` | `booking_item_id`, `staff_id`, `outcome` (`cleared`/`returned`/`rejected`), `notes`, `corrections` (jsonb) | Insert-only history. |
+| `assessments` | `booking_item_id`, `staff_id`, `outcome` (`cleared`/`returned`/`rejected`), `notes`, `corrections` (jsonb) | Insert-only history. Each row also moves the Booking Item (5.2) in the same transaction, through `BookingService`. |
 | `documents` | `booking_item_id?`, `document_type`, `document_number` (unique per type), `verification_token` (unique), `issuing_location_id`, `issued_at`, `status` (`valid`/`revoked`/`superseded`), `source` (`qsps`/`legacy`), `payload` (jsonb) | Never deleted. Reissue creates a new row and supersedes the old one. |
 | `policies` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. |
 | `announcements` | `title`, `media_url`, `starts_at`, `ends_at`, `is_active` | The Gender and Development flash screen. |
@@ -173,7 +173,7 @@ booked ──► checked_in ──► in_assessment ──► cleared ──► 
 no_show                     returned         rejected (from in_assessment)
 ```
 
-`checked_in` is refused unless the parent Booking is `paid`. `cleared` goes to `pending_head_approval` first when the Service has `requires_approval`.
+`checked_in` is refused unless the parent Booking is `paid`. `cleared` goes to `pending_head_approval` first when the Service has `requires_approval`. A `returned` item goes back to `in_assessment` when staff open it again after the client corrects it.
 
 ### 5.3 Payment
 

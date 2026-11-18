@@ -277,6 +277,34 @@ export const services = createTable(
 )
 
 // ============================================================================
+// USER SCOPES
+// ============================================================================
+
+/**
+ * The Service Categories and Locations a staff user may act on
+ * (DOMAIN-MODEL.md section 4). A null column means "all"; no rows means no
+ * scoped access. PRC-1 reads the Location from here; ADM-2 adds the admin
+ * screen and `ScopeService` on top of this table.
+ */
+export const userScopes = createTable(
+	"user_scopes",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		serviceCategoryId: t
+			.integer("service_category_id")
+			.references(() => serviceCategories.id, { onDelete: "restrict" }),
+		locationId: t.integer("location_id").references(() => locations.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [index("user_scopes_user_idx").on(t.userId)]
+)
+
+// ============================================================================
 // SCHEDULES
 // ============================================================================
 
@@ -423,6 +451,37 @@ export const bookingItems = createTable(
 )
 
 // ============================================================================
+// PROCESSING (PRC-1)
+// ============================================================================
+
+/**
+ * One staff verification of one Booking Item (PRC-1): cleared, returned for
+ * correction, or rejected. Insert-only history; the item's current status
+ * lives on `booking_items` and only `BookingService` changes it. Staff
+ * corrections go here because Form Submissions are immutable after payment.
+ */
+export const assessments = createTable(
+	"assessments",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingItemId: t
+			.integer("booking_item_id")
+			.notNull()
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		staffId: t
+			.text("staff_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		outcome: t.text("outcome").notNull().$type<"cleared" | "returned" | "rejected">(),
+		notes: t.text("notes"),
+		/** Field name to corrected value, as recorded by staff. */
+		corrections: t.jsonb("corrections").$type<Record<string, string>>().notNull().default({}),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [index("assessments_booking_item_idx").on(t.bookingItemId, t.createdAt)]
+)
+
+// ============================================================================
 // PAYMENTS (PAY-1)
 // ============================================================================
 
@@ -537,13 +596,16 @@ export const relations = defineRelations(
 		bookingItems,
 		payments,
 		paymentEvents,
+		assessments,
 		receipts,
+		userScopes,
 	},
 	r => ({
 		users: {
 			sessions: r.many.sessions(),
 			accounts: r.many.accounts(),
 			userRoles: r.many.userRoles(),
+			userScopes: r.many.userScopes(),
 		},
 		sessions: {
 			user: r.one.users({
@@ -631,6 +693,17 @@ export const relations = defineRelations(
 				from: r.bookingItems.locationId,
 				to: r.locations.id,
 			}),
+			assessments: r.many.assessments(),
+		},
+		assessments: {
+			bookingItem: r.one.bookingItems({
+				from: r.assessments.bookingItemId,
+				to: r.bookingItems.id,
+			}),
+			staff: r.one.users({
+				from: r.assessments.staffId,
+				to: r.users.id,
+			}),
 		},
 		scheduleSlots: {
 			service: r.one.services({
@@ -640,6 +713,20 @@ export const relations = defineRelations(
 			location: r.one.locations({
 				from: r.scheduleSlots.locationId,
 				to: r.locations.id,
+			}),
+		},
+		userScopes: {
+			user: r.one.users({
+				from: r.userScopes.userId,
+				to: r.users.id,
+			}),
+			location: r.one.locations({
+				from: r.userScopes.locationId,
+				to: r.locations.id,
+			}),
+			serviceCategory: r.one.serviceCategories({
+				from: r.userScopes.serviceCategoryId,
+				to: r.serviceCategories.id,
 			}),
 		},
 		userRoles: {
@@ -687,7 +774,9 @@ export const schema = Object.assign(
 		bookingItems,
 		payments,
 		paymentEvents,
+		assessments,
 		receipts,
+		userScopes,
 	},
 	relations
 )

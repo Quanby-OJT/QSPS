@@ -70,6 +70,38 @@ export type {
 	ReceiptVerification,
 } from "./modules/v1/payments/payments.schema.js"
 
+// Processing contracts + schemas (PRC-1)
+export { processingContract } from "./modules/v1/processing/processing.contract.js"
+export {
+	ASSESSMENT_OUTCOMES,
+	MAX_ASSESSMENT_NOTES_LENGTH,
+	MAX_CORRECTIONS,
+	AssessmentOutcomeSchema,
+	QueuePaymentStatusSchema,
+	ProcessingQueueRequestSchema,
+	QueueItemSchema,
+	ProcessingQueueSchema,
+	CheckInSchema,
+	BookingItemIdParamSchema,
+	RecordAssessmentSchema,
+	AssessmentSchema,
+	ProcessingItemSchema,
+	CheckInResponseSchema,
+} from "./modules/v1/processing/processing.schema.js"
+export type {
+	AssessmentOutcome,
+	QueuePaymentStatus,
+	ProcessingQueueRequest,
+	QueueItem,
+	ProcessingQueue,
+	CheckInInput,
+	BookingItemIdParam,
+	RecordAssessmentInput,
+	Assessment,
+	ProcessingItem,
+	CheckInResponse,
+} from "./modules/v1/processing/processing.schema.js"
+
 // Schedule slot contracts + schemas
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
