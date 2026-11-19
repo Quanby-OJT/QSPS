@@ -17,6 +17,7 @@ import {
 	assessments,
 	bookingItems,
 	bookings,
+	documents,
 	locations,
 	scheduleSlots,
 	services,
@@ -28,6 +29,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 
 import { BookingService } from "../bookings/bookings.service"
+import { DocumentService } from "../certificates/documents.service"
 import { manilaDateOf, manilaDateTimeToUtc } from "../schedules/manila-time"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
@@ -67,7 +69,8 @@ interface StaffLocation {
 export class ProcessingService {
 	constructor(
 		private readonly bookingService: BookingService,
-		private readonly auditService: AuditService
+		private readonly auditService: AuditService,
+		private readonly documentService: DocumentService
 	) {}
 
 	/** Booking Items at the caller's Location for one Manila date, earliest first. */
@@ -211,6 +214,11 @@ export class ProcessingService {
 	 * Record an Assessment and move the item: cleared (or pending head
 	 * approval), returned for correction, or rejected. The Assessment row, the
 	 * item's new status and both Audit Entries commit together.
+	 *
+	 * CRT-1: when the item is cleared and its Service issues a document
+	 * automatically, the document is issued in this same transaction, recorded
+	 * against this officer. If the certificate details are missing, nothing is
+	 * saved.
 	 */
 	async assess(input: RecordAssessmentInput, actorId: string | null): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
@@ -223,6 +231,14 @@ export class ProcessingService {
 				input.outcome,
 				{ actorId: staffId, allowedFrom: ["in_assessment"] }
 			)
+
+			if (moved.to === "cleared") {
+				await this.documentService.issueOnClearance(tx, {
+					bookingItemId: input.bookingItemId,
+					actorId: staffId,
+					details: input.document ?? null,
+				})
+			}
 
 			const notes = input.notes.length > 0 ? input.notes : null
 			const [saved] = await tx
@@ -328,6 +344,10 @@ export class ProcessingService {
 				serviceId: services.id,
 				serviceName: services.name,
 				requiresApproval: services.requiresApproval,
+				documentType: services.documentType,
+				autoIssue: services.autoIssue,
+				documentId: documents.id,
+				documentNumber: documents.documentNumber,
 				locationId: locations.id,
 				locationName: locations.name,
 				startsAt: scheduleSlots.startsAt,
@@ -346,6 +366,10 @@ export class ProcessingService {
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
 			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
+			.leftJoin(
+				documents,
+				and(eq(documents.bookingItemId, bookingItems.id), eq(documents.status, "valid"))
+			)
 			.where(eq(bookingItems.id, bookingItemId))
 			.limit(1)
 		if (!row) throw itemNotFound()
@@ -380,7 +404,13 @@ export class ProcessingService {
 				id: row.serviceId,
 				name: row.serviceName,
 				requiresApproval: row.requiresApproval,
+				documentType: row.documentType,
+				autoIssue: row.autoIssue,
 			},
+			document:
+				row.documentId !== null && row.documentNumber !== null
+					? { id: row.documentId, documentNumber: row.documentNumber }
+					: null,
 			location: { id: row.locationId, name: row.locationName },
 			startsAt: row.startsAt,
 			endsAt: row.endsAt,

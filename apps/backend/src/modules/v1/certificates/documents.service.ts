@@ -2,16 +2,21 @@ import { Injectable, NotFoundException } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
 import { and, desc, eq, sql } from "drizzle-orm"
 
-import type { DocumentSummary, IcvIssueDetails, IssueDocumentInput, MyDocuments } from "@repo/contracts"
+import type {
+	DocumentSummary,
+	IcvIssueDetails,
+	IssueDocumentInput,
+	MyDocuments,
+} from "@repo/contracts"
 import {
 	bookingItems,
 	bookings,
-	documentSequences,
 	documents,
+	documentSequences,
 	locations,
 	services,
-	userScopes,
 	users,
+	userScopes,
 } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
@@ -353,13 +358,15 @@ export class DocumentService {
 
 		const verifyUrl = documentVerifyUrl(row.verificationToken)
 		const qrPng = await this.pdfService.qrPng(verifyUrl)
-		const pdf = await this.pdfService.render({ title: `${type.title} ${row.documentNumber}` }, doc =>
-			type.draw(doc, row.payload, {
-				documentNumber: row.documentNumber,
-				status: row.status,
-				verifyUrl,
-				qrPng,
-			})
+		const pdf = await this.pdfService.render(
+			{ title: `${type.title} ${row.documentNumber}` },
+			doc =>
+				type.draw(doc, row.payload, {
+					documentNumber: row.documentNumber,
+					status: row.status,
+					verifyUrl,
+					qrPng,
+				})
 		)
 		return { fileName: `${row.documentNumber}.pdf`, pdf }
 	}
@@ -388,7 +395,9 @@ export class DocumentService {
 			.innerJoin(locations, eq(locations.id, documents.issuingLocationId))
 			.where(and(eq(documents.bookingItemId, bookingItemId), eq(documents.status, "valid")))
 			.limit(1)
-		return row ? { ...row, documentType: row.documentType as DocumentSummary["documentType"] } : null
+		return row
+			? { ...row, documentType: row.documentType as DocumentSummary["documentType"] }
+			: null
 	}
 
 	/**
@@ -405,7 +414,9 @@ export class DocumentService {
 		await tx
 			.insert(documentSequences)
 			.values({ documentType, locationId, nextNumber: 1, createdAt: now, updatedAt: now })
-			.onConflictDoNothing({ target: [documentSequences.documentType, documentSequences.locationId] })
+			.onConflictDoNothing({
+				target: [documentSequences.documentType, documentSequences.locationId],
+			})
 
 		const [row] = await tx
 			.select({ id: documentSequences.id, nextNumber: documentSequences.nextNumber })

@@ -662,7 +662,10 @@ describe("BookingService.completeIfAllItemsFinal (CRT-1)", () => {
 	})
 
 	it("leaves a booking that is not paid alone", async () => {
-		const { tx, sets } = itemTransaction([[{ id: 31, status: "completed" }], [{ status: "issued" }]])
+		const { tx, sets } = itemTransaction([
+			[{ id: 31, status: "completed" }],
+			[{ status: "issued" }],
+		])
 		await expect(
 			bookingService.completeIfAllItemsFinal(tx as never, 31, "staff-1", NOW)
 		).resolves.toBe(false)

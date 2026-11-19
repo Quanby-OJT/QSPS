@@ -2,6 +2,7 @@ import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 
 import type { BookingService } from "../bookings/bookings.service"
+import type { DocumentService } from "../certificates/documents.service"
 import { ProcessingService } from "./processing.service"
 
 jest.mock("@orpc/server", () => ({
@@ -32,6 +33,7 @@ function query(rows: unknown[]) {
 	const chain: Record<string, unknown> = {
 		from: () => chain,
 		innerJoin: () => chain,
+		leftJoin: () => chain,
 		where: () => chain,
 		orderBy: () => chain,
 		limit: () => Promise.resolve(rows),
@@ -77,16 +79,19 @@ describe("ProcessingService", () => {
 	let processingService: ProcessingService
 	let auditService: { record: jest.Mock }
 	let bookingService: { checkInItems: jest.Mock; transitionItem: jest.Mock }
+	let documentService: { issueOnClearance: jest.Mock }
 	const tx = { insert: jest.fn() }
 
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
 		bookingService = { checkInItems: jest.fn(), transitionItem: jest.fn() }
+		documentService = { issueOnClearance: jest.fn().mockResolvedValue(null) }
 		jest.mocked(db.transaction).mockImplementation(callback => callback(tx as never) as never)
 		processingService = new ProcessingService(
 			bookingService as unknown as BookingService,
-			auditService as unknown as AuditService
+			auditService as unknown as AuditService,
+			documentService as unknown as DocumentService
 		)
 	})
 
@@ -375,6 +380,60 @@ describe("ProcessingService", () => {
 			)
 
 			expect(values).toHaveBeenCalledWith(expect.objectContaining({ notes: null }))
+		})
+
+		it("issues the document in the same transaction when the item is cleared (CRT-1)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "issued" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "cleared" })
+			mockInsert()
+			const document = {
+				batchNumber: "YF-24A",
+				vaccinatorName: "Dr. Reyes",
+				validFrom: "2026-11-29",
+				validUntil: null,
+				passportOrIdNumber: null,
+			}
+
+			await processingService.assess(
+				{ bookingItemId: 44, outcome: "cleared", notes: "", corrections: {}, document },
+				"staff-1"
+			)
+
+			expect(documentService.issueOnClearance).toHaveBeenCalledWith(tx, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				details: document,
+			})
+		})
+
+		it("does not try to issue a document for a returned item", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "returned" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "returned" })
+			mockInsert()
+
+			await processingService.assess(
+				{ bookingItemId: 44, outcome: "returned", notes: "Bring your passport", corrections: {} },
+				"staff-1"
+			)
+
+			expect(documentService.issueOnClearance).not.toHaveBeenCalled()
+		})
+
+		it("saves no assessment when the document cannot be issued", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "cleared" })
+			documentService.issueOnClearance.mockRejectedValue(
+				Object.assign(new Error("details required"), { code: "BAD_REQUEST" })
+			)
+			const values = mockInsert()
+
+			await expect(
+				processingService.assess(
+					{ bookingItemId: 44, outcome: "cleared", notes: "", corrections: {} },
+					"staff-1"
+				)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(values).not.toHaveBeenCalled()
 		})
 
 		it("saves nothing when the item cannot move", async () => {

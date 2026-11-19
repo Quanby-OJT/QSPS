@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common"
 
-import { documentSequences, documents } from "@repo/db/schema"
+import { documents, documentSequences } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -335,7 +335,10 @@ describe("DocumentService", () => {
 		}
 
 		it("renders the owner's document with a QR code to the verify page", async () => {
-			jest.mocked(db.select).mockReset().mockReturnValueOnce(query([row]) as never)
+			jest
+				.mocked(db.select)
+				.mockReset()
+				.mockReturnValueOnce(query([row]) as never)
 			const draw = jest.spyOn(icvRecord, "draw").mockImplementation(() => undefined)
 
 			const result = await service.renderForOwner(5, "client-1")
@@ -351,7 +354,10 @@ describe("DocumentService", () => {
 		})
 
 		it("answers 404 and audits a denial when another client asks", async () => {
-			jest.mocked(db.select).mockReset().mockReturnValueOnce(query([row]) as never)
+			jest
+				.mocked(db.select)
+				.mockReset()
+				.mockReturnValueOnce(query([row]) as never)
 			await expect(service.renderForOwner(5, "client-2")).rejects.toBeInstanceOf(NotFoundException)
 			expect(pdf.render).not.toHaveBeenCalled()
 			expect(audit.record).toHaveBeenCalledWith(
