@@ -33,6 +33,7 @@ const makeService = (overrides: Record<string, unknown> = {}) => ({
 	feeCentavos: 12500,
 	requiresApproval: true,
 	documentType: null,
+	autoIssue: true,
 	isActive: true,
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -66,7 +67,7 @@ describe("ServicesService", () => {
 	})
 
 	it("creates a service with its code, fee, approval setting and document type, and audits it", async () => {
-		const created = makeService({ documentType: "Vaccination Certificate" })
+		const created = makeService({ documentType: "icv-record" })
 		const values = jest.fn().mockReturnValue({
 			onConflictDoNothing: () => ({ returning: () => Promise.resolve([created]) }),
 		})
@@ -86,7 +87,7 @@ describe("ServicesService", () => {
 					name: "Yellow fever vaccination",
 					feeCentavos: 12500,
 					requiresApproval: true,
-					documentType: "Vaccination Certificate",
+					documentType: "icv-record",
 				},
 				"staff-1"
 			)
@@ -94,12 +95,13 @@ describe("ServicesService", () => {
 			code: "YF-VAX",
 			categoryCode: "immunization",
 			requiresApproval: true,
-			documentType: "Vaccination Certificate",
+			documentType: "icv-record",
 			isActive: true,
 		})
 
+		// Left out, auto-issue defaults to on.
 		expect(values).toHaveBeenCalledWith(
-			expect.objectContaining({ code: "YF-VAX", documentType: "Vaccination Certificate" })
+			expect.objectContaining({ code: "YF-VAX", documentType: "icv-record", autoIssue: true })
 		)
 		expect(auditService.record).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -159,9 +161,9 @@ describe("ServicesService", () => {
 			feeCentavos: 15000,
 		})
 
-		// An update that does not mention the document type keeps it.
+		// An update that does not mention the document type or auto-issue keeps them.
 		expect(set).toHaveBeenCalledWith(
-			expect.objectContaining({ feeCentavos: 15000, documentType: null })
+			expect.objectContaining({ feeCentavos: 15000, documentType: null, autoIssue: true })
 		)
 		expect(auditService.record).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -174,8 +176,43 @@ describe("ServicesService", () => {
 		)
 	})
 
+	it("turns auto-issue off and audits the old and new setting", async () => {
+		const current = makeService({ documentType: "icv-record" })
+		const updated = makeService({ documentType: "icv-record", autoIssue: false })
+		const returning = jest.fn().mockResolvedValue([updated])
+		const set = jest.fn().mockReturnValue({ where: () => ({ returning }) })
+		const tx = mockTransaction({
+			select: jest
+				.fn()
+				.mockReturnValueOnce(selectRows([current]))
+				.mockReturnValueOnce(selectRows([makeCategory()]))
+				.mockReturnValueOnce(selectLimited([])),
+			update: jest.fn().mockReturnValue({ set }),
+		})
+
+		await expect(service.update({ id: 42, autoIssue: false }, "staff-1")).resolves.toMatchObject({
+			id: 42,
+			documentType: "icv-record",
+			autoIssue: false,
+		})
+
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({ documentType: "icv-record", autoIssue: false })
+		)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "service.update",
+				oldValue: expect.objectContaining({ autoIssue: true }),
+				newValue: expect.objectContaining({ autoIssue: false }),
+			}),
+			tx
+		)
+	})
+
 	it("lists only active services in the catalog", async () => {
-		const orderBy = jest.fn().mockResolvedValue([{ service: makeService(), category: makeCategory() }])
+		const orderBy = jest
+			.fn()
+			.mockResolvedValue([{ service: makeService(), category: makeCategory() }])
 		const where = jest.fn().mockReturnValue({ orderBy })
 		const innerJoin = jest.fn().mockReturnValue({ where })
 		jest.mocked(db.select).mockReturnValue({ from: () => ({ innerJoin }) } as never)

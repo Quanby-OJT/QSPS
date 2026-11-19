@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { DOCUMENT_TYPES } from "../certificates/certificates.schema.js"
+
 const dateField = z
 	.union([z.date(), z.string()])
 	.transform(value => (typeof value === "string" ? new Date(value) : value))
@@ -17,12 +19,15 @@ const ServiceCodeSchema = z
 
 const NormalizedServiceCodeSchema = ServiceCodeSchema.transform(code => code.toUpperCase())
 
-/** Document issued for the service (CRT-1); null when the service issues none. */
-const DocumentTypeSchema = z
-	.string()
-	.trim()
-	.min(1, "Document type cannot be empty")
-	.max(100, "Document type must be 100 characters or fewer")
+/**
+ * Document stored on a service, as read back. Older rows may hold free text from
+ * before CRT-1, so the response accepts any short string; null = none.
+ */
+const StoredDocumentTypeSchema = z.string().trim().min(1).max(100).nullable()
+
+/** Document a service issues when cleared (CRT-1): one QSPS knows how to issue, or null. */
+const DocumentTypeInputSchema = z
+	.enum(DOCUMENT_TYPES, { error: "Choose a document type QSPS can issue" })
 	.nullable()
 
 export const ServiceCategorySchema = z.object({
@@ -40,7 +45,9 @@ export const ServiceSchema = z.object({
 	name: z.string().min(1).max(150),
 	feeCentavos: FeeCentavosSchema,
 	requiresApproval: z.boolean(),
-	documentType: DocumentTypeSchema,
+	documentType: StoredDocumentTypeSchema,
+	/** Whether clearing issues the document at once (CRT-1). */
+	autoIssue: z.boolean(),
 	isActive: z.boolean(),
 	createdAt: dateField,
 	updatedAt: dateField,
@@ -52,7 +59,9 @@ export const CreateServiceSchema = z.object({
 	name: z.string().trim().min(1, "Service name is required").max(150),
 	feeCentavos: FeeCentavosSchema,
 	requiresApproval: z.boolean(),
-	documentType: DocumentTypeSchema.optional(),
+	documentType: DocumentTypeInputSchema.optional(),
+	/** Defaults to true when left out. */
+	autoIssue: z.boolean().optional(),
 })
 
 /** Path params arrive as text ("/services/7"), so the id is converted to a number. */
@@ -64,14 +73,16 @@ export const UpdateServiceRequestSchema = ServiceIdParamSchema.extend({
 	name: z.string().trim().min(1, "Service name is required").max(150).optional(),
 	feeCentavos: FeeCentavosSchema.optional(),
 	requiresApproval: z.boolean().optional(),
-	documentType: DocumentTypeSchema.optional(),
+	documentType: DocumentTypeInputSchema.optional(),
+	autoIssue: z.boolean().optional(),
 }).refine(
-	({ serviceCategoryId, name, feeCentavos, requiresApproval, documentType }) =>
+	({ serviceCategoryId, name, feeCentavos, requiresApproval, documentType, autoIssue }) =>
 		serviceCategoryId !== undefined ||
 		name !== undefined ||
 		feeCentavos !== undefined ||
 		requiresApproval !== undefined ||
-		documentType !== undefined,
+		documentType !== undefined ||
+		autoIssue !== undefined,
 	"At least one service field must be provided"
 )
 
