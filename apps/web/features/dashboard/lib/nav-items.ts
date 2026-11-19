@@ -3,6 +3,7 @@ import {
 	Add01Icon,
 	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
+	File01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
@@ -33,6 +34,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/book",
 		icon: Add01Icon,
 		requiredPermission: "bookings.own:create",
+	},
+	{
+		label: "My documents",
+		href: "/documents",
+		icon: File01Icon,
+		requiredPermission: "certificates.own:read",
 	},
 	{
 		label: "Processing",

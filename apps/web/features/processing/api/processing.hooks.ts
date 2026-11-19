@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type {
 	AssessmentOutcome,
 	CheckInResponse,
+	IcvIssueDetails,
 	ProcessingItem,
 	ProcessingQueue,
 } from "@repo/contracts"
@@ -141,6 +142,8 @@ export interface RecordAssessmentRequest {
 	outcome: AssessmentOutcome
 	notes: string
 	corrections: Record<string, string>
+	/** Certificate details, sent when clearing an item whose Service auto-issues (CRT-1). */
+	document?: IcvIssueDetails | null
 	/** One per submit attempt, so a double click adds one Assessment, not two. */
 	idempotencyKey: string
 }
@@ -159,6 +162,8 @@ export function useRecordAssessmentMutation(bookingItemId: number) {
 		onSuccess: item => {
 			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
 			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+			// A cleared item may have just issued a document (CRT-1).
+			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
 		},
 	})
 }
