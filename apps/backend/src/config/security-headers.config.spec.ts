@@ -58,6 +58,19 @@ describe("API security headers", () => {
 		expect(response.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin")
 	})
 
+	it("keeps the public document verification endpoint unframeable and unsniffable (CRT-2)", async () => {
+		const app = appWithHeaders()
+		app.get("/api/v1/certificates/verify/:token", (_req, res) => res.json({ status: "valid" }))
+
+		const response = await request(app).get("/api/v1/certificates/verify/D53c9uPTeejxoiwDBMIHAw")
+
+		expect(response.headers["content-security-policy"]).toBe(
+			"default-src 'none';frame-ancestors 'none';base-uri 'none';form-action 'none'"
+		)
+		expect(response.headers["x-frame-options"]).toBe("DENY")
+		expect(response.headers["x-content-type-options"]).toBe("nosniff")
+	})
+
 	it("does not advertise the framework", async () => {
 		const response = await request(appWithHeaders()).get("/json")
 
@@ -136,6 +149,9 @@ function docsAwareApp(): Express {
 	app.get("/api/v1/health", (_req, res) => res.json({ ok: true }))
 	app.get("/api/v1/example/todos", (_req, res) => res.json([]))
 	app.get("/api/v1/auth/get-session", (_req, res) => res.json(null))
+	// Public, no session (CRT-2): still a JSON API answer, so still the deny-all policy.
+	app.get("/api/v1/certificates/verify/:token", (_req, res) => res.json({ status: "valid" }))
+	app.get("/api/v1/certificates/verify", (_req, res) => res.json({ status: "valid" }))
 	app.get("/boom", () => {
 		throw new Error("handler failure")
 	})
@@ -206,6 +222,8 @@ describe("docs route CSP", () => {
 		"/api/v1/health",
 		"/api/v1/example/todos",
 		"/api/v1/auth/get-session",
+		"/api/v1/certificates/verify/D53c9uPTeejxoiwDBMIHAw",
+		"/api/v1/certificates/verify?documentNumber=ICV-MNL-2026-000001&code=wDBMIHAw",
 	])("keeps the API policy on %s while docs are enabled", async path => {
 		const response = await request(docsAwareApp()).get(path)
 		expect(cspOf(response.headers)).toBe(API_CSP)

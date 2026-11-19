@@ -67,6 +67,9 @@ export function drawIcvRecord(doc: PdfDocument, payload: IcvPayload, extras: Pdf
 	const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
 	const qrSize = 110
 	const qrX = left + width - qrSize
+	// The code under the QR code, for checking the document without a scanner (CRT-2).
+	const verificationCode = extras.verifyUrl.slice(-8)
+	const portalUrl = extras.verifyUrl.slice(0, extras.verifyUrl.lastIndexOf("/"))
 
 	doc
 		.font("Helvetica-Bold")
@@ -87,6 +90,11 @@ export function drawIcvRecord(doc: PdfDocument, payload: IcvPayload, extras: Pdf
 		.fontSize(7)
 		.fillColor(LABEL_COLOR)
 		.text("Scan to verify", qrX, 45 + qrSize + 2, { width: qrSize, align: "center" })
+	doc
+		.font("Courier-Bold")
+		.fontSize(8)
+		.fillColor("#000000")
+		.text(`Code: ${verificationCode}`, qrX, 45 + qrSize + 11, { width: qrSize, align: "center" })
 
 	let y = 120
 	const field = (label: string, value: string, valueWidth = width - qrSize - 125) => {
@@ -110,7 +118,7 @@ export function drawIcvRecord(doc: PdfDocument, payload: IcvPayload, extras: Pdf
 
 	field("Document No.", extras.documentNumber)
 	field("Status", extras.status.toUpperCase())
-	y = Math.max(y, 45 + qrSize + 20) + 6
+	y = Math.max(y, 45 + qrSize + 24) + 6
 	rule()
 
 	doc.font("Helvetica-Bold").fontSize(9).fillColor(LABEL_COLOR).text("HOLDER", left, y)
@@ -144,7 +152,8 @@ export function drawIcvRecord(doc: PdfDocument, payload: IcvPayload, extras: Pdf
 		.fillColor(LABEL_COLOR)
 		.text(
 			`Verify this document by scanning the QR code or opening ${extras.verifyUrl}. ` +
-				"The verification page reads the record from QSPS, so a changed copy of this PDF will not match.",
+				"The verification page reads the record from QSPS, so a changed copy of this PDF will not match. " +
+				`Without a scanner, open ${portalUrl} and enter the document number and the code ${verificationCode}.`,
 			left,
 			y,
 			{ width }

@@ -3,14 +3,17 @@ import { z } from "zod"
 
 import {
 	DocumentSummarySchema,
+	DocumentTokenParamSchema,
+	DocumentVerificationSchema,
 	IssueDocumentSchema,
+	ManualVerificationSchema,
 	MyDocumentsSchema,
 } from "./certificates.schema.js"
 
 /**
  * Documents (CRT-1, Flow D). The PDF itself is a plain route,
  * GET /api/v1/certificates/documents/{documentId}/pdf, because it answers
- * with PDF bytes. Public verification is CRT-2.
+ * with PDF bytes. The two verify routes are public (CRT-2).
  */
 export const certificatesContract = {
 	issue: oc
@@ -34,4 +37,26 @@ export const certificatesContract = {
 		})
 		.input(z.object({}).optional())
 		.output(MyDocumentsSchema),
+	verify: oc
+		.route({
+			method: "GET",
+			path: "/certificates/verify/{token}",
+			summary: "Verify a document by its QR code",
+			description:
+				"Public, no session. Looks up the Document behind a scanned QR code and returns its type, number, masked holder name, issuing Location, issue date and status from the database. An unknown or malformed token answers 404 and nothing else. Rate limited.",
+			tags: ["Certificates"],
+		})
+		.input(DocumentTokenParamSchema)
+		.output(DocumentVerificationSchema),
+	verifyByNumber: oc
+		.route({
+			method: "GET",
+			path: "/certificates/verify",
+			summary: "Verify a document by its number and code",
+			description:
+				"Public, no session. The same lookup for someone without a scanner: the Document Number plus the code printed under the QR code. A wrong pair answers 404 and nothing else. Rate limited.",
+			tags: ["Certificates"],
+		})
+		.input(ManualVerificationSchema)
+		.output(DocumentVerificationSchema),
 }
