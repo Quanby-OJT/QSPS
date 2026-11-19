@@ -67,9 +67,68 @@ export const MyDocumentsSchema = z.object({
 	documents: z.array(DocumentSummarySchema),
 })
 
+// ============================================================================
+// PUBLIC VERIFICATION (CRT-2)
+// ============================================================================
+
+/** A Document Verification Token: 128 random bits, base64url (22 characters). */
+export const DocumentTokenSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9_-]{22}$/, "Not a document verification token")
+
+export const DocumentTokenParamSchema = z.object({ token: DocumentTokenSchema })
+
+/**
+ * The code printed under a document's QR code, for checking it without a
+ * scanner: the last characters of the Verification Token.
+ */
+export const VERIFICATION_CODE_LENGTH = 8
+
+/**
+ * Manual entry on the public portal: the Document Number as printed plus the
+ * code under the QR code. The number alone is not enough, because numbers
+ * run in sequence and could be guessed.
+ */
+export const ManualVerificationSchema = z.object({
+	documentNumber: z
+		.string()
+		.trim()
+		.toUpperCase()
+		.regex(/^[A-Z0-9][A-Z0-9-]{4,99}$/, "Enter the document number as printed"),
+	code: z
+		.string()
+		.trim()
+		.regex(
+			new RegExp(`^[A-Za-z0-9_-]{${VERIFICATION_CODE_LENGTH}}$`),
+			`Enter the ${VERIFICATION_CODE_LENGTH}-character code printed under the QR code`
+		),
+})
+
+/**
+ * What the public verification page shows (TOR §VIII.4). Read from the
+ * database, never from the PDF. Only what is needed to recognise the
+ * document: the holder's name is masked, and nothing else from the payload
+ * (no birth date, no passport/ID number) is returned.
+ */
+export const DocumentVerificationSchema = z.object({
+	documentType: DocumentTypeSchema,
+	/** e.g. "International Certificate of Vaccination record". */
+	documentTitle: z.string(),
+	documentNumber: z.string(),
+	/** e.g. "J*** D*** C***". */
+	holderName: z.string(),
+	issuingLocation: z.string(),
+	issuedAt: dateField,
+	status: DocumentStatusSchema,
+	/** When it stopped being valid; null while it is valid. */
+	statusChangedAt: dateField.nullable(),
+})
+
 export type DocumentType = z.infer<typeof DocumentTypeSchema>
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>
 export type IcvIssueDetails = z.infer<typeof IcvIssueDetailsSchema>
 export type IssueDocumentInput = z.infer<typeof IssueDocumentSchema>
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>
+export type ManualVerificationInput = z.infer<typeof ManualVerificationSchema>
+export type DocumentVerification = z.infer<typeof DocumentVerificationSchema>

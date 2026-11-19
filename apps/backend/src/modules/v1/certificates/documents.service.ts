@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from "@nestjs/common"
+import { timingSafeEqual } from "node:crypto"
 import { ORPCError } from "@orpc/server"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, sql, type SQL } from "drizzle-orm"
 
 import type {
 	DocumentSummary,
+	DocumentVerification,
 	IcvIssueDetails,
 	IssueDocumentInput,
+	ManualVerificationInput,
 	MyDocuments,
 } from "@repo/contracts"
 import {
@@ -28,8 +31,30 @@ import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { newVerificationToken } from "../payments/receipt-number"
 import { formatDocumentNumber } from "./document-number"
 import { documentTypeFor } from "./document-types/registry"
+import { holderNameOf, maskName } from "./mask-name"
 
 const AUDIT_DOMAIN_CERTIFICATES = "certificates"
+
+/**
+ * Same rules as `DocumentTokenSchema` and `ManualVerificationSchema` in
+ * @repo/contracts. Kept here because backend Jest cannot load that package's
+ * runtime exports (see manila-time.ts).
+ */
+const DOCUMENT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/
+const VERIFICATION_CODE_LENGTH = 8
+const VERIFICATION_CODE_PATTERN = /^[A-Za-z0-9_-]{8}$/
+
+/** One answer for every miss, so a lookup reveals nothing about why it failed. */
+function noRecord(): ORPCError<"NOT_FOUND", unknown> {
+	return new ORPCError("NOT_FOUND", { message: "No record found" })
+}
+
+/** Constant-time comparison of the code under the QR code with the token's tail. */
+function codeMatches(token: string, code: string): boolean {
+	const tail = Buffer.from(token.slice(-VERIFICATION_CODE_LENGTH))
+	const given = Buffer.from(code)
+	return tail.length === given.length && timingSafeEqual(tail, given)
+}
 
 /** The public page a document's QR code points to (built in CRT-2, Flow D step 5). */
 export function documentVerifyUrl(token: string): string {
@@ -369,6 +394,79 @@ export class DocumentService {
 				})
 		)
 		return { fileName: `${row.documentNumber}.pdf`, pdf }
+	}
+
+	/**
+	 * Public lookup behind a document's QR code (CRT-2, Flow D step 5). No
+	 * session and no permission: the 128-bit token is the only key. Returns only
+	 * what is needed to recognise the document, with the holder's name masked;
+	 * never the payload. An unknown or malformed token gets the same 404.
+	 *
+	 * Runs inside an oRPC handler, so it throws ORPCError: oRPC turns any other
+	 * error into a 500.
+	 */
+	async verify(token: string): Promise<DocumentVerification> {
+		if (!DOCUMENT_TOKEN_PATTERN.test(token)) throw noRecord()
+		const [row] = await this.verificationRows(eq(documents.verificationToken, token), 1)
+		if (!row) throw noRecord()
+		return this.toVerification(row)
+	}
+
+	/**
+	 * The same lookup for someone without a scanner (CRT-2): the Document
+	 * Number plus the code printed under the QR code. The number alone is never
+	 * enough, because numbers run in sequence.
+	 */
+	async verifyByNumber(input: ManualVerificationInput): Promise<DocumentVerification> {
+		if (!VERIFICATION_CODE_PATTERN.test(input.code)) throw noRecord()
+		// Unique per document type, so a number can appear once per type at most.
+		const rows = await this.verificationRows(eq(documents.documentNumber, input.documentNumber), 5)
+		const row = rows.find(candidate => codeMatches(candidate.verificationToken, input.code))
+		if (!row) throw noRecord()
+		return this.toVerification(row)
+	}
+
+	private verificationRows(where: SQL, limit: number) {
+		return db
+			.select({
+				documentType: documents.documentType,
+				documentNumber: documents.documentNumber,
+				verificationToken: documents.verificationToken,
+				status: documents.status,
+				issuedAt: documents.issuedAt,
+				updatedAt: documents.updatedAt,
+				payload: documents.payload,
+				issuingLocation: locations.name,
+			})
+			.from(documents)
+			.innerJoin(locations, eq(locations.id, documents.issuingLocationId))
+			.where(where)
+			.limit(limit)
+	}
+
+	private toVerification(row: {
+		documentType: string
+		documentNumber: string
+		status: "valid" | "revoked" | "superseded"
+		issuedAt: Date
+		updatedAt: Date
+		payload: Record<string, unknown>
+		issuingLocation: string
+	}): DocumentVerification {
+		const type = documentTypeFor(row.documentType)
+		// A type QSPS cannot describe (legacy imports, MIG-4) is out of scope here.
+		if (!type) throw noRecord()
+		return {
+			documentType: type.type as DocumentVerification["documentType"],
+			documentTitle: type.title,
+			documentNumber: row.documentNumber,
+			holderName: maskName(holderNameOf(row.payload)),
+			issuingLocation: row.issuingLocation,
+			issuedAt: row.issuedAt,
+			status: row.status,
+			// Revoking or superseding is the last change to a document row.
+			statusChangedAt: row.status === "valid" ? null : row.updatedAt,
+		}
 	}
 
 	/** The item's valid document, if it has one. */
