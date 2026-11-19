@@ -5,6 +5,7 @@ import {
 	BookingStatusSchema,
 	ReferenceNumberSchema,
 } from "../bookings/bookings.schema.js"
+import { IcvIssueDetailsSchema } from "../certificates/certificates.schema.js"
 import { BusinessDateSchema } from "../schedules/schedules.schema.js"
 
 const dateField = z
@@ -73,6 +74,11 @@ export const RecordAssessmentSchema = BookingItemIdParamSchema.extend({
 	outcome: AssessmentOutcomeSchema,
 	notes: z.string().trim().max(MAX_ASSESSMENT_NOTES_LENGTH).default(""),
 	corrections: CorrectionsSchema.default({}),
+	/**
+	 * Certificate details (CRT-1). Required when clearing an item whose Service
+	 * issues its document automatically; ignored otherwise.
+	 */
+	document: IcvIssueDetailsSchema.nullish(),
 }).refine(value => value.outcome === "cleared" || value.notes.length > 0, {
 	message: "Write a note telling the client why it was returned or rejected",
 	path: ["notes"],
@@ -104,7 +110,13 @@ export const ProcessingItemSchema = z.object({
 		id: z.number().int().positive(),
 		name: z.string(),
 		requiresApproval: z.boolean(),
+		/** The document this Service issues (CRT-1); null when it issues none. */
+		documentType: z.string().nullable(),
+		/** Issue the document as soon as the item is cleared (CRT-1). */
+		autoIssue: z.boolean(),
 	}),
+	/** The item's valid document, once issued (CRT-1). */
+	document: z.object({ id: z.number().int().positive(), documentNumber: z.string() }).nullable(),
 	location: z.object({ id: z.number().int().positive(), name: z.string() }),
 	startsAt: dateField,
 	endsAt: dateField,

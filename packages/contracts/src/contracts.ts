@@ -102,6 +102,27 @@ export type {
 	CheckInResponse,
 } from "./modules/v1/processing/processing.schema.js"
 
+
+// Certificates contracts + schemas (CRT-1)
+export { certificatesContract } from "./modules/v1/certificates/certificates.contract.js"
+export {
+	DOCUMENT_TYPES,
+	DocumentTypeSchema,
+	DocumentStatusSchema,
+	IcvIssueDetailsSchema,
+	IssueDocumentSchema,
+	DocumentSummarySchema,
+	MyDocumentsSchema,
+} from "./modules/v1/certificates/certificates.schema.js"
+export type {
+	DocumentType,
+	DocumentStatus,
+	IcvIssueDetails,
+	IssueDocumentInput,
+	DocumentSummary,
+	MyDocuments,
+} from "./modules/v1/certificates/certificates.schema.js"
+
 // Schedule slot contracts + schemas
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
