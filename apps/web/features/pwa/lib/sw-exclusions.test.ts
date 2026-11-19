@@ -6,6 +6,7 @@ import {
 	isAuthenticatedRoute,
 	mayServeOfflineFallback,
 	TOKEN_PARAMS,
+	TOKEN_PATH_PREFIXES,
 } from "./sw-exclusions"
 
 // Reset and verification links travel as `?token=…` URLs
@@ -32,6 +33,18 @@ describe("carriesToken", () => {
 	it("does not flag a parameter that merely contains a token name", () => {
 		expect(carriesToken(url("/x?tokenCount=3"))).toBe(false)
 	})
+
+	it.each(TOKEN_PATH_PREFIXES)("detects a verification token in the path after %s", prefix => {
+		expect(carriesToken(url(`${prefix}D53c9uPTeejxoiwDBMIHAw`))).toBe(true)
+	})
+
+	it("does not flag the manual verification page or look-alike paths", () => {
+		// /verify has no token; /verify-email carries its token as ?token=.
+		expect(carriesToken(url("/verify"))).toBe(false)
+		expect(carriesToken(url("/verify/"))).toBe(false)
+		expect(carriesToken(url("/verify-email"))).toBe(false)
+		expect(carriesToken(url("/receipts"))).toBe(false)
+	})
 })
 
 describe("isAuthenticatedRoute", () => {
@@ -51,17 +64,22 @@ describe("isAuthenticatedRoute", () => {
 		expect(isAuthenticatedRoute(url("/accounts-public"))).toBe(false)
 	})
 
-	it.each(["/", "/login", "/register", "/forgot-password", "/~offline"])(
+	it.each(["/", "/login", "/register", "/forgot-password", "/~offline", "/verify"])(
 		"leaves %s public",
 		path => {
 			expect(isAuthenticatedRoute(url(path))).toBe(false)
 		}
 	)
+
+	it("leaves the public document verification page public (CRT-2)", () => {
+		expect(isAuthenticatedRoute(url("/verify/D53c9uPTeejxoiwDBMIHAw"))).toBe(false)
+	})
 })
 
 describe("mayServeOfflineFallback", () => {
 	it("allows the fallback for public pages", () => {
 		expect(mayServeOfflineFallback(url("/login"))).toBe(true)
+		expect(mayServeOfflineFallback(url("/verify"))).toBe(true)
 	})
 
 	it("refuses to fake an authenticated page", () => {
@@ -75,6 +93,12 @@ describe("mayServeOfflineFallback", () => {
 		// user on a link they cannot retry.
 		expect(mayServeOfflineFallback(url("/reset-password?token=abc"))).toBe(false)
 	})
+
+	it("refuses to stand in for a document or receipt verification link (CRT-2)", () => {
+		// An offline page there could be mistaken for "no record found".
+		expect(mayServeOfflineFallback(url("/verify/D53c9uPTeejxoiwDBMIHAw"))).toBe(false)
+		expect(mayServeOfflineFallback(url("/receipts/verify/D53c9uPTeejxoiwDBMIHAw"))).toBe(false)
+	})
 })
 
 describe("bypassesServiceWorker", () => {
@@ -83,6 +107,15 @@ describe("bypassesServiceWorker", () => {
 	it("bypasses a cross-origin API URL", () => {
 		expect(
 			bypassesServiceWorker(new URL("http://localhost:3000/api/v1/health"), workerOrigin)
+		).toBe(true)
+	})
+
+	it("bypasses the cross-origin document verification API (CRT-2)", () => {
+		expect(
+			bypassesServiceWorker(
+				new URL("http://localhost:3000/api/v1/certificates/verify/D53c9uPTeejxoiwDBMIHAw"),
+				workerOrigin
+			)
 		).toBe(true)
 	})
 
