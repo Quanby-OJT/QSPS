@@ -9,7 +9,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { env } from "@/config/env.config"
 
-import { canTransitionItem } from "./booking-item-state"
+import { canTransitionItem, isTerminalItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
@@ -30,7 +30,7 @@ export type CheckInResult =
 
 /**
  * Bookings (BKG-1). The only code that changes `bookings.status`,
- * `booking_items.status` (PRC-1) and `schedule_slots.booked_count`
+ * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
  * (DOMAIN-MODEL.md section 6).
  */
 @Injectable()
@@ -371,6 +371,57 @@ export class BookingService {
 		)
 
 		return { from: item.status, to: target }
+	}
+
+	/**
+	 * Complete a paid Booking once every item is final (state machine 5.1:
+	 * `paid` to `completed` when each item is `issued`, `rejected` or
+	 * `no_show`). Called by `DocumentService.issue` in its transaction (CRT-1).
+	 * Returns false and changes nothing while any item is still open, or when
+	 * the Booking is not `paid`.
+	 */
+	async completeIfAllItemsFinal(
+		tx: Transaction,
+		bookingId: number,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<boolean> {
+		const [booking] = await tx
+			.select({ id: bookings.id, status: bookings.status })
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.for("update")
+		if (!booking) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking "${bookingId}" was not found` })
+		}
+
+		// Locked too, so no item changes between this check and the update.
+		const items = await tx
+			.select({ status: bookingItems.status })
+			.from(bookingItems)
+			.where(eq(bookingItems.bookingId, bookingId))
+			.orderBy(asc(bookingItems.id))
+			.for("update")
+		if (items.length === 0 || !items.every(item => isTerminalItem(item.status))) return false
+		if (!canTransition(booking.status, "completed")) return false
+
+		await tx
+			.update(bookings)
+			.set({ status: "completed", updatedAt: now })
+			.where(eq(bookings.id, bookingId))
+		await this.auditService.record(
+			{
+				domain: AUDIT_DOMAIN_BOOKINGS,
+				action: "booking.completed",
+				actorId,
+				targetType: "booking",
+				targetId: String(bookingId),
+				oldValue: { status: booking.status },
+				newValue: { status: "completed" },
+			},
+			tx
+		)
+		return true
 	}
 
 	/** Draw Reference Numbers until one is not already in use. */
