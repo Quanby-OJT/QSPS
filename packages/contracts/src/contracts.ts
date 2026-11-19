@@ -102,7 +102,6 @@ export type {
 	CheckInResponse,
 } from "./modules/v1/processing/processing.schema.js"
 
-
 // Certificates contracts + schemas (CRT-1)
 export { certificatesContract } from "./modules/v1/certificates/certificates.contract.js"
 export {

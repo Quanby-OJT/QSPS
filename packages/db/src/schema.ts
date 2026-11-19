@@ -523,11 +523,7 @@ export const documents = createTable(
 		issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
 		/** Last valid day; null means it does not expire. */
 		validUntil: t.date("valid_until"),
-		status: t
-			.text("status")
-			.notNull()
-			.default("valid")
-			.$type<"valid" | "revoked" | "superseded">(),
+		status: t.text("status").notNull().default("valid").$type<"valid" | "revoked" | "superseded">(),
 		source: t.text("source").notNull().default("qsps").$type<"qsps" | "legacy">(),
 		/** Everything printed on the document, copied at issue time (shape set by the type registry). */
 		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
