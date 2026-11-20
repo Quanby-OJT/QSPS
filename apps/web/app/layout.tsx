@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Figtree, Geist, Geist_Mono } from "next/font/google"
+import { Geist, Geist_Mono, Public_Sans } from "next/font/google"
 
 import { BreakpointIndicator } from "@/core/components/breakpoint-indicator"
 import { Toaster } from "@/core/components/ui/sonner"
@@ -18,7 +18,8 @@ import { SerwistRegistrationProvider } from "@/features/pwa/components/serwist-p
 import "@/core/styles/globals.css"
 import "@/services/orpc/orpc-server"
 
-const figtree = Figtree({ subsets: ["latin"], variable: "--font-sans" })
+/** BOQ brand font (UI-1): designed for government sites, very readable. */
+const publicSans = Public_Sans({ subsets: ["latin"], variable: "--font-sans" })
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -58,7 +59,7 @@ export default function RootLayout({
 	children: React.ReactNode
 }>) {
 	return (
-		<html lang="en" className={figtree.variable} suppressHydrationWarning>
+		<html lang="en" className={publicSans.variable} suppressHydrationWarning>
 			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
 				<SerwistRegistrationProvider>
 					<AuthProvider>
