@@ -1,37 +1,55 @@
+import { randomUUID } from "node:crypto"
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { eq, inArray, sql } from "drizzle-orm"
+import { and, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm"
+
 
 import {
 	ADMIN_ROLE,
 	PERMISSION_NAMES,
 	type AssignRoleRequest,
 	type CreateRoleInput,
+	type CreateStaffUserInput,
+	type DeleteUserResponse,
+	type ExportUsersRequest,
+	type ExportUsersResponse,
 	type ListAuditLogRequest,
 	type ListAuditLogResponse,
+	type ListUsersRequest,
+	type ListUsersResponse,
 	type PermissionCatalogEntry,
 	type PermissionName,
 	type RemoveRoleRequest,
 	type Role,
 	type SetRolePermissionsRequest,
+	type SetUserStatusRequest,
 	type UpdateRoleRequest,
+	type UpdateUserRequest,
+	type UserAccountStatus,
+	type UserAccountType,
+	type UserFilterQuerySchema,
 	type UserWithRoles,
 } from "@repo/contracts"
-import { permissions, rolePermissions, roles, userRoles, users } from "@repo/db/schema"
+import { permissions, rolePermissions, roles, sessions, userRoles, users } from "@repo/db/schema"
+import type { z } from "zod"
 
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
-import { RbacService } from "@/common/rbac/rbac.service"
+import { PrivilegeGuardError, RbacService } from "@/common/rbac/rbac.service"
 
 const PERMISSION_CATALOG = new Set<string>(PERMISSION_NAMES)
+
+type UserFilterInput = z.infer<typeof UserFilterQuerySchema>
 
 @Injectable()
 export class RbacAdminService {
 	constructor(
 		private readonly rbacService: RbacService,
 		private readonly cacheService: RbacCacheService,
-		private readonly auditService: AuditService
+		private readonly auditService: AuditService,
+		private readonly exportService: ExportService
 	) {}
 
 	// ---------------------------------------------------------------- roles
@@ -73,8 +91,6 @@ export class RbacAdminService {
 	}
 
 	async createRole(payload: CreateRoleInput, actorId: string | null): Promise<Role> {
-		// The role row and its audit entry share one transaction, so a
-		// role can never appear without a record of who created it.
 		const roleId = await db.transaction(async tx => {
 			const [existing] = await tx.select().from(roles).where(eq(roles.name, payload.name))
 			if (existing) {
@@ -113,7 +129,6 @@ export class RbacAdminService {
 		const role = await this.getRoleRowOrThrow(payload.id)
 
 		if (role.name === ADMIN_ROLE && payload.name !== undefined && payload.name !== ADMIN_ROLE) {
-			// A denial is evidence: record the refused attempt, then reject.
 			await this.auditService.record({
 				domain: AUDIT_DOMAIN_RBAC,
 				action: "role.update",
@@ -180,7 +195,6 @@ export class RbacAdminService {
 			throw new ORPCError("BAD_REQUEST", { message: `Unknown permissions: ${missing.join(", ")}` })
 		}
 
-		// Captured before the transaction so the audit entry can show old→new.
 		const previous = await db
 			.select({ name: permissions.name })
 			.from(rolePermissions)
@@ -195,8 +209,6 @@ export class RbacAdminService {
 					.values(permissionRows.map(p => ({ roleId: role.id, permissionId: p.id })))
 			}
 
-			// This is the single most privilege-relevant RBAC write there is:
-			// it decides what every holder of the role may do.
 			await this.auditService.record(
 				{
 					domain: AUDIT_DOMAIN_RBAC,
@@ -232,8 +244,6 @@ export class RbacAdminService {
 			throw new ORPCError("FORBIDDEN", { message: "The Admin role cannot be deleted" })
 		}
 
-		// Deleting a role revokes it from every holder at once, so the entry
-		// records what was destroyed -- the row itself is about to be gone.
 		const grantedPermissions = await db
 			.select({ name: permissions.name })
 			.from(rolePermissions)
@@ -277,43 +287,385 @@ export class RbacAdminService {
 	}
 
 	// ---------------------------------------------------------------- users
-	/**
-	 * List users.
-	 *
-	 * `includeDirectory` decides whether email addresses are returned. Holding
-	 * `users.accounts:read` used to yield the complete email directory, so granting
-	 * someone support-ticket triage (also on `users.accounts:read`) handed them
-	 * every address as a side effect.
-	 *
-	 * The design call: the endpoint OMITS the emails rather than returning 403.
-	 * A 403 would break the user-management screen entirely for triage staff
-	 * who legitimately need to see who exists and what roles they hold; the
-	 * useful part of the list survives without the PII.
-	 */
-	async listUsers(includeDirectory: boolean): Promise<UserWithRoles[]> {
-		const userRows = await db.select().from(users).orderBy(users.email)
+	async listUsers(
+		query: ListUsersRequest,
+		includeDirectory: boolean
+	): Promise<ListUsersResponse> {
+		const { items } = await this.queryFilteredUsers(query, includeDirectory)
+		const total = items.length
+		const pageSize = query.pageSize ?? 20
+		const totalPages = Math.max(1, Math.ceil(total / pageSize))
+		const page = Math.min(query.page ?? 1, totalPages)
+		const offset = (page - 1) * pageSize
 
-		const roleRows = await db
-			.select({ userId: userRoles.userId, name: roles.name })
-			.from(userRoles)
-			.innerJoin(roles, eq(userRoles.roleId, roles.id))
-
-		const rolesByUser = new Map<string, string[]>()
-		for (const row of roleRows) {
-			const list = rolesByUser.get(row.userId) ?? []
-			list.push(row.name)
-			rolesByUser.set(row.userId, list)
+		return {
+			items: items.slice(offset, offset + pageSize),
+			total,
+			page,
+			pageSize,
+			totalPages,
 		}
+	}
 
-		return userRows.map(user => ({
-			id: user.id,
-			name: user.name,
-			// Empty string, not the address, when the caller lacks the directory
-			// permission. The field stays present so the contract is unchanged
-			// and clients need no conditional handling.
-			email: includeDirectory ? user.email : "",
-			roles: (rolesByUser.get(user.id) ?? []).sort(),
+	async exportUsers(
+		query: ExportUsersRequest,
+		includeDirectory: boolean
+	): Promise<ExportUsersResponse> {
+		const { items } = await this.queryFilteredUsers(query, includeDirectory)
+		const rows = items.map(user => ({
+			name: user.name ?? "",
+			email: includeDirectory ? user.email : "[redacted]",
+			accountType: user.accountType,
+			status: user.status,
+			roles: user.roles.join(", "),
+			createdAt: user.createdAt.toISOString(),
 		}))
+
+		const dateStamp = new Date().toISOString().slice(0, 10)
+		const exported = await this.exportService.exportTable({
+			format: query.format,
+			fileBaseName: `qsps-users-${dateStamp}`,
+			title: "QSPS User Accounts",
+			columns: [
+				{ key: "name", header: "Name" },
+				{ key: "email", header: "Email" },
+				{ key: "accountType", header: "Account Type" },
+				{ key: "status", header: "Status" },
+				{ key: "roles", header: "Roles" },
+				{ key: "createdAt", header: "Created At (UTC)" },
+			],
+			rows,
+		})
+
+		return {
+			fileName: exported.fileName,
+			mimeType: exported.mimeType,
+			contentBase64: exported.buffer.toString("base64"),
+		}
+	}
+
+	async createUser(
+		payload: CreateStaffUserInput,
+		actorId: string | null
+	): Promise<UserWithRoles> {
+		const normalizedEmail = payload.email.trim().toLowerCase()
+		const uniqueRoleNames = Array.from(new Set(payload.roles))
+
+		const createdUser = await this.runUserGuarded(
+			{
+				action: "user.create",
+				actorId,
+				targetId: normalizedEmail,
+				attempted: { accountType: "staff", roles: uniqueRoleNames },
+			},
+			async tx => {
+				const roleRows = await tx
+					.select()
+					.from(roles)
+					.where(inArray(roles.name, uniqueRoleNames))
+
+				const foundRoleNames = new Set(roleRows.map(r => r.name))
+				const missingRoles = uniqueRoleNames.filter(name => !foundRoleNames.has(name))
+				if (missingRoles.length > 0) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: `Unknown roles: ${missingRoles.join(", ")}`,
+					})
+				}
+
+				if (uniqueRoleNames.includes(ADMIN_ROLE)) {
+					const actorIsAdmin = actorId ? await this.rbacService.holdsAdmin(tx, actorId) : false
+					if (!actorIsAdmin) {
+						throw new PrivilegeGuardError(
+							"FORBIDDEN",
+							"Only a Super Admin may assign the Super Admin role",
+							"caller is not a Super Admin"
+						)
+					}
+				}
+
+				const [existing] = await tx
+					.select({ id: users.id })
+					.from(users)
+					.where(eq(users.email, normalizedEmail))
+				if (existing) {
+					throw new ORPCError("CONFLICT", {
+						message: "An account with this email address already exists",
+					})
+				}
+
+				const userId = randomUUID()
+				const now = new Date()
+				const [inserted] = await tx
+					.insert(users)
+					.values({
+						id: userId,
+						name: payload.name.trim(),
+						email: normalizedEmail,
+						emailVerified: true,
+						accountType: "staff",
+						mustResetPassword: true,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.returning()
+
+				if (!inserted) {
+					throw new ORPCError("INTERNAL_SERVER_ERROR", {
+						message: "Staff account could not be created",
+					})
+				}
+
+				await tx.insert(userRoles).values(
+					roleRows.map(role => ({
+						userId: inserted.id,
+						roleId: role.id,
+					}))
+				)
+
+				// Rule 5: Never record personal data (name, email, mobile, birthDate) in audit values.
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_RBAC,
+						action: "user.create",
+						actorId,
+						targetType: "user",
+						targetId: inserted.id,
+						oldValue: null,
+						newValue: {
+							accountType: "staff",
+							mustResetPassword: true,
+							roles: uniqueRoleNames.slice().sort(),
+						},
+					},
+					tx
+				)
+
+				return {
+					id: inserted.id,
+					name: inserted.name,
+					email: inserted.email,
+					accountType: "staff" as const,
+					status: "active" as const,
+					roles: uniqueRoleNames.slice().sort(),
+					disabledAt: null,
+					deletedAt: null,
+					createdAt: inserted.createdAt,
+				}
+			}
+		)
+
+		await this.sendStaffInvitationEmail(createdUser.email)
+		return createdUser
+	}
+
+	async updateUser(
+		payload: UpdateUserRequest,
+		actorId: string | null
+	): Promise<UserWithRoles> {
+		const updated = await db.transaction(async tx => {
+			const [current] = await tx
+				.select()
+				.from(users)
+				.where(and(eq(users.id, payload.userId), isNull(users.deletedAt)))
+			if (!current) {
+				throw new ORPCError("NOT_FOUND", { message: `User "${payload.userId}" was not found` })
+			}
+
+			const changedFields: string[] = []
+			const updates: Partial<typeof users.$inferInsert> = { updatedAt: new Date() }
+
+			if (payload.name !== undefined && payload.name.trim() !== current.name) {
+				updates.name = payload.name.trim()
+				changedFields.push("name")
+			}
+
+			if (payload.email !== undefined) {
+				const nextEmail = payload.email.trim().toLowerCase()
+				if (nextEmail !== current.email.toLowerCase()) {
+					const [clash] = await tx
+						.select({ id: users.id })
+						.from(users)
+						.where(eq(users.email, nextEmail))
+					if (clash) {
+						throw new ORPCError("CONFLICT", {
+							message: "An account with this email address already exists",
+						})
+					}
+					updates.email = nextEmail
+					changedFields.push("email")
+				}
+			}
+
+			const [saved] =
+				changedFields.length > 0
+					? await tx
+							.update(users)
+							.set(updates)
+							.where(eq(users.id, current.id))
+							.returning()
+					: [current]
+
+			if (!saved) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "User could not be updated" })
+			}
+
+			// Rule 5: Record which fields changed, never personal data values.
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_RBAC,
+					action: "user.update",
+					actorId,
+					targetType: "user",
+					targetId: current.id,
+					oldValue: { fields: changedFields },
+					newValue: { changedFields },
+				},
+				tx
+			)
+
+			const roleRows = await tx
+				.select({ name: roles.name })
+				.from(userRoles)
+				.innerJoin(roles, eq(userRoles.roleId, roles.id))
+				.where(eq(userRoles.userId, saved.id))
+
+			return this.toUserWithRoles(
+				saved,
+				roleRows.map(r => r.name),
+				true
+			)
+		})
+
+		return updated
+	}
+
+	async setUserStatus(
+		payload: SetUserStatusRequest,
+		actorId: string | null
+	): Promise<UserWithRoles> {
+		const action = payload.isActive ? "user.enable" : "user.disable"
+
+		const updated = await this.runUserGuarded(
+			{
+				action,
+				actorId,
+				targetId: payload.userId,
+				attempted: { isActive: payload.isActive },
+			},
+			async tx => {
+				const [current] = await tx
+					.select()
+					.from(users)
+					.where(and(eq(users.id, payload.userId), isNull(users.deletedAt)))
+				if (!current) {
+					throw new ORPCError("NOT_FOUND", { message: `User "${payload.userId}" was not found` })
+				}
+
+				if (!payload.isActive) {
+					await this.rbacService.assertCanDeactivateUser(tx, current.id, actorId)
+				}
+
+				const now = new Date()
+				const nextDisabledAt = payload.isActive ? null : (current.disabledAt ?? now)
+
+				const [saved] = await tx
+					.update(users)
+					.set({ disabledAt: nextDisabledAt, updatedAt: now })
+					.where(eq(users.id, current.id))
+					.returning()
+
+				if (!saved) {
+					throw new ORPCError("INTERNAL_SERVER_ERROR", {
+						message: "User status could not be updated",
+					})
+				}
+
+				// Revoke all active sessions immediately upon disabling.
+				if (!payload.isActive) {
+					await tx.delete(sessions).where(eq(sessions.userId, current.id))
+				}
+
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_RBAC,
+						action,
+						actorId,
+						targetType: "user",
+						targetId: current.id,
+						oldValue: { status: current.disabledAt ? "disabled" : "active" },
+						newValue: { status: payload.isActive ? "active" : "disabled" },
+					},
+					tx
+				)
+
+				const roleRows = await tx
+					.select({ name: roles.name })
+					.from(userRoles)
+					.innerJoin(roles, eq(userRoles.roleId, roles.id))
+					.where(eq(userRoles.userId, saved.id))
+
+				return this.toUserWithRoles(
+					saved,
+					roleRows.map(r => r.name),
+					true
+				)
+			}
+		)
+
+		await this.cacheService.invalidate(payload.userId)
+		return updated
+	}
+
+	async deleteUser(userId: string, actorId: string | null): Promise<DeleteUserResponse> {
+		await this.runUserGuarded(
+			{
+				action: "user.delete",
+				actorId,
+				targetId: userId,
+				attempted: { deleted: true },
+			},
+			async tx => {
+				const [current] = await tx
+					.select()
+					.from(users)
+					.where(and(eq(users.id, userId), isNull(users.deletedAt)))
+				if (!current) {
+					throw new ORPCError("NOT_FOUND", { message: `User "${userId}" was not found` })
+				}
+
+				await this.rbacService.assertCanDeactivateUser(tx, current.id, actorId)
+
+				const now = new Date()
+				// Soft delete: retain the user row, history, and audit entries.
+				await tx
+					.update(users)
+					.set({
+						deletedAt: now,
+						disabledAt: current.disabledAt ?? now,
+						updatedAt: now,
+					})
+					.where(eq(users.id, current.id))
+
+				// Revoke all active sessions so the deleted user cannot stay signed in.
+				await tx.delete(sessions).where(eq(sessions.userId, current.id))
+
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_RBAC,
+						action: "user.delete",
+						actorId,
+						targetType: "user",
+						targetId: current.id,
+						oldValue: { status: current.disabledAt ? "disabled" : "active" },
+						newValue: { status: "deleted" },
+					},
+					tx
+				)
+			}
+		)
+
+		await this.cacheService.invalidate(userId)
+		return { success: true, userId }
 	}
 
 	async assignUserRole(payload: AssignRoleRequest, actorId: string | null) {
@@ -332,6 +684,142 @@ export class RbacAdminService {
 	}
 
 	// -------------------------------------------------------------- helpers
+	private async queryFilteredUsers(
+		filters: UserFilterInput,
+		includeDirectory: boolean
+	): Promise<{ items: UserWithRoles[] }> {
+		const conditions: SQL[] = []
+
+		// Exclude soft-deleted users from the default list unless explicitly filtered.
+		if (filters.status === "deleted") {
+			conditions.push(isNotNull(users.deletedAt))
+		} else if (filters.status === "disabled") {
+			conditions.push(isNull(users.deletedAt), isNotNull(users.disabledAt))
+		} else if (filters.status === "active") {
+			conditions.push(isNull(users.deletedAt), isNull(users.disabledAt))
+		} else {
+			conditions.push(isNull(users.deletedAt))
+		}
+
+		if (filters.accountType) {
+			conditions.push(eq(users.accountType, filters.accountType))
+		}
+
+		if (filters.search) {
+			const pattern = `%${filters.search}%`
+			const searchCondition = includeDirectory
+				? or(ilike(users.name, pattern), ilike(users.email, pattern))
+				: ilike(users.name, pattern)
+			if (searchCondition) {
+				conditions.push(searchCondition)
+			}
+		}
+
+		const userRows = await db
+			.select()
+			.from(users)
+			.where(and(...conditions))
+			.orderBy(users.name, users.email)
+
+		if (userRows.length === 0) {
+			return { items: [] }
+		}
+
+		const userIds = userRows.map(u => u.id)
+		const roleRows = await db
+			.select({ userId: userRoles.userId, name: roles.name })
+			.from(userRoles)
+			.innerJoin(roles, eq(userRoles.roleId, roles.id))
+			.where(inArray(userRoles.userId, userIds))
+
+		const rolesByUser = new Map<string, string[]>()
+		for (const row of roleRows) {
+			const list = rolesByUser.get(row.userId) ?? []
+			list.push(row.name)
+			rolesByUser.set(row.userId, list)
+		}
+
+		let items = userRows.map(user =>
+			this.toUserWithRoles(user, rolesByUser.get(user.id) ?? [], includeDirectory)
+		)
+
+		if (filters.role) {
+			items = items.filter(user => user.roles.includes(filters.role!))
+		}
+
+		return { items }
+	}
+
+	private toUserWithRoles(
+		user: typeof users.$inferSelect,
+		assignedRoles: string[],
+		includeDirectory: boolean
+	): UserWithRoles {
+		const status: UserAccountStatus = user.deletedAt
+			? "deleted"
+			: user.disabledAt
+				? "disabled"
+				: "active"
+		const accountType: UserAccountType = user.accountType === "staff" ? "staff" : "client"
+
+		return {
+			id: user.id,
+			name: user.name,
+			email: includeDirectory ? user.email : "",
+			accountType,
+			status,
+			roles: assignedRoles.slice().sort(),
+			disabledAt: user.disabledAt,
+			deletedAt: user.deletedAt,
+			createdAt: user.createdAt,
+		}
+	}
+
+	private async sendStaffInvitationEmail(email: string): Promise<void> {
+		try {
+			const { authEnv, getAuth } = await import("@repo/auth")
+			const auth = getAuth()
+			await auth.api.requestPasswordReset({
+				body: {
+					email,
+					redirectTo: `${authEnv.APP_WEB_URL}/reset-password`,
+				},
+			})
+		} catch {
+			// Delivery errors are logged inside Better Auth's sendResetPassword handler;
+			// the staff account is already committed and can be re-invited if needed.
+		}
+	}
+
+	private async runUserGuarded<T>(
+		context: {
+			action: string
+			actorId: string | null
+			targetId: string
+			attempted: Record<string, unknown>
+		},
+		work: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>
+	): Promise<T> {
+		try {
+			return await db.transaction(work)
+		} catch (error) {
+			if (!(error instanceof PrivilegeGuardError)) throw error
+
+			await this.auditService.record({
+				domain: AUDIT_DOMAIN_RBAC,
+				action: context.action,
+				outcome: "denied",
+				actorId: context.actorId,
+				targetType: "user",
+				targetId: context.targetId,
+				newValue: context.attempted,
+				reason: error.reason,
+			})
+
+			throw new ORPCError(error.kind, { message: error.message })
+		}
+	}
+
 	private async getRoleRowOrThrow(id: number) {
 		const [role] = await db.select().from(roles).where(eq(roles.id, id))
 		if (!role) {

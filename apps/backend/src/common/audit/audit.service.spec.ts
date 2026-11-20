@@ -25,6 +25,7 @@ import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
 import { RbacService } from "@/common/rbac/rbac.service"
 import { RbacAdminService } from "@/modules/v1/rbac/rbac-admin.service"
 import { bindDbBackedTests, bindSeededCases } from "@/testing/db-ready"
+import { ExportService } from "@/common/export/export.service"
 
 // The database, the schema and the transaction are all real — that is the
 // point. Only `@repo/contracts` is stubbed, matching the convention in the
@@ -116,7 +117,7 @@ function makeRbacService() {
 function makeAdminService() {
 	const cache = new RbacCacheService(null)
 	const audit = new AuditService()
-	return new RbacAdminService(new RbacService(cache, audit), cache, audit)
+	return new RbacAdminService(new RbacService(cache, audit), cache, audit, new ExportService())
 }
 
 async function entriesFor(targetId: string) {

@@ -111,7 +111,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts`. Money 
 
 | Table | Key columns | Lifecycle notes |
 | -- | -- | -- |
-| `users` (template) | * `account_type` (`client`/`staff`), `mobile`, `gender` (free text), `birth_date`, `nationality`, `legacy_id`, `must_reset_password`, `disabled_at` | Never hard-deleted; disabled instead. |
+| `users` (template) | * `account_type` (`client`/`staff`), `mobile`, `gender` (free text), `birth_date`, `nationality`, `legacy_id`, `must_reset_password`, `disabled_at`, `deleted_at` | Never hard-deleted; disabled or soft-deleted instead (`deleted_at` excludes the account from the default list while keeping history and audit entries). |
 | `user_scopes` | `user_id`, `service_category_id?`, `location_id?` | A null column means "all". No rows means no scoped access for scoped roles. |
 | `roles`, `permissions`, `user_roles`, `role_permissions` (template) |  | Permissions are seeded from the catalog. |
 | `audit_log` (template) | * `actor_role`, `ip_address`, `user_agent`, `prev_hash`, `entry_hash` | Insert-only. Database trigger rejects update and delete. |
