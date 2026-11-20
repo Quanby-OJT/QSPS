@@ -143,3 +143,14 @@
 		@apply bg-background text-foreground;
 	}
 }
+
+/* UI-1: hide the first-load cover after 5 s even if scripts never run. */
+@keyframes first-load-cover-out {
+	to {
+		opacity: 0;
+		visibility: hidden;
+	}
+}
+.first-load-cover {
+	animation: first-load-cover-out 0.3s ease 5s forwards;
+}

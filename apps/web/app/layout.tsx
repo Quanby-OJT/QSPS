@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono, Public_Sans } from "next/font/google"
 
 import { BreakpointIndicator } from "@/core/components/breakpoint-indicator"
+import { FirstLoadCover } from "@/core/components/first-load-cover"
 import { Toaster } from "@/core/components/ui/sonner"
 import { ThemeProvider } from "@/core/context/theme-provider"
 import {
@@ -70,6 +71,7 @@ export default function RootLayout({
 								enableSystem
 								disableTransitionOnChange
 							>
+								<FirstLoadCover />
 								<BreakpointIndicator />
 								{children}
 								<NetworkStatusIndicator />
