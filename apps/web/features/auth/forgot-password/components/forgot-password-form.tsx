@@ -59,7 +59,11 @@ export function ForgotPasswordForm({ className, ...props }: React.ComponentProps
 							<p className="text-muted-foreground text-balance">
 								If an account exists for this email, we&apos;ve sent a reset link.
 							</p>
-							<Link href="/login" className={cn(buttonVariants({ variant: "outline" }), "w-full")}>
+							<Link
+								replace
+								href="/login"
+								className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+							>
 								Back to login
 							</Link>
 						</FieldGroup>
@@ -134,6 +138,7 @@ export function ForgotPasswordForm({ className, ...props }: React.ComponentProps
 											buttonVariants({ variant: "link" }),
 											"text-muted-foreground h-auto px-0"
 										)}
+										replace
 										href="/login"
 									>
 										Back to login

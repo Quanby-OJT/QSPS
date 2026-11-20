@@ -216,6 +216,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 								Already have an account?{" "}
 								<Link
 									className={cn(buttonVariants({ variant: "link" }), "h-auto px-0 font-semibold")}
+									replace
 									href="/login"
 								>
 									Sign in

@@ -2,12 +2,15 @@ import { CacheIdentity } from "@/services/tanstack-query/cache-identity"
 
 /**
  * Public home (UI-1). Full width, so the home page can run its sections edge
- * to edge; each section sets its own max width.
+ * to edge; each section sets its own max width. `modal` is the sign in or
+ * register panel that slides up over the page (@modal).
  */
 export default function HomeLayout({
 	children,
+	modal,
 }: Readonly<{
 	children: React.ReactNode
+	modal: React.ReactNode
 }>) {
 	return (
 		<div className="flex min-h-svh flex-col">
@@ -16,6 +19,7 @@ export default function HomeLayout({
 			    so this adds no request and costs no static route. */}
 			<CacheIdentity />
 			{children}
+			{modal}
 		</div>
 	)
 }

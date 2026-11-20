@@ -143,6 +143,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 											<div className="flex items-center">
 												<FieldLabel htmlFor={field.name}>Password</FieldLabel>
 												<Link
+													replace
 													href="/forgot-password"
 													className={cn(
 														buttonVariants({ size: "sm", variant: "link" }),
@@ -187,6 +188,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 								Don&apos;t have an account?{" "}
 								<Link
 									className={cn(buttonVariants({ variant: "link" }), "h-auto px-0 font-semibold")}
+									replace
 									href="/register"
 								>
 									Create an account

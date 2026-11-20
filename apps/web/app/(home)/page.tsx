@@ -126,7 +126,6 @@ function SampleCertificate() {
 	)
 }
 
-
 /** Public home page (UI-1). */
 export default async function Home() {
 	let session: Awaited<ReturnType<typeof getSession>> = null
@@ -142,7 +141,20 @@ export default async function Home() {
 			<PublicHeader isLoggedIn={isLoggedIn} />
 
 			<main className="flex-1">
-				<section className="bg-navy text-navy-foreground">
+				<section className="bg-navy text-navy-foreground relative isolate overflow-hidden">
+					{/* Background photo, faded under navy so the text stays readable (UI-1). */}
+					<Image
+						src="/brand/hero-vaccination.jpg"
+						alt=""
+						fill
+						priority
+						sizes="100vw"
+						className="-z-20 object-cover opacity-70"
+					/>
+					<div
+						aria-hidden="true"
+						className="from-navy via-navy/80 to-navy/30 absolute inset-0 -z-10 bg-gradient-to-r"
+					/>
 					<div className="mx-auto flex max-w-6xl flex-wrap items-center gap-14 px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
 						<div className="flex min-w-0 flex-[1_1_480px] flex-col gap-6">
 							<p className="text-gold flex items-center gap-2.5 text-sm font-semibold tracking-wider uppercase">
@@ -243,7 +255,18 @@ export default async function Home() {
 				</section>
 
 				<section className="mx-auto mb-24 max-w-6xl px-4 sm:px-6 lg:px-8">
-					<div className="bg-navy text-navy-foreground flex flex-wrap items-center gap-8 rounded-3xl p-10 sm:p-12">
+					<div className="bg-navy text-navy-foreground relative isolate flex flex-wrap items-center gap-8 overflow-hidden rounded-3xl p-10 sm:p-12">
+						<Image
+							src="/brand/band-travel.jpg"
+							alt=""
+							fill
+							sizes="(min-width: 1152px) 1152px, 100vw"
+							className="-z-20 object-cover opacity-70"
+						/>
+						<div
+							aria-hidden="true"
+							className="from-navy via-navy/75 to-navy/25 absolute inset-0 -z-10 bg-gradient-to-r"
+						/>
 						<div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3">
 							<h2 className="text-2xl font-extrabold sm:text-3xl">Is this certificate genuine?</h2>
 							<p className="leading-relaxed text-white/75">
