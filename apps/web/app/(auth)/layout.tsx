@@ -37,7 +37,20 @@ export default function AuthLayout({
 }>) {
 	return (
 		<div className="bg-background flex min-h-svh flex-col lg:flex-row">
-			<aside className="bg-navy text-navy-foreground flex flex-col justify-between gap-12 px-6 py-6 sm:px-10 lg:w-[44%] lg:max-w-2xl lg:px-14 lg:py-14">
+			<aside className="bg-navy text-navy-foreground relative isolate flex flex-col justify-between gap-12 overflow-hidden px-6 py-6 sm:px-10 lg:w-[44%] lg:max-w-2xl lg:px-14 lg:py-14">
+				{/* Same faded photo as the home page, so both feel like one site. */}
+				<Image
+					src="/brand/hero-vaccination.jpg"
+					alt=""
+					fill
+					priority
+					sizes="(min-width: 1024px) 44vw, 100vw"
+					className="-z-20 object-cover opacity-70"
+				/>
+				<div
+					aria-hidden="true"
+					className="from-navy/90 via-navy/75 to-navy/90 absolute inset-0 -z-10 bg-gradient-to-b"
+				/>
 				<Link href="/" className="flex items-center gap-3 self-start">
 					<Image
 						src="/brand/boq.png"
