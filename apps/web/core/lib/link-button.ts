@@ -6,7 +6,7 @@ import { cn } from "@/core/lib/utils"
  * the same shapes as plain class strings.
  */
 const BASE =
-	"inline-flex items-center justify-center gap-2 rounded-lg font-semibold whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+	"inline-flex items-center justify-center gap-2 rounded-lg font-semibold whitespace-nowrap transition-[color,background-color,scale] outline-none active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
 
 const VARIANTS = {
 	primary: "bg-primary text-primary-foreground hover:bg-primary/90",

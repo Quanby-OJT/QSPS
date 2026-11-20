@@ -5,6 +5,7 @@ import { PublicHeader } from "@/core/components/public-header"
 import { SiteFooter } from "@/core/components/site-footer"
 import { linkButton } from "@/core/lib/link-button"
 import { getSession, SessionUnavailableError } from "@/services/better-auth/auth-server"
+import { Reveal } from "@/features/home/reveal"
 
 const STEPS = [
 	{
@@ -108,16 +109,20 @@ function SampleCertificate() {
 						Valid
 					</dd>
 				</dl>
-				<svg viewBox="0 0 21 21" className="size-28 shrink-0" shapeRendering="crispEdges">
-					<rect width="21" height="21" fill="#fff" />
-					<g fill="#0a2540">
-						<path
-							fillRule="evenodd"
-							d="M0 0h7v7H0zM1 1v5h5V1zM2 2h3v3H2zM14 0h7v7h-7zM15 1v5h5V1zM16 2h3v3h-3zM0 14h7v7H0zM1 15v5h5v-5zM2 16h3v3H2z"
-						/>
-						<path d="M8 0h1v2H8zM10 1h2v1h-2zM9 3h2v2H9zM12 4h1v3h-1zM8 6h2v1H8zM0 8h2v1H0zM3 8h3v1H3zM8 8h3v2H8zM12 8h2v1h-2zM15 8h1v2h-1zM17 8h4v1h-4zM1 10h3v1H1zM5 10h2v2H5zM11 10h3v1h-3zM16 11h3v1h-3zM0 12h2v1H0zM8 12h2v3H8zM12 12h1v2h-1zM14 13h3v1h-3zM19 12h2v3h-2zM10 15h2v1h-2zM14 15h1v3h-1zM16 16h3v1h-3zM8 17h2v2H8zM11 17h2v1h-2zM17 18h1v3h-1zM10 19h3v2h-3zM15 19h1v2h-1zM19 19h2v2h-2z" />
-					</g>
-				</svg>
+				<div className="relative size-28 shrink-0">
+					{/* A slow scan line over the QR code: "scan to verify". */}
+					<span className="motion-safe:animate-scan absolute inset-x-0 top-0 h-[3px] rounded-full bg-[#1557b0]/70 opacity-0 shadow-[0_0_12px_2px_rgba(21,87,176,0.45)]" />
+					<svg viewBox="0 0 21 21" className="size-28" shapeRendering="crispEdges">
+						<rect width="21" height="21" fill="#fff" />
+						<g fill="#0a2540">
+							<path
+								fillRule="evenodd"
+								d="M0 0h7v7H0zM1 1v5h5V1zM2 2h3v3H2zM14 0h7v7h-7zM15 1v5h5V1zM16 2h3v3h-3zM0 14h7v7H0zM1 15v5h5v-5zM2 16h3v3H2z"
+							/>
+							<path d="M8 0h1v2H8zM10 1h2v1h-2zM9 3h2v2H9zM12 4h1v3h-1zM8 6h2v1H8zM0 8h2v1H0zM3 8h3v1H3zM8 8h3v2H8zM12 8h2v1h-2zM15 8h1v2h-1zM17 8h4v1h-4zM1 10h3v1H1zM5 10h2v2H5zM11 10h3v1h-3zM16 11h3v1h-3zM0 12h2v1H0zM8 12h2v3H8zM12 12h1v2h-1zM14 13h3v1h-3zM19 12h2v3h-2zM10 15h2v1h-2zM14 15h1v3h-1zM16 16h3v1h-3zM8 17h2v2H8zM11 17h2v1h-2zM17 18h1v3h-1zM10 19h3v2h-3zM15 19h1v2h-1zM19 19h2v2h-2z" />
+						</g>
+					</svg>
+				</div>
 			</div>
 			<div className="border-t px-6 py-3 text-xs text-[#5b6b82]">
 				Scan to confirm it with BOQ records
@@ -157,18 +162,18 @@ export default async function Home() {
 					/>
 					<div className="mx-auto flex max-w-6xl flex-wrap items-center gap-14 px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
 						<div className="flex min-w-0 flex-[1_1_480px] flex-col gap-6">
-							<p className="text-gold flex items-center gap-2.5 text-sm font-semibold tracking-wider uppercase">
+							<p className="text-gold motion-safe:animate-rise flex items-center gap-2.5 text-sm font-semibold tracking-wider uppercase">
 								<span aria-hidden="true" className="bg-gold h-0.5 w-7" />
 								Department of Health · Bureau of Quarantine
 							</p>
-							<h1 className="text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+							<h1 className="motion-safe:animate-rise text-4xl leading-[1.05] font-extrabold tracking-tight [animation-delay:100ms] sm:text-5xl lg:text-6xl">
 								Quarantine services, booked and paid online.
 							</h1>
-							<p className="max-w-xl text-lg leading-relaxed text-white/75">
+							<p className="motion-safe:animate-rise max-w-xl text-lg leading-relaxed text-white/75 [animation-delay:200ms]">
 								Book a vaccination, medical exam or permit at any BOQ station, pay online, and
 								receive documents anyone can verify with a QR code.
 							</p>
-							<div className="mt-2 flex flex-wrap gap-3">
+							<div className="motion-safe:animate-rise mt-2 flex flex-wrap gap-3 [animation-delay:300ms]">
 								<Link
 									href={isLoggedIn ? "/book" : "/register"}
 									className={linkButton({ variant: "gold", size: "lg" })}
@@ -180,8 +185,10 @@ export default async function Home() {
 								</Link>
 							</div>
 						</div>
-						<div className="flex min-w-0 flex-[1_1_400px] justify-center">
-							<SampleCertificate />
+						<div className="motion-safe:animate-rise flex min-w-0 flex-[1_1_400px] justify-center [animation-delay:400ms]">
+							<div className="motion-safe:animate-float w-full max-w-md">
+								<SampleCertificate />
+							</div>
 						</div>
 					</div>
 					<div aria-hidden="true" className="bg-gold h-1" />
@@ -210,15 +217,19 @@ export default async function Home() {
 					</div>
 					<ol className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
 						{STEPS.map((step, index) => (
-							<li key={step.title} className="bg-card flex flex-col gap-3.5 rounded-2xl border p-7">
-								<div className="flex items-center justify-between">
-									<span className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-xl">
-										<StrokeIcon d={step.icon} className="size-6" />
-									</span>
-									<span className="text-muted-foreground text-sm font-bold">0{index + 1}</span>
-								</div>
-								<h3 className="text-xl font-bold">{step.title}</h3>
-								<p className="text-muted-foreground leading-relaxed">{step.text}</p>
+							<li key={step.title}>
+								<Reveal delay={index * 100} className="h-full">
+									<div className="bg-card flex h-full flex-col gap-3.5 rounded-2xl border p-7 transition-[translate,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-lg">
+										<div className="flex items-center justify-between">
+											<span className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-xl">
+												<StrokeIcon d={step.icon} className="size-6" />
+											</span>
+											<span className="text-muted-foreground text-sm font-bold">0{index + 1}</span>
+										</div>
+										<h3 className="text-xl font-bold">{step.title}</h3>
+										<p className="text-muted-foreground leading-relaxed">{step.text}</p>
+									</div>
+								</Reveal>
 							</li>
 						))}
 					</ol>
@@ -235,20 +246,24 @@ export default async function Home() {
 						</h2>
 					</div>
 					<ul className="grid gap-5 md:grid-cols-3">
-						{SERVICES.map(service => (
-							<li key={service.title} className="bg-muted flex flex-col gap-4 rounded-2xl p-7">
-								<h3 className="text-lg font-bold">{service.title}</h3>
-								<ul className="flex flex-col gap-2.5">
-									{service.items.map(item => (
-										<li key={item} className="text-muted-foreground flex items-start gap-2.5">
-											<StrokeIcon
-												d="M5 12l5 5 9-10"
-												className="text-primary mt-1 size-4 shrink-0"
-											/>
-											<span>{item}</span>
-										</li>
-									))}
-								</ul>
+						{SERVICES.map((service, index) => (
+							<li key={service.title}>
+								<Reveal delay={index * 100} className="h-full">
+									<div className="bg-muted flex h-full flex-col gap-4 rounded-2xl p-7 transition-[translate,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-lg">
+										<h3 className="text-lg font-bold">{service.title}</h3>
+										<ul className="flex flex-col gap-2.5">
+											{service.items.map(item => (
+												<li key={item} className="text-muted-foreground flex items-start gap-2.5">
+													<StrokeIcon
+														d="M5 12l5 5 9-10"
+														className="text-primary mt-1 size-4 shrink-0"
+													/>
+													<span>{item}</span>
+												</li>
+											))}
+										</ul>
+									</div>
+								</Reveal>
 							</li>
 						))}
 					</ul>

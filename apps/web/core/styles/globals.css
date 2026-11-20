@@ -154,3 +154,47 @@
 .first-load-cover {
 	animation: first-load-cover-out 0.3s ease 5s forwards;
 }
+
+/* UI-1 effects on the public home page. Used with motion-safe: so people who
+   turn off animations in their system settings never see them. */
+@theme {
+	--animate-rise: qsps-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+	--animate-float: qsps-float 6s ease-in-out infinite;
+	--animate-scan: qsps-scan 3.2s ease-in-out infinite;
+
+	@keyframes qsps-rise {
+		from {
+			opacity: 0;
+			transform: translateY(18px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@keyframes qsps-float {
+		0%,
+		100% {
+			transform: translateY(0);
+		}
+		50% {
+			transform: translateY(-8px);
+		}
+	}
+
+	@keyframes qsps-scan {
+		0%,
+		100% {
+			top: 0;
+			opacity: 0;
+		}
+		10%,
+		90% {
+			opacity: 1;
+		}
+		50% {
+			top: calc(100% - 3px);
+		}
+	}
+}
