@@ -1,11 +1,13 @@
 import Image from "next/image"
 import Link from "next/link"
 
+import { ThemeToggle } from "@/core/components/theme-toggle"
 import { linkButton } from "@/core/lib/link-button"
 
 /**
  * Header for the public pages (UI-1): the BOQ seal and name, the main links,
- * and Sign in / Book now, or Dashboard when already signed in.
+ * a light/dark switch, and Sign in / Book now, or Dashboard when already
+ * signed in.
  */
 export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 	return (
@@ -31,6 +33,7 @@ export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 					aria-label="Main"
 					className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold"
 				>
+					<ThemeToggle />
 					<Link href="/#services" className="hover:text-primary hidden md:inline">
 						Services
 					</Link>
