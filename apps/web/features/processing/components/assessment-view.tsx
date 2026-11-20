@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import type { AssessmentOutcome, IcvIssueDetails, ProcessingItem } from "@repo/contracts"
 
+import { BoqLoader } from "@/core/components/boq-loader"
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { Button, buttonVariants } from "@/core/components/ui/button"
@@ -317,6 +318,9 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 			onSubmit={event => void submit(event)}
 			className="bg-card flex flex-col gap-4 rounded-xl border p-4"
 		>
+			{record.isPending ? (
+				<BoqLoader label={needsCertificate ? "Issuing the certificate" : "Processing request"} />
+			) : null}
 			<h2 className="font-semibold">Record assessment</h2>
 
 			<fieldset className="flex flex-col gap-2">
