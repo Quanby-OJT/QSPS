@@ -29,7 +29,7 @@ export function SiteFooter({ className }: { className?: string }) {
 		<footer className={cn("bg-background border-t", className)}>
 			<div aria-hidden="true" className="bg-gold h-[3px]" />
 			<div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-10 sm:px-6 lg:px-8">
-				<ul className="flex flex-wrap items-center justify-center gap-x-10 gap-y-6">
+				<ul className="flex flex-wrap items-center justify-center gap-x-5 gap-y-6 sm:gap-x-10">
 					{SEALS.map(seal => (
 						<li key={seal.src}>
 							<Image
@@ -37,7 +37,7 @@ export function SiteFooter({ className }: { className?: string }) {
 								alt={seal.alt}
 								width={seal.width}
 								height={seal.height}
-								className="h-16 w-auto object-contain sm:h-20"
+								className="h-12 w-auto object-contain sm:h-20"
 							/>
 						</li>
 					))}

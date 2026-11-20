@@ -7,23 +7,30 @@ import { linkButton } from "@/core/lib/link-button"
 /**
  * Header for the public pages (UI-1): the BOQ seal and name, the main links,
  * a light/dark switch, and Sign in / Book now, or Dashboard when already
- * signed in.
+ * signed in. One row on every screen: on a phone the name and the page links
+ * are hidden, so the seal, the switch and the sign in buttons fit.
  */
 export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 	return (
 		<header className="bg-background border-b">
-			<div className="mx-auto flex min-h-[76px] max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-				<Link href="/" className="flex items-center gap-3">
+			<div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-3 px-4 py-2 sm:min-h-[76px] sm:gap-4 sm:px-6 sm:py-3 lg:px-8">
+				<Link
+					href="/"
+					className="flex min-w-0 items-center gap-3"
+					aria-label="Bureau of Quarantine home"
+				>
 					<Image
 						src="/brand/boq.png"
 						alt="Bureau of Quarantine seal"
 						width={480}
 						height={403}
 						priority
-						className="h-11 w-auto object-contain"
+						className="h-10 w-auto shrink-0 object-contain sm:h-11"
 					/>
-					<span className="flex flex-col leading-tight">
-						<span className="text-base font-extrabold tracking-tight">Bureau of Quarantine</span>
+					<span className="hidden min-w-0 flex-col leading-tight min-[480px]:flex">
+						<span className="truncate text-base font-extrabold tracking-tight">
+							Bureau of Quarantine
+						</span>
 						<span className="text-muted-foreground hidden text-xs font-medium sm:inline">
 							Quarantine Services and Payment System
 						</span>
@@ -31,7 +38,7 @@ export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 				</Link>
 				<nav
 					aria-label="Main"
-					className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold"
+					className="flex shrink-0 items-center gap-x-3 text-sm font-semibold sm:gap-x-6"
 				>
 					<ThemeToggle />
 					<Link href="/#services" className="hover:text-primary hidden md:inline">
@@ -41,15 +48,18 @@ export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 						Verify a document
 					</Link>
 					{isLoggedIn ? (
-						<Link href="/dashboard" className={linkButton()}>
-							Go to dashboard
+						<Link href="/dashboard" className={linkButton({ className: "max-sm:h-9 max-sm:px-3" })}>
+							Dashboard
 						</Link>
 					) : (
 						<>
-							<Link href="/login" className="text-primary hover:underline">
+							<Link href="/login" className="text-primary whitespace-nowrap hover:underline">
 								Sign in
 							</Link>
-							<Link href="/register" className={linkButton()}>
+							<Link
+								href="/register"
+								className={linkButton({ className: "whitespace-nowrap max-sm:h-9 max-sm:px-3" })}
+							>
 								Book now
 							</Link>
 						</>
