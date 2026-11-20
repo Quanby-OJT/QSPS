@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -106,15 +107,24 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 	return (
 		<Sidebar collapsible="icon">
 			<SidebarHeader>
-				<div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-					<div className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold">
-						D
-					</div>
+				<Link
+					href="/dashboard"
+					onClick={closeMobileSidebarOnSelect}
+					className="flex items-center gap-2.5 rounded-md px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+				>
+					<Image
+						src="/brand/boq.png"
+						alt="Bureau of Quarantine seal"
+						width={480}
+						height={403}
+						priority
+						className="h-9 w-auto shrink-0 object-contain group-data-[collapsible=icon]:h-7"
+					/>
 					<div className="min-w-0 group-data-[collapsible=icon]:hidden">
-						<p className="truncate text-sm font-semibold">Dashboard</p>
-						<p className="text-muted-foreground truncate text-xs">Workspace</p>
+						<p className="truncate text-sm font-extrabold">QSPS</p>
+						<p className="text-sidebar-foreground/70 truncate text-xs">Bureau of Quarantine</p>
 					</div>
-				</div>
+				</Link>
 			</SidebarHeader>
 			<SidebarSeparator />
 			<SidebarContent>
@@ -207,7 +217,7 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 								</Avatar>
 								<div className="min-w-0 flex-1 text-left">
 									<p className="truncate text-sm font-medium">{displayName}</p>
-									<p className="text-muted-foreground truncate text-xs">{user.email}</p>
+									<p className="text-sidebar-foreground/70 truncate text-xs">{user.email}</p>
 								</div>
 								<HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="ml-auto size-4" />
 							</DropdownMenuTrigger>
