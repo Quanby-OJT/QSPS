@@ -243,3 +243,4 @@ export type {
 // Business timezone (PRD: schedules, cutoffs, and reports use Asia/Manila)
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
+export * from "./common/privacy-notice.js"

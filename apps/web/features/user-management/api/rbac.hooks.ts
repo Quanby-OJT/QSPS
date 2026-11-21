@@ -8,7 +8,6 @@ import type {
 	DeleteUserResponse,
 	ExportUsersRequest,
 	ExportUsersResponse,
-	ListAuditLogResponse,
 	ListUsersRequest,
 	ListUsersResponse,
 	PermissionCatalogEntry,
@@ -75,7 +74,6 @@ export const rbacKeys = {
 	permissions: ["rbac", "permissions"] as const,
 	users: ["rbac", "users"] as const,
 	usersFiltered: (filters: Partial<ListUsersRequest>) => ["rbac", "users", filters] as const,
-	auditLog: ["rbac", "audit-log"] as const,
 }
 
 // ---------------------------------------------------------------- queries
@@ -123,13 +121,6 @@ export function useUserScopesQuery(userId: string | undefined) {
 		queryFn: () => apiFetch<UserScopes>(`/rbac/users/${encodeURIComponent(userId ?? "")}/scopes`),
 		enabled: Boolean(userId),
 		retry: false,
-	})
-}
-
-export function useAuditLogQuery(limit = 50) {
-	return useQuery({
-		queryKey: [...rbacKeys.auditLog, limit],
-		queryFn: () => apiFetch<ListAuditLogResponse>(`/rbac/audit-log?limit=${limit}`),
 	})
 }
 
