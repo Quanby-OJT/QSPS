@@ -1,5 +1,5 @@
-import { deflateRawSync } from "node:zlib"
 import { Injectable } from "@nestjs/common"
+import { deflateRawSync } from "node:zlib"
 import PDFDocument from "pdfkit"
 
 export type ExportFormat = "csv" | "xlsx" | "pdf"
@@ -54,7 +54,7 @@ export class ExportService {
 		rows: T[]
 	): Buffer {
 		const escapeCell = (raw: unknown): string => {
-			const text = this.formatCellValue(raw)
+		const text = this.toSafeSpreadsheetText(raw)
 			if (/[",\r\n]/.test(text)) {
 				return `"${text.replace(/"/g, '""')}"`
 			}
@@ -74,8 +74,7 @@ export class ExportService {
 		columns: ExportColumn<T>[],
 		rows: T[]
 	): Buffer {
-		const sanitizedSheetName =
-			sheetTitle.replace(/[\\/?*[\]:]/g, "").slice(0, 31) || "Export"
+		const sanitizedSheetName = sheetTitle.replace(/[\\/?*[\]:]/g, "").slice(0, 31) || "Export"
 
 		const xmlEscape = (value: string): string =>
 			value
@@ -98,7 +97,7 @@ export class ExportService {
 
 		const allRows: string[][] = [
 			columns.map(c => c.header),
-			...rows.map(row => columns.map(c => this.formatCellValue(row[c.key]))),
+			...rows.map(row => columns.map(c => this.toSafeSpreadsheetText(row[c.key]))),
 		]
 
 		const sheetRowsXml = allRows
@@ -182,7 +181,10 @@ export class ExportService {
 			const rowPadding = 4
 
 			const drawRow = (values: string[], isHeader: boolean) => {
-				doc.font(isHeader ? "Helvetica-Bold" : "Helvetica").fontSize(8.5).fillColor("#111111")
+				doc
+					.font(isHeader ? "Helvetica-Bold" : "Helvetica")
+					.fontSize(8.5)
+					.fillColor("#111111")
 				const heights = values.map(val =>
 					doc.heightOfString(val, { width: Math.max(20, colWidth - rowPadding * 2) })
 				)
@@ -232,6 +234,17 @@ export class ExportService {
 
 			doc.end()
 		})
+	}
+
+	/**
+	 * Spreadsheet formula injection guard. Names and emails are typed by clients,
+	 * so a cell like `=HYPERLINK(...)` would run as a formula when an admin opens
+	 * the CSV or XLSX in Excel. A leading quote makes it plain text. PDF is not
+	 * affected and keeps the raw value.
+	 */
+	private toSafeSpreadsheetText(value: unknown): string {
+		const text = this.formatCellValue(value)
+		return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
 	}
 
 	private formatCellValue(value: unknown): string {

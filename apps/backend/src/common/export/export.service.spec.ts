@@ -14,6 +14,20 @@ describe("ExportService", () => {
 		{ name: 'Juan "Jr" Cruz', email: "juan@boq.gov.ph", roles: ["Processing Officer"] },
 	]
 
+	it("neutralises spreadsheet formulas in CSV cells", async () => {
+		const result = await service.exportTable({
+			format: "csv",
+			fileBaseName: "users-export",
+			title: "QSPS Users",
+			columns,
+			rows: [{ name: '=HYPERLINK("http://evil.test")', email: "+1@x.test", roles: ["@admin"] }],
+		})
+		const text = result.buffer.toString("utf8")
+		expect(text).toContain(`"'=HYPERLINK(""http://evil.test"")"`)
+		expect(text).toContain("'+1@x.test")
+		expect(text).toContain("'@admin")
+	})
+
 	it("exports RFC-escaped CSV with UTF-8 BOM", async () => {
 		const result = await service.exportTable({
 			format: "csv",
@@ -52,9 +66,9 @@ describe("ExportService", () => {
 		expect(sheetEntryIdx).toBeGreaterThan(0)
 		const compressedSize = result.buffer.readUInt32LE(sheetEntryIdx - 12)
 		const dataStart = sheetEntryIdx + "xl/worksheets/sheet1.xml".length
-		const xml = inflateRawSync(result.buffer.subarray(dataStart, dataStart + compressedSize)).toString(
-			"utf8"
-		)
+		const xml = inflateRawSync(
+			result.buffer.subarray(dataStart, dataStart + compressedSize)
+		).toString("utf8")
 		expect(xml).toContain("maria@boq.gov.ph")
 		expect(xml).toContain("System Admin, Auditor")
 	})
