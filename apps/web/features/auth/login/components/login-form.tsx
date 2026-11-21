@@ -18,15 +18,26 @@ import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
 import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
 import { PasswordInput } from "@/features/auth/components/password-input"
+import { useCaptcha } from "@/features/auth/captcha/captcha"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
 import { ResendVerificationForm } from "@/features/auth/verify-email/components/resend-verification-form"
 
 import { UnverifiedEmailError, useLoginMutation } from "../api/login.hooks"
 import { LoginSchema } from "../api/login.schema"
 
-export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
+interface LoginFormProps extends React.ComponentProps<"div"> {
+	/**
+	 * AUTH-3: `staff` is the separate staff sign-in page. Same sign-in, but no
+	 * sign-up link and staff wording.
+	 */
+	variant?: "public" | "staff"
+}
+
+export function LoginForm({ className, variant = "public", ...props }: LoginFormProps) {
+	const isStaff = variant === "staff"
 	const [showResend, setShowResend] = useState(false)
 	const { mutateAsync: login, isPending, isError, error } = useLoginMutation()
+	const captcha = useCaptcha()
 
 	const isUnverified = error instanceof UnverifiedEmailError
 	const rateLimit = parseRateLimitError(error)
@@ -44,8 +55,10 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 		},
 		onSubmit: async ({ value }) => {
 			try {
-				await login(value)
+				await login({ ...value, captchaToken: captcha.token })
 			} catch {
+				// AUTH-3: a CAPTCHA token works once, so a failed attempt needs a new one.
+				captcha.reset()
 				// The mutation stores the error, and the banner reads that state.
 				// Catching keeps TanStack Form's handleSubmit() from rejecting,
 				// which would be an unhandled rejection on the form's submit handler.
@@ -66,9 +79,13 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 					>
 						<FieldGroup>
 							<div className="flex flex-col gap-1.5">
-								<h1 className="text-2xl font-extrabold tracking-tight">Sign in</h1>
+								<h1 className="text-2xl font-extrabold tracking-tight">
+									{isStaff ? "Staff sign in" : "Sign in"}
+								</h1>
 								<p className="text-muted-foreground">
-									Welcome back. Sign in to book, pay and get your documents.
+									{isStaff
+										? "For Bureau of Quarantine personnel. Use your staff account."
+										: "Welcome back. Sign in to book, pay and get your documents."}
 								</p>
 							</div>
 
@@ -171,9 +188,10 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 							/>
 
 							<Field>
+								{captcha.widget}
 								<Button
 									type="submit"
-									disabled={isPending || isActive}
+									disabled={isPending || isActive || !captcha.ready}
 									className="h-11 w-full text-base hover:cursor-pointer"
 								>
 									{isActive
@@ -184,16 +202,18 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 								</Button>
 							</Field>
 
-							<FieldDescription className="text-center">
-								Don&apos;t have an account?{" "}
-								<Link
-									className={cn(buttonVariants({ variant: "link" }), "h-auto px-0 font-semibold")}
-									replace
-									href="/register"
-								>
-									Create an account
-								</Link>
-							</FieldDescription>
+							{isStaff ? null : (
+								<FieldDescription className="text-center">
+									Don&apos;t have an account?{" "}
+									<Link
+										className={cn(buttonVariants({ variant: "link" }), "h-auto px-0 font-semibold")}
+										replace
+										href="/register"
+									>
+										Create an account
+									</Link>
+								</FieldDescription>
+							)}
 						</FieldGroup>
 					</form>
 				</CardContent>

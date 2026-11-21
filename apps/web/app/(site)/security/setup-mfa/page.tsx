@@ -4,7 +4,11 @@ import { getSession } from "@/services/better-auth/auth-server"
 import { MfaSetupFlow } from "@/features/auth/two-factor/components/mfa-setup-flow"
 
 /** QSPS fields the session carries (see `user.additionalFields` in @repo/auth). */
-type QspsSessionUser = { accountType?: string | null; twoFactorEnabled?: boolean | null }
+type QspsSessionUser = {
+	accountType?: string | null
+	twoFactorEnabled?: boolean | null
+	mustResetPassword?: boolean | null
+}
 
 /**
  * Two-factor enrolment (AUTH-2). Lives outside `(protected)` because that
@@ -16,6 +20,10 @@ export default async function SetupMfaPage() {
 		redirect("/login")
 	}
 	const user = session.user as QspsSessionUser
+	// AUTH-3: a password that must be changed comes first.
+	if (user.mustResetPassword) {
+		redirect("/security/change-password")
+	}
 	if (user.twoFactorEnabled) {
 		redirect("/dashboard")
 	}

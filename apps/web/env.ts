@@ -120,6 +120,11 @@ export const env = createEnv({
 		// Ingestion host of the project's region (https, *.i.posthog.com), used only by the `/ingest`
 		// proxy route in `app/ingest`. Defaults to US.
 		NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
+
+		// AUTH-3: Cloudflare Turnstile site key (public). Unset in local
+		// development: no CAPTCHA widget is shown. Production needs it, together
+		// with CAPTCHA_SECRET_KEY on the backend.
+		NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().optional(),
 	},
 
 	/**
@@ -163,6 +168,9 @@ export const env = createEnv({
 		NEXT_PUBLIC_POSTHOG_ENABLED: process.env.NEXT_PUBLIC_POSTHOG_ENABLED,
 		NEXT_PUBLIC_POSTHOG_TOKEN: process.env.NEXT_PUBLIC_POSTHOG_TOKEN,
 		NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+
+		// AUTH-3 (browser)
+		NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
 	},
 
 	/**

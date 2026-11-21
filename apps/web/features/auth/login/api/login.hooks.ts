@@ -7,6 +7,7 @@ import { replaceLocation } from "@/core/lib/navigate"
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
 import { authClient, TWO_FACTOR_CHALLENGE_PATH } from "@/services/better-auth/auth-client"
 import { sessionKeys } from "@/features/auth/api/session.hooks"
+import { captchaHeaders } from "@/features/auth/captcha/captcha"
 
 import type { Login } from "./login.schema"
 
@@ -44,15 +45,21 @@ export function useLoginMutation() {
 	const router = useRouter()
 
 	return useMutation({
-		mutationFn: async (data: Login) => {
+		mutationFn: async ({ captchaToken = null, ...data }: Login & { captchaToken?: string | null }) => {
 			const retryAfterCapture = createRetryAfterCapture()
 			const result = await authClient.signIn.email({
 				...data,
-				fetchOptions: retryAfterCapture.fetchOptions,
+				fetchOptions: { ...retryAfterCapture.fetchOptions, headers: captchaHeaders(captchaToken) },
 			})
 			if (result.error) {
 				if (isUnverifiedEmailError(result.error)) {
 					throw new UnverifiedEmailError(data.email)
+				}
+				// AUTH-3: the account is locked after repeated wrong passwords. Shown
+				// as the server words it ("locked for N more minutes"), not as a
+				// seconds countdown.
+				if ((result.error as { code?: string }).code === "ACCOUNT_LOCKED") {
+					throw new Error(result.error.message || "This account is temporarily locked.")
 				}
 				if (result.error.status === 429) {
 					throw new RateLimitError(retryAfterCapture.seconds(result.error))

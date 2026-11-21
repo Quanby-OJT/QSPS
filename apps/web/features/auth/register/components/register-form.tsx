@@ -18,6 +18,7 @@ import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
 import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
 import { PasswordInput } from "@/features/auth/components/password-input"
+import { useCaptcha } from "@/features/auth/captcha/captcha"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
 
 import { useRegisterMutation } from "../api/register.hooks"
@@ -27,6 +28,7 @@ import { CheckYourEmailView } from "./check-your-email-view"
 export function RegisterForm({ className, ...props }: React.ComponentProps<"div">) {
 	const [verificationEmail, setVerificationEmail] = useState<string | null>(null)
 	const { mutateAsync: register, isPending, isError, error } = useRegisterMutation()
+	const captcha = useCaptcha()
 	const rateLimit = parseRateLimitError(error)
 	const { secondsLeft, isActive } = useRateLimitCountdown(
 		rateLimit.isRateLimit ? rateLimit.retryAfter : null
@@ -44,7 +46,9 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 		},
 		onSubmit: async ({ value }) => {
 			// The mutation stores the error, and the banner reads that state.
-			const result = await register(value).catch(() => null)
+			const result = await register({ ...value, captchaToken: captcha.token }).catch(() => null)
+			// AUTH-3: a CAPTCHA token works once.
+			if (!result) captcha.reset()
 			if (result?.requiresVerification) {
 				setVerificationEmail(result.email)
 			}
@@ -199,9 +203,10 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 							/>
 
 							<Field>
+								{captcha.widget}
 								<Button
 									type="submit"
-									disabled={isPending || isActive}
+									disabled={isPending || isActive || !captcha.ready}
 									className="h-11 w-full text-base hover:cursor-pointer"
 								>
 									{isActive
