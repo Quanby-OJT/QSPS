@@ -34,6 +34,12 @@ export const users = createTable("users", t => ({
 	deletedAt: t.timestamp("deleted_at"),
 	/** AUTH-2: true once the user has enrolled a second factor (Better Auth two-factor plugin). */
 	twoFactorEnabled: t.boolean("two_factor_enabled").notNull().default(false),
+	/**
+	 * AUTH-3: when the password was last set or changed. Null means unchanged
+	 * since `created_at`. Staff passwords older than the rotation Policy must be
+	 * changed at sign-in.
+	 */
+	passwordChangedAt: t.timestamp("password_changed_at"),
 }))
 
 export const sessions = createTable("sessions", t => ({
@@ -122,6 +128,26 @@ export const twoFactors = createTable(
 		lockedUntil: t.timestamp("locked_until"),
 	}),
 	t => [index("two_factors_secret_idx").on(t.secret), index("two_factors_user_id_idx").on(t.userId)]
+)
+
+/**
+ * Hashes of the passwords a staff account has set (AUTH-3, TOR §II / COA
+ * Circular 2021-014). A new staff password must differ from the newest five.
+ * Insert-only from the auth package; the five newest rows per user are kept.
+ * Hashes only, in Better Auth's own format, and never returned by any API.
+ */
+export const passwordHistory = createTable(
+	"password_history",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		passwordHash: t.text("password_hash").notNull(),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [index("password_history_user_created_idx").on(t.userId, t.createdAt)]
 )
 
 // ============================================================================
@@ -717,6 +743,7 @@ export const relations = defineRelations(
 		sessions,
 		accounts,
 		twoFactors,
+		passwordHistory,
 		idempotencyKeys,
 		roles,
 		permissions,
@@ -742,6 +769,7 @@ export const relations = defineRelations(
 			sessions: r.many.sessions(),
 			accounts: r.many.accounts(),
 			twoFactors: r.many.twoFactors(),
+			passwordHistory: r.many.passwordHistory(),
 			userRoles: r.many.userRoles(),
 			userScopes: r.many.userScopes(),
 		},
@@ -760,6 +788,12 @@ export const relations = defineRelations(
 		twoFactors: {
 			user: r.one.users({
 				from: r.twoFactors.userId,
+				to: r.users.id,
+			}),
+		},
+		passwordHistory: {
+			user: r.one.users({
+				from: r.passwordHistory.userId,
 				to: r.users.id,
 			}),
 		},
@@ -921,6 +955,7 @@ export const schema = Object.assign(
 		accounts,
 		verifications,
 		twoFactors,
+		passwordHistory,
 		idempotencyKeys,
 		roles,
 		permissions,
