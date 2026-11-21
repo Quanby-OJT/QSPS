@@ -1,9 +1,11 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
+import { replaceLocation } from "@/core/lib/navigate"
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
-import { authClient } from "@/services/better-auth/auth-client"
+import { authClient, TWO_FACTOR_CHALLENGE_PATH } from "@/services/better-auth/auth-client"
 import { sessionKeys } from "@/features/auth/api/session.hooks"
 
 import type { Login } from "./login.schema"
@@ -32,8 +34,14 @@ function isUnverifiedEmailError(error: { message?: string; code?: string; status
 	)
 }
 
+/** AUTH-2: the password was right, but the account still needs its second factor. */
+function needsSecondFactor(data: unknown): boolean {
+	return (data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect === true
+}
+
 export function useLoginMutation() {
 	const queryClient = useQueryClient()
+	const router = useRouter()
 
 	return useMutation({
 		mutationFn: async (data: Login) => {
@@ -53,13 +61,20 @@ export function useLoginMutation() {
 			}
 			return result
 		},
-		onSuccess: () => {
+		onSuccess: result => {
+			// AUTH-2: no session exists yet, so the code step comes first. An
+			// in-app navigation, so the sign in modal on the home page turns into
+			// the code modal (the full /login page goes to the full /two-factor page).
+			if (needsSecondFactor(result.data)) {
+				router.replace(TWO_FACTOR_CHALLENGE_PATH)
+				return
+			}
 			queryClient.invalidateQueries({ queryKey: sessionKeys.all })
 			// A full load straight to the dashboard (UI-1). push + refresh raced:
 			// the refresh cancelled the push, so the address stayed on /login and
 			// the sign in panel stayed open. A full load also gives every page a
 			// fresh session, and `replace` keeps /login out of the back button.
-			window.location.replace("/dashboard")
+			replaceLocation("/dashboard")
 		},
 	})
 }

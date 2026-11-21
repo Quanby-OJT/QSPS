@@ -10,6 +10,7 @@ import { fromNodeHeaders } from "better-auth/node"
 
 import { getAuth } from "@repo/auth"
 
+import { ALLOW_WITHOUT_MFA_KEY } from "./allow-without-mfa"
 import {
 	resolveRequestSession,
 	type RequestSession,
@@ -58,6 +59,18 @@ const unauthorized = () =>
 		message: "Unauthorized",
 	})
 
+/**
+ * AUTH-2: a staff account that has not set up two-factor authentication.
+ * The web app reads `code` and sends the user to enrolment.
+ */
+export const MFA_ENROLMENT_REQUIRED = "MFA_ENROLMENT_REQUIRED"
+
+const mfaEnrolmentRequired = () =>
+	new ForbiddenException({
+		code: MFA_ENROLMENT_REQUIRED,
+		message: "Set up two-factor authentication to continue.",
+	})
+
 const forbidden = () =>
 	new ForbiddenException({
 		code: "FORBIDDEN",
@@ -71,7 +84,8 @@ const forbidden = () =>
  * HTTP behavior matches that guard: the session and user are stored on the
  * request, then `@AllowAnonymous` / `@Public`, `@OptionalAuth`, `@Roles`,
  * `@OrgRoles`, `@UserHasPermission` and `@MemberHasPermission` are applied in
- * that order. Non-HTTP contexts deliberately fail closed with the HTTP 401
+ * that order. Before the role checks, a staff account without two-factor
+ * authentication is refused (AUTH-2) unless the route is `@AllowWithoutMfa`. Non-HTTP contexts deliberately fail closed with the HTTP 401
  * object. This API has no GraphQL, WebSocket or microservice entry points
  * today; adding one needs its own context handling in this guard.
  */
@@ -101,6 +115,16 @@ export class SessionAuthGuard implements CanActivate {
 		}
 		if (!session) {
 			throw unauthorized()
+		}
+
+		// AUTH-2: MFA is mandatory for staff. Until it is set up, every route
+		// is refused except those marked `@AllowWithoutMfa`.
+		if (
+			session.user?.accountType === "staff" &&
+			session.user.twoFactorEnabled !== true &&
+			!this.reflector.getAllAndOverride<boolean>(ALLOW_WITHOUT_MFA_KEY, handler)
+		) {
+			throw mfaEnrolmentRequired()
 		}
 
 		const headers = fromNodeHeaders(request.headers ?? {})

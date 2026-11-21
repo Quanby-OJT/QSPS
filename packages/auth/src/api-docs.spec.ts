@@ -35,7 +35,17 @@ describe("NODE_ENV x ENABLE_API_DOCS matrix", () => {
 
 			expect(docsEnabled).toBe(expectedDocs(nodeEnv, flag))
 			expect(pluginRegistered).toBe(docsEnabled)
-			expect(plugins).toHaveLength(docsEnabled ? 1 : 0)
+			// Two-factor (AUTH-2) is always registered; openAPI only with docs.
+			expect(plugins).toHaveLength(docsEnabled ? 2 : 1)
 		}
 	)
+})
+
+describe("two-factor plugin (AUTH-2)", () => {
+	it("is registered whether or not docs are enabled", () => {
+		for (const docsEnabled of [true, false]) {
+			const plugins = buildAuthPlugins(docsEnabled)
+			expect(plugins.some(plugin => plugin.id === "two-factor")).toBe(true)
+		}
+	})
 })

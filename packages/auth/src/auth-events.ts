@@ -1,5 +1,5 @@
 /**
- * Account events the host process records in its audit trail (AUTH-1).
+ * Account events the host process records in its audit trail (AUTH-1, AUTH-2).
  *
  * DOMAIN-MODEL §6: only the backend's `AuditService` writes `audit_log`. This
  * package cannot depend on the backend, so — like `setAuthRateLimitStorage` —
@@ -7,13 +7,26 @@
  * and Better Auth's hooks call `emitAuthEvent`. With nothing registered (the
  * CLI, the test suites) events are dropped.
  *
- * Events carry ids only. Email addresses, IP addresses and device details stay
- * out until FND-3 decides how the audit trail stores them.
+ * Events carry ids only, never codes, secrets or email addresses. The IP
+ * address and device come from the backend's request context (FND-3).
  */
+
+/** Which second factor was used (AUTH-2). */
+export type MfaMethod = "totp" | "otp" | "backup_code"
+
 export type AuthEvent =
 	| { type: "user.registered"; userId: string }
 	| { type: "user.email_verified"; userId: string }
 	| { type: "session.created"; userId: string }
+	// AUTH-2: second-factor lifecycle and challenge results.
+	| { type: "mfa.enabled"; userId: string }
+	| { type: "mfa.disabled"; userId: string }
+	| { type: "mfa.verified"; userId: string; method: MfaMethod }
+	| { type: "mfa.failed"; userId: string; method: MfaMethod }
+	/** A code was submitted while the challenge is locked after repeated failures. */
+	| { type: "mfa.locked"; userId: string; method: MfaMethod }
+	/** A settings change the rules refuse, e.g. staff turning MFA off. */
+	| { type: "mfa.refused"; userId: string; reason: string }
 
 export type AuthEventListener = (event: AuthEvent) => Promise<void> | void
 

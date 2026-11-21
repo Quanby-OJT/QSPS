@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/core/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/core/components/ui/sheet"
 import { useIsMobile } from "@/core/hooks/use-mobile"
 
-export type AuthModalRoute = "/login" | "/register" | "/forgot-password"
+/** `/two-factor` is the code step after the password (AUTH-2). */
+export type AuthModalRoute = "/login" | "/register" | "/forgot-password" | "/two-factor"
 
 /**
  * Sign in, register and forgot password over the home page (UI-1), like

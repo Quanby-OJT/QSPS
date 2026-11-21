@@ -32,6 +32,8 @@ export const users = createTable("users", t => ({
 	mustResetPassword: t.boolean("must_reset_password").notNull().default(false),
 	disabledAt: t.timestamp("disabled_at"),
 	deletedAt: t.timestamp("deleted_at"),
+	/** AUTH-2: true once the user has enrolled a second factor (Better Auth two-factor plugin). */
+	twoFactorEnabled: t.boolean("two_factor_enabled").notNull().default(false),
 }))
 
 export const sessions = createTable("sessions", t => ({
@@ -94,6 +96,32 @@ export const verifications = createTable(
 		// seq-scans a table whose whole problem is that it is large.
 		index("verifications_expires_at_idx").on(t.expiresAt),
 	]
+)
+
+/**
+ * Second-factor secrets for the Better Auth two-factor plugin (AUTH-2).
+ *
+ * One row per enrolled user: the authenticator (TOTP) secret and the
+ * recovery codes, both stored encrypted by Better Auth. The plugin locks the
+ * challenge after repeated wrong codes using `failed_verification_count` and
+ * `locked_until`. Only Better Auth writes this table; columns follow
+ * `packages/auth/auth-schema.generated.ts`.
+ */
+export const twoFactors = createTable(
+	"two_factors",
+	t => ({
+		id: t.text("id").primaryKey(),
+		secret: t.text("secret").notNull(),
+		backupCodes: t.text("backup_codes").notNull(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		verified: t.boolean("verified").default(true),
+		failedVerificationCount: t.integer("failed_verification_count").default(0),
+		lockedUntil: t.timestamp("locked_until"),
+	}),
+	t => [index("two_factors_secret_idx").on(t.secret), index("two_factors_user_id_idx").on(t.userId)]
 )
 
 // ============================================================================
@@ -681,6 +709,7 @@ export const relations = defineRelations(
 		users,
 		sessions,
 		accounts,
+		twoFactors,
 		idempotencyKeys,
 		roles,
 		permissions,
@@ -705,6 +734,7 @@ export const relations = defineRelations(
 		users: {
 			sessions: r.many.sessions(),
 			accounts: r.many.accounts(),
+			twoFactors: r.many.twoFactors(),
 			userRoles: r.many.userRoles(),
 			userScopes: r.many.userScopes(),
 		},
@@ -717,6 +747,12 @@ export const relations = defineRelations(
 		accounts: {
 			user: r.one.users({
 				from: r.accounts.userId,
+				to: r.users.id,
+			}),
+		},
+		twoFactors: {
+			user: r.one.users({
+				from: r.twoFactors.userId,
 				to: r.users.id,
 			}),
 		},
@@ -877,6 +913,7 @@ export const schema = Object.assign(
 		sessions,
 		accounts,
 		verifications,
+		twoFactors,
 		idempotencyKeys,
 		roles,
 		permissions,

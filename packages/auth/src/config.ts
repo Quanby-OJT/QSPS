@@ -1,23 +1,34 @@
 import { createEnv } from "@t3-oss/env-core"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError, createAuthMiddleware } from "better-auth/api"
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import { eq } from "drizzle-orm"
 import { z } from "zod"
 
-import { PRIVACY_NOTICE_VERSION, type RoleName } from "@repo/contracts"
+import { ADMIN_ROLE, PRIVACY_NOTICE_VERSION, type RoleName } from "@repo/contracts"
 import { createDBClient } from "@repo/db/client"
-import { accounts, roles, sessions, userRoles, users, verifications } from "@repo/db/schema"
+import {
+	accounts,
+	permissions,
+	rolePermissions,
+	roles,
+	sessions,
+	twoFactors,
+	userRoles,
+	users,
+	verifications,
+} from "@repo/db/schema"
 
 import { isApiDocsEnabled } from "./api-docs.js"
-import { emitAuthEvent } from "./auth-events.js"
+import { emitAuthEvent, type MfaMethod } from "./auth-events.js"
 import { authLogger } from "./auth-logger.js"
-import { buildAuthPlugins } from "./auth-plugins.js"
+import { buildAuthPlugins, MFA_EMAIL_CODE_MINUTES } from "./auth-plugins.js"
 import { AUTH_CLIENT_ADDRESS_HEADER } from "./client-address.js"
 import { cookieDomainSchema } from "./cookie-domain-schema.js"
 import { booleanFromEnv } from "./mailer/bool-schema.js"
 import { sendMail } from "./mailer/send-mail.js"
 import { buildResetPasswordEmail } from "./mailer/templates/reset-password-email.js"
+import { buildTwoFactorCodeEmail } from "./mailer/templates/two-factor-code-email.js"
 import { buildVerificationEmail } from "./mailer/templates/verification-email.js"
 import { createTransport } from "./mailer/transport-factory.js"
 import { parseOriginList } from "./origin-list.js"
@@ -87,6 +98,53 @@ export const authEnv = createEnv({
 
 /** The role every self-registered client account receives (AUTH-1). */
 const CLIENT_ROLE: RoleName = "Client"
+
+/**
+ * AUTH-2: endpoints that change a user's own second-factor settings. They
+ * need `account.profile:manage` (clients); staff are exempt because MFA is
+ * mandatory for them and their roles do not carry that key.
+ */
+const MFA_SETTINGS_PATHS = new Set([
+	"/two-factor/enable",
+	"/two-factor/disable",
+	"/two-factor/generate-backup-codes",
+	"/two-factor/get-totp-uri",
+])
+const MFA_SETTINGS_PERMISSION = "account.profile:manage"
+
+/** AUTH-2: the challenge endpoints, and which factor each one checks. */
+const MFA_VERIFY_METHODS: Record<string, MfaMethod> = {
+	"/two-factor/verify-totp": "totp",
+	"/two-factor/verify-otp": "otp",
+	"/two-factor/verify-backup-code": "backup_code",
+}
+
+/** Cookie the two-factor plugin sets between the password step and the code step. */
+const TWO_FACTOR_CHALLENGE_COOKIE = "two_factor"
+
+/**
+ * Whether a user holds a permission key, read straight from the database
+ * with the same rules as `RbacService`: Super Admin holds everything, and
+ * `<resource>:*` covers any action on that resource. The auth package cannot
+ * reach the backend's RBAC service, so it repeats this one check here.
+ */
+async function holdsPermission(
+	db: ReturnType<typeof createDBClient>,
+	userId: string,
+	key: string
+): Promise<boolean> {
+	const resource = key.slice(0, key.indexOf(":"))
+	const rows = await db
+		.select({ role: roles.name, permission: permissions.name })
+		.from(userRoles)
+		.innerJoin(roles, eq(userRoles.roleId, roles.id))
+		.leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
+		.leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+		.where(eq(userRoles.userId, userId))
+	return rows.some(
+		row => row.role === ADMIN_ROLE || row.permission === key || row.permission === `${resource}:*`
+	)
+}
 
 /**
  * Internal basePath used by Better Auth.
@@ -176,6 +234,7 @@ export function createAuth() {
 						sessions,
 						accounts,
 						verifications,
+						twoFactors,
 					},
 					usePlural: true,
 				})(options)
@@ -367,13 +426,106 @@ export function createAuth() {
 		 */
 		hooks: {
 			before: createAuthMiddleware(async ctx => {
-				if (ctx.path !== "/sign-up/email") return
-				const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
-				if (accepted !== PRIVACY_NOTICE_VERSION) {
-					throw ctx.error("BAD_REQUEST", {
-						message: "Please read and accept the privacy notice to create an account.",
-					})
+				if (ctx.path === "/sign-up/email") {
+					const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
+					if (accepted !== PRIVACY_NOTICE_VERSION) {
+						throw ctx.error("BAD_REQUEST", {
+							message: "Please read and accept the privacy notice to create an account.",
+						})
+					}
+					return
 				}
+
+				/**
+				 * AUTH-2: rules on changing second-factor settings. Checked before
+				 * the plugin runs, so a refused change never touches the database.
+				 * Without a session the plugin itself answers 401.
+				 */
+				if (MFA_SETTINGS_PATHS.has(ctx.path)) {
+					const session = await getSessionFromCtx(ctx)
+					if (!session) return
+					const userId = session.user.id
+					const isStaff = (session.user as Record<string, unknown>).accountType === "staff"
+
+					if (ctx.path === "/two-factor/disable" && isStaff) {
+						await emitAuthEvent({
+							type: "mfa.refused",
+							userId,
+							reason: "staff accounts must keep two-factor authentication on",
+						})
+						throw new APIError("FORBIDDEN", {
+							message:
+								"Two-factor authentication is required for staff accounts and cannot be turned off.",
+						})
+					}
+
+					if (!isStaff && !(await holdsPermission(db, userId, MFA_SETTINGS_PERMISSION))) {
+						await emitAuthEvent({
+							type: "mfa.refused",
+							userId,
+							reason: `missing ${MFA_SETTINGS_PERMISSION}`,
+						})
+						throw new APIError("FORBIDDEN", {
+							message: "You do not have permission to change sign-in security settings.",
+						})
+					}
+				}
+			}),
+
+			/**
+			 * AUTH-2 audit: enrolment, disabling, and every second-factor
+			 * attempt, successful or not. Runs after the plugin, so the outcome
+			 * is known (`returned` is an APIError when the attempt failed).
+			 */
+			after: createAuthMiddleware(async ctx => {
+				const failed = ctx.context.returned instanceof APIError
+				const signedInUserId = ctx.context.session?.user.id
+
+				if (ctx.path === "/two-factor/disable") {
+					if (!failed && signedInUserId) {
+						await emitAuthEvent({ type: "mfa.disabled", userId: signedInUserId })
+					}
+					return
+				}
+
+				const method = MFA_VERIFY_METHODS[ctx.path]
+				if (!method) return
+
+				if (!failed) {
+					// Signed in already: the code confirmed a new authenticator (enrolment).
+					// Otherwise the code finished a sign-in and created the session.
+					if (signedInUserId && method === "totp") {
+						await emitAuthEvent({ type: "mfa.enabled", userId: signedInUserId })
+						return
+					}
+					const userId = ctx.context.newSession?.user.id ?? signedInUserId
+					if (userId) await emitAuthEvent({ type: "mfa.verified", userId, method })
+					return
+				}
+
+				// A wrong code during sign-in has no session yet: the user is the
+				// one named by the plugin's signed challenge cookie.
+				let userId = signedInUserId ?? null
+				if (!userId) {
+					try {
+						const cookie = ctx.context.createAuthCookie(TWO_FACTOR_CHALLENGE_COOKIE)
+						const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
+						const record = identifier
+							? await ctx.context.internalAdapter.findVerificationValue(identifier)
+							: null
+						userId = record?.value ?? null
+					} catch {
+						userId = null
+					}
+				}
+				if (!userId) return
+
+				const [state] = await db
+					.select({ lockedUntil: twoFactors.lockedUntil })
+					.from(twoFactors)
+					.where(eq(twoFactors.userId, userId))
+				const locked = Boolean(state?.lockedUntil && state.lockedUntil.getTime() > Date.now())
+				await emitAuthEvent({ type: locked ? "mfa.locked" : "mfa.failed", userId, method })
 			}),
 		},
 
@@ -572,7 +724,32 @@ export function createAuth() {
 		 * `isApiDocsEnabled` — the same rule the backend uses for Scalar and
 		 * `spec.json` — so the two cannot disagree.
 		 */
-		plugins: buildAuthPlugins(isApiDocsEnabled(process.env.NODE_ENV, authEnv.ENABLE_API_DOCS)),
+		plugins: buildAuthPlugins(isApiDocsEnabled(process.env.NODE_ENV, authEnv.ENABLE_API_DOCS), {
+			/**
+			 * AUTH-2: the emailed one-time sign-in code. Unlike a reset link, a
+			 * failure here is surfaced: the user is already past the password
+			 * and waiting for this code, so a silent failure would strand them.
+			 * The message stays generic; the transport error goes to the log.
+			 */
+			sendTwoFactorOtp: async ({ email, otp }) => {
+				const message = buildTwoFactorCodeEmail({ code: otp, minutes: MFA_EMAIL_CODE_MINUTES })
+				try {
+					await sendMail(transporter, mailFrom, {
+						to: email,
+						subject: message.subject,
+						html: message.html,
+						text: message.text,
+					})
+				} catch (err) {
+					// eslint-disable-next-line no-console -- transport failure is logged server-side and never returned
+					console.error("[mailer] sign-in code email failed:", err)
+					throw new APIError("INTERNAL_SERVER_ERROR", {
+						message:
+							"The sign-in code could not be sent. Please try again or use your authenticator app.",
+					})
+				}
+			},
+		}),
 	})
 }
 

@@ -9,13 +9,20 @@ import {
 	type AuthFetchArg,
 } from "@/features/auth/api/better-fetch-rate-limit-mock"
 
-const { signInEmail } = vi.hoisted(() => ({ signInEmail: vi.fn() }))
-
-vi.mock("next/navigation", () => ({
-	useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+const { signInEmail, replaceLocation, routerReplace } = vi.hoisted(() => ({
+	signInEmail: vi.fn(),
+	replaceLocation: vi.fn(),
+	routerReplace: vi.fn(),
 }))
 
+vi.mock("next/navigation", () => ({
+	useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: routerReplace }),
+}))
+
+vi.mock("@/core/lib/navigate", () => ({ replaceLocation }))
+
 vi.mock("@/services/better-auth/auth-client", () => ({
+	TWO_FACTOR_CHALLENGE_PATH: "/two-factor",
 	authClient: {
 		signIn: { email: (input: AuthFetchArg) => signInEmail(input) },
 	},
@@ -57,5 +64,28 @@ describe("useLoginMutation rate limit", () => {
 			statusText: "Too Many Requests",
 			message: "Too many requests. Please try again later.",
 		})
+	})
+})
+
+describe("useLoginMutation redirect (AUTH-2)", () => {
+	it("continues to the code step when the account uses two-factor authentication", async () => {
+		signInEmail.mockResolvedValue({ data: { twoFactorRedirect: true }, error: null })
+
+		const { result } = renderLogin()
+		result.current.mutate({ email: "a@example.com", password: "secret" })
+
+		await waitFor(() => expect(result.current.isSuccess).toBe(true))
+		expect(routerReplace).toHaveBeenCalledWith("/two-factor")
+		expect(replaceLocation).not.toHaveBeenCalled()
+	})
+
+	it("goes straight to the dashboard when no code is needed", async () => {
+		signInEmail.mockResolvedValue({ data: { token: "t", user: { id: "u1" } }, error: null })
+
+		const { result } = renderLogin()
+		result.current.mutate({ email: "a@example.com", password: "secret" })
+
+		await waitFor(() => expect(result.current.isSuccess).toBe(true))
+		expect(replaceLocation).toHaveBeenCalledWith("/dashboard")
 	})
 })
