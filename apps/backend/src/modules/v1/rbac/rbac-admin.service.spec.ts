@@ -25,6 +25,7 @@ jest.mock("@repo/contracts", () => ({
 	ADMIN_ROLE: "Super Admin",
 	PERMISSION_NAMES: ["users.accounts:read", "users.accounts:manage", "users.roles:manage"],
 	MODULE_ADMIN_ASSIGNABLE_ROLES: ["Processing Officer", "Cashier", "Collecting Officer"],
+	ROLE_NAMES: ["Super Admin", "System Admin", "Module Admin", "Cashier", "Client"],
 }))
 
 jest.mock("@orpc/server", () => ({
@@ -53,6 +54,7 @@ function mockTransaction(tx: Record<string, unknown>) {
 describe("RbacAdminService", () => {
 	let service: RbacAdminService
 	let rbacService: {
+		getResolvedAccess: jest.Mock
 		holdsAdmin: jest.Mock
 		assertCanDeactivateUser: jest.Mock
 		assignRole: jest.Mock
@@ -65,6 +67,11 @@ describe("RbacAdminService", () => {
 	beforeEach(() => {
 		jest.clearAllMocks()
 		rbacService = {
+			getResolvedAccess: jest.fn().mockResolvedValue({
+				roleNames: new Set(["Super Admin"]),
+				permissionNames: new Set(),
+				scopes: [],
+			}),
 			holdsAdmin: jest.fn().mockResolvedValue(true),
 			assertCanDeactivateUser: jest.fn().mockResolvedValue(undefined),
 			assignRole: jest.fn().mockResolvedValue(undefined),
@@ -472,5 +479,164 @@ describe("RbacAdminService", () => {
 				targetId: "sa-1",
 			})
 		)
+	})
+
+	// ------------------------------------------------------------- ADM-7 roles
+	describe("ADM-7 role guards", () => {
+		const now = new Date("2026-11-21T00:00:00.000Z")
+		const roleRow = (id: number, name: string) => ({
+			id,
+			name,
+			description: null,
+			createdAt: now,
+			updatedAt: now,
+		})
+
+		/** Each db.select() resolves to the next result, in the order the service asks. */
+		function queueSelects(results: unknown[][]) {
+			const next = () => Promise.resolve(results.shift() ?? [])
+			jest.mocked(db.select).mockImplementation(
+				() =>
+					({
+						from: () => ({ where: next, innerJoin: () => ({ where: next }) }),
+					}) as never
+			)
+		}
+
+		function expectDenied(action: string, reason: string | RegExp) {
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action,
+					outcome: "denied",
+					targetType: "role",
+					reason: typeof reason === "string" ? reason : expect.stringMatching(reason),
+				})
+			)
+		}
+
+		it("refuses any edit of the Super Admin role, even its description, and audits it", async () => {
+			queueSelects([[roleRow(1, "Super Admin")]])
+
+			await expect(
+				service.updateRole({ id: 1, description: "changed" }, "sysadmin-1")
+			).rejects.toMatchObject({ code: "FORBIDDEN" })
+			expect(db.transaction).not.toHaveBeenCalled()
+			expectDenied("role.update", "the Super Admin role is protected")
+		})
+
+		it("refuses changing the Super Admin role's permissions, and audits it", async () => {
+			queueSelects([[roleRow(1, "Super Admin")]])
+
+			await expect(
+				service.setRolePermissions({ id: 1, permissions: ["users.accounts:read"] }, "sysadmin-1")
+			).rejects.toMatchObject({ code: "FORBIDDEN" })
+			expect(db.transaction).not.toHaveBeenCalled()
+			expectDenied("role.setPermissions", "the Super Admin role is protected")
+		})
+
+		it("refuses renaming a built-in role but would allow its description", async () => {
+			queueSelects([[roleRow(4, "Cashier")]])
+
+			await expect(
+				service.updateRole({ id: 4, name: "Teller" }, "sysadmin-1")
+			).rejects.toMatchObject({ code: "FORBIDDEN" })
+			expectDenied("role.update", "seeded role rename")
+		})
+
+		it("refuses deleting a built-in role", async () => {
+			queueSelects([[roleRow(4, "Cashier")]])
+
+			await expect(service.deleteRole(4, "sysadmin-1")).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			})
+			expectDenied("role.delete", "seeded role delete")
+		})
+
+		it("refuses deleting a role still assigned to users, until it is unassigned", async () => {
+			queueSelects([[roleRow(20, "Port Inspector")], [{ count: 2 }]])
+
+			await expect(service.deleteRole(20, "sysadmin-1")).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining("2 users"),
+			})
+			expect(db.transaction).not.toHaveBeenCalled()
+			expectDenied("role.delete", "role still assigned")
+		})
+
+		it("deletes an unassigned custom role and clears the permission cache", async () => {
+			queueSelects([
+				[roleRow(20, "Port Inspector")],
+				[{ count: 0 }],
+				[{ name: "processing.queue:read" }],
+			])
+			const tx = mockTransaction({ delete: jest.fn().mockReturnValue({ where: jest.fn() }) })
+
+			await expect(service.deleteRole(20, "sysadmin-1")).resolves.toEqual({ success: true, id: 20 })
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "role.delete",
+					oldValue: expect.objectContaining({ name: "Port Inspector" }),
+				}),
+				tx
+			)
+			expect(cacheService.clear).toHaveBeenCalled()
+		})
+
+		it("refuses a non-Super Admin granting a permission they do not hold, and audits it", async () => {
+			rbacService.getResolvedAccess.mockResolvedValue({
+				roleNames: new Set(["System Admin"]),
+				permissionNames: new Set(["users.roles:manage"]),
+				scopes: [],
+			})
+			queueSelects([
+				[roleRow(20, "Port Inspector")], // the role
+				[{ id: 7, name: "audit.logs:export" }], // the requested permission exists
+				[], // it grants nothing today
+			])
+
+			await expect(
+				service.setRolePermissions({ id: 20, permissions: ["audit.logs:export"] }, "sysadmin-1")
+			).rejects.toMatchObject({ code: "FORBIDDEN" })
+			expect(db.transaction).not.toHaveBeenCalled()
+			expectDenied("role.setPermissions", /audit\.logs:export/)
+		})
+
+		it("records every grant and revoke, and clears the permission cache", async () => {
+			queueSelects([
+				[roleRow(20, "Port Inspector")],
+				[
+					{ id: 1, name: "users.accounts:read" },
+					{ id: 2, name: "users.roles:manage" },
+				],
+				[{ name: "users.accounts:read" }, { name: "audit.logs:read" }], // before
+				[roleRow(20, "Port Inspector")], // buildRole: the role
+				[{ name: "users.accounts:read" }, { name: "users.roles:manage" }], // buildRole: its permissions
+				[{ count: 0 }], // buildRole: holders
+			])
+			const tx = mockTransaction({
+				delete: jest.fn().mockReturnValue({ where: jest.fn() }),
+				insert: jest.fn().mockReturnValue({ values: jest.fn() }),
+			})
+
+			const role = await service.setRolePermissions(
+				{ id: 20, permissions: ["users.accounts:read", "users.roles:manage"] },
+				"super-1"
+			)
+
+			expect(role.isSystem).toBe(false)
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "role.setPermissions",
+					oldValue: { permissions: ["audit.logs:read", "users.accounts:read"] },
+					newValue: {
+						permissions: ["users.accounts:read", "users.roles:manage"],
+						granted: ["users.roles:manage"],
+						revoked: ["audit.logs:read"],
+					},
+				}),
+				tx
+			)
+			expect(cacheService.clear).toHaveBeenCalled()
+		})
 	})
 })

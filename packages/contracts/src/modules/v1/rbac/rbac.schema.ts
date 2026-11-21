@@ -26,6 +26,8 @@ export const RoleSchema = z.object({
 	description: z.string().nullable(),
 	permissions: z.array(PermissionNameSchema),
 	userCount: z.number().int().nonnegative(),
+	/** ADM-7: seeded with QSPS. Keeps its name and cannot be deleted. */
+	isSystem: z.boolean(),
 	createdAt: dateField,
 	updatedAt: dateField,
 })
