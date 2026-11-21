@@ -37,6 +37,13 @@
 	--color-popover: var(--popover);
 	--color-card-foreground: var(--card-foreground);
 	--color-card: var(--card);
+	/* BOQ brand (UI-1): navy for weight, gold from the BOQ wings as a thin accent. */
+	--color-navy: var(--navy);
+	--color-navy-foreground: var(--navy-foreground);
+	--color-gold: var(--gold);
+	--color-gold-foreground: var(--gold-foreground);
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -47,72 +54,85 @@
 }
 
 :root {
+	/* QSPS / Bureau of Quarantine theme (UI-1). Navy #0A2540, BOQ blue #1557B0, gold #F5C542. */
 	--background: oklch(1 0 0);
-	--foreground: oklch(0.141 0.005 285.823);
+	--foreground: oklch(0.26 0.06 251.3);
 	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.141 0.005 285.823);
+	--card-foreground: oklch(0.26 0.06 251.3);
 	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.141 0.005 285.823);
-	--primary: oklch(0.488 0.243 264.376);
-	--primary-foreground: oklch(0.97 0.014 254.604);
-	--secondary: oklch(0.967 0.001 286.375);
-	--secondary-foreground: oklch(0.21 0.006 285.885);
-	--muted: oklch(0.967 0.001 286.375);
-	--muted-foreground: oklch(0.552 0.016 285.938);
-	--accent: oklch(0.488 0.243 264.376);
-	--accent-foreground: oklch(0.97 0.014 254.604);
-	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.92 0.004 286.32);
-	--input: oklch(0.92 0.004 286.32);
-	--ring: oklch(0.705 0.015 286.067);
-	--chart-1: oklch(0.809 0.105 251.813);
-	--chart-2: oklch(0.623 0.214 259.815);
-	--chart-3: oklch(0.546 0.245 262.881);
-	--chart-4: oklch(0.488 0.243 264.376);
-	--chart-5: oklch(0.424 0.199 265.638);
-	--radius: 0.875rem;
-	--sidebar: oklch(0.985 0 0);
-	--sidebar-foreground: oklch(0.141 0.005 285.823);
-	--sidebar-primary: oklch(0.546 0.245 262.881);
-	--sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-	--sidebar-accent: oklch(0.488 0.243 264.376);
-	--sidebar-accent-foreground: oklch(0.97 0.014 254.604);
-	--sidebar-border: oklch(0.92 0.004 286.32);
-	--sidebar-ring: oklch(0.705 0.015 286.067);
+	--popover-foreground: oklch(0.26 0.06 251.3);
+	--primary: oklch(0.47 0.156 257.9);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.96 0.008 253.9);
+	--secondary-foreground: oklch(0.26 0.06 251.3);
+	--muted: oklch(0.978 0.006 255.5);
+	--muted-foreground: oklch(0.467 0.045 257);
+	--accent: oklch(0.47 0.156 257.9);
+	--accent-foreground: oklch(1 0 0);
+	--destructive: oklch(0.5 0.182 29.5);
+	--border: oklch(0.93 0.012 259.8);
+	--input: oklch(0.857 0.021 254.9);
+	--ring: oklch(0.47 0.156 257.9);
+	--navy: oklch(0.26 0.06 251.3);
+	--navy-foreground: oklch(1 0 0);
+	--gold: oklch(0.844 0.151 87.9);
+	--gold-foreground: oklch(0.26 0.06 251.3);
+	--success: oklch(0.47 0.11 152);
+	--success-foreground: oklch(1 0 0);
+	--chart-1: oklch(0.47 0.156 257.9);
+	--chart-2: oklch(0.648 0.163 258.6);
+	--chart-3: oklch(0.844 0.151 87.9);
+	--chart-4: oklch(0.26 0.06 251.3);
+	--chart-5: oklch(0.762 0.085 256.9);
+	--radius: 0.75rem;
+	--sidebar: oklch(0.26 0.06 251.3);
+	--sidebar-foreground: oklch(0.935 0.015 257.2);
+	--sidebar-primary: oklch(0.47 0.156 257.9);
+	--sidebar-primary-foreground: oklch(1 0 0);
+	--sidebar-accent: oklch(0.47 0.156 257.9);
+	--sidebar-accent-foreground: oklch(1 0 0);
+	--sidebar-border: oklch(0.347 0.081 256.2);
+	--sidebar-ring: oklch(0.844 0.151 87.9);
 }
 
 .dark {
-	--background: oklch(0.141 0.005 285.823);
-	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.21 0.006 285.885);
-	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.21 0.006 285.885);
-	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.42 0.18 266);
-	--primary-foreground: oklch(0.97 0.014 254.604);
-	--secondary: oklch(0.274 0.006 286.033);
-	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.274 0.006 286.033);
-	--muted-foreground: oklch(0.705 0.015 286.067);
-	--accent: oklch(0.42 0.18 266);
-	--accent-foreground: oklch(0.97 0.014 254.604);
-	--destructive: oklch(0.704 0.191 22.216);
-	--border: oklch(1 0 0 / 10%);
-	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.552 0.016 285.938);
-	--chart-1: oklch(0.809 0.105 251.813);
-	--chart-2: oklch(0.623 0.214 259.815);
-	--chart-3: oklch(0.546 0.245 262.881);
-	--chart-4: oklch(0.488 0.243 264.376);
-	--chart-5: oklch(0.424 0.199 265.638);
-	--sidebar: oklch(0.21 0.006 285.885);
-	--sidebar-foreground: oklch(0.985 0 0);
-	--sidebar-primary: oklch(0.623 0.214 259.815);
-	--sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-	--sidebar-accent: oklch(0.42 0.18 266);
-	--sidebar-accent-foreground: oklch(0.97 0.014 254.604);
+	--background: oklch(0.216 0.047 256);
+	--foreground: oklch(0.969 0.009 258.3);
+	--card: oklch(0.259 0.057 256.5);
+	--card-foreground: oklch(0.969 0.009 258.3);
+	--popover: oklch(0.259 0.057 256.5);
+	--popover-foreground: oklch(0.969 0.009 258.3);
+	--primary: oklch(0.648 0.163 258.6);
+	--primary-foreground: oklch(0.26 0.06 251.3);
+	--secondary: oklch(0.306 0.065 254.1);
+	--secondary-foreground: oklch(0.969 0.009 258.3);
+	--muted: oklch(0.306 0.065 254.1);
+	--muted-foreground: oklch(0.786 0.04 255.6);
+	--accent: oklch(0.648 0.163 258.6);
+	--accent-foreground: oklch(0.26 0.06 251.3);
+	--destructive: oklch(0.709 0.17 26.5);
+	--border: oklch(1 0 0 / 12%);
+	--input: oklch(1 0 0 / 18%);
+	--ring: oklch(0.648 0.163 258.6);
+	--navy: oklch(0.201 0.042 252.6);
+	--navy-foreground: oklch(0.969 0.009 258.3);
+	--gold: oklch(0.844 0.151 87.9);
+	--gold-foreground: oklch(0.26 0.06 251.3);
+	--success: oklch(0.72 0.14 152);
+	--success-foreground: oklch(0.2 0.04 152);
+	--chart-1: oklch(0.648 0.163 258.6);
+	--chart-2: oklch(0.762 0.085 256.9);
+	--chart-3: oklch(0.844 0.151 87.9);
+	--chart-4: oklch(0.47 0.156 257.9);
+	--chart-5: oklch(0.935 0.015 257.2);
+	--sidebar: oklch(0.201 0.042 252.6);
+	--sidebar-foreground: oklch(0.935 0.015 257.2);
+	--sidebar-primary: oklch(0.648 0.163 258.6);
+	--sidebar-primary-foreground: oklch(0.26 0.06 251.3);
+	--sidebar-accent: oklch(0.312 0.083 257.5);
+	--sidebar-accent-foreground: oklch(0.969 0.009 258.3);
 	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.552 0.016 285.938);
+	--sidebar-ring: oklch(0.844 0.151 87.9);
 }
 
 @layer base {
@@ -121,5 +141,60 @@
 	}
 	body {
 		@apply bg-background text-foreground;
+	}
+}
+
+/* UI-1: hide the first-load cover after 5 s even if scripts never run. */
+@keyframes first-load-cover-out {
+	to {
+		opacity: 0;
+		visibility: hidden;
+	}
+}
+.first-load-cover {
+	animation: first-load-cover-out 0.3s ease 5s forwards;
+}
+
+/* UI-1 effects on the public home page. Used with motion-safe: so people who
+   turn off animations in their system settings never see them. */
+@theme {
+	--animate-rise: qsps-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+	--animate-float: qsps-float 6s ease-in-out infinite;
+	--animate-scan: qsps-scan 3.2s ease-in-out infinite;
+
+	@keyframes qsps-rise {
+		from {
+			opacity: 0;
+			transform: translateY(18px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@keyframes qsps-float {
+		0%,
+		100% {
+			transform: translateY(0);
+		}
+		50% {
+			transform: translateY(-8px);
+		}
+	}
+
+	@keyframes qsps-scan {
+		0%,
+		100% {
+			top: 0;
+			opacity: 0;
+		}
+		10%,
+		90% {
+			opacity: 1;
+		}
+		50% {
+			top: calc(100% - 3px);
+		}
 	}
 }

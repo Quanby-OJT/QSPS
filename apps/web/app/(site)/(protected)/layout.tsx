@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 
+import { SiteFooter } from "@/core/components/site-footer"
 import { SidebarInset, SidebarProvider } from "@/core/components/ui/sidebar"
 import { getSession } from "@/services/better-auth/auth-server"
 import { CacheIdentity } from "@/services/tanstack-query/cache-identity"
@@ -46,9 +47,10 @@ export default async function SiteLayout({
 			<AppSidebar user={user} access={access} />
 			<SidebarInset>
 				<SiteHeader />
-				<div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+				<div className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
 					<main className="min-w-0">{children}</main>
 				</div>
+				<SiteFooter />
 			</SidebarInset>
 		</SidebarProvider>
 	)

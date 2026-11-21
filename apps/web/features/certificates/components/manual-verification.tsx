@@ -12,7 +12,10 @@ import { Button } from "@/core/components/ui/button"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { useManualVerificationQuery } from "@/features/certificates/api/verification.hooks"
-import { VerificationShell } from "@/features/certificates/components/document-verification"
+import {
+	verificationCard,
+	VerificationShell,
+} from "@/features/certificates/components/document-verification"
 import { VerificationResult } from "@/features/certificates/components/verification-result"
 
 /**
@@ -38,12 +41,15 @@ export function ManualVerification() {
 	}
 
 	return (
-		<VerificationShell>
-			<form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-				<p className="text-muted-foreground text-sm">
+		<VerificationShell
+			description={
+				<>
 					Scan the QR code on the document, or enter its document number and the{" "}
 					{VERIFICATION_CODE_LENGTH}-character code printed under the QR code.
-				</p>
+				</>
+			}
+		>
+			<form onSubmit={submit} className={verificationCard} noValidate>
 				<div className="flex flex-col gap-1.5">
 					<Label htmlFor="verify-number">Document number</Label>
 					<Input
@@ -75,13 +81,13 @@ export function ManualVerification() {
 						{formError}
 					</p>
 				) : null}
-				<Button type="submit" className="self-start" disabled={result.isFetching}>
-					{result.isFetching ? "Checking…" : "Verify"}
+				<Button type="submit" size="lg" className="w-full" disabled={result.isFetching}>
+					{result.isFetching ? "Checking…" : "Verify document"}
 				</Button>
 			</form>
 
 			{submitted ? (
-				<div className="border-border flex flex-col gap-3 rounded-lg border p-6" role="status">
+				<div className={verificationCard} role="status">
 					<VerificationResult
 						isPending={result.isPending}
 						error={result.error}

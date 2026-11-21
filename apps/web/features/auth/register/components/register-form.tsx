@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { useForm } from "@tanstack/react-form"
 
@@ -13,7 +12,6 @@ import {
 	FieldError,
 	FieldGroup,
 	FieldLabel,
-	FieldSeparator,
 } from "@/core/components/ui/field"
 import { Input } from "@/core/components/ui/input"
 import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
@@ -21,8 +19,6 @@ import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
 import { PasswordInput } from "@/features/auth/components/password-input"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
-import { SocialLoginButtons } from "@/features/auth/components/social-login-buttons"
-import { TermsPrivacyNote } from "@/features/auth/components/terms-privacy-note"
 
 import { useRegisterMutation } from "../api/register.hooks"
 import { RegisterSchema } from "../api/register.schema"
@@ -61,19 +57,21 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 
 	return (
 		<div className={cn("flex flex-col gap-6", className)} {...props}>
-			<Card className="overflow-hidden p-0">
-				<CardContent className="grid p-0 md:grid-cols-2">
+			<Card className="p-0 shadow-sm">
+				<CardContent className="p-0">
 					<form
-						className="p-6 md:p-8"
+						className="p-6 sm:p-8"
 						onSubmit={e => {
 							e.preventDefault()
 							form.handleSubmit()
 						}}
 					>
 						<FieldGroup>
-							<div className="flex flex-col items-center gap-2 text-center">
-								<h1 className="text-2xl font-bold">Create an account</h1>
-								<p className="text-muted-foreground text-balance">Sign up to get started</p>
+							<div className="flex flex-col gap-1.5">
+								<h1 className="text-2xl font-extrabold tracking-tight">Create an account</h1>
+								<p className="text-muted-foreground">
+									One account for all your BOQ bookings, receipts and certificates.
+								</p>
 							</div>
 
 							{isError && rateLimit.isRateLimit && (
@@ -101,7 +99,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 												onBlur={field.handleBlur}
 												onChange={e => field.handleChange(e.target.value)}
 												aria-invalid={isInvalid}
-												placeholder="John Doe"
+												placeholder="Juan Dela Cruz"
 												autoComplete="name"
 												disabled={isPending}
 											/>
@@ -126,7 +124,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 												onBlur={field.handleBlur}
 												onChange={e => field.handleChange(e.target.value)}
 												aria-invalid={isInvalid}
-												placeholder="m@example.com"
+												placeholder="you@example.com"
 												autoComplete="email"
 												required
 												disabled={isPending}
@@ -184,7 +182,10 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 													I have read and accept the privacy notice below.
 												</FieldLabel>
 											</div>
-											<FieldDescription id="privacy-notice" className="text-xs">
+											<FieldDescription
+												id="privacy-notice"
+												className="bg-muted rounded-lg p-3 text-xs leading-relaxed"
+											>
 												The Bureau of Quarantine collects your name, email, mobile number, birth
 												date, nationality, and gender to create your account, schedule and process
 												the services you book, and issue your documents, as allowed by the Data
@@ -201,7 +202,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 								<Button
 									type="submit"
 									disabled={isPending || isActive}
-									className="w-full hover:cursor-pointer"
+									className="h-11 w-full text-base hover:cursor-pointer"
 								>
 									{isActive
 										? `Try again in ${secondsLeft}s`
@@ -211,19 +212,11 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 								</Button>
 							</Field>
 
-							<FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
-								Or continue with
-							</FieldSeparator>
-
-							<SocialLoginButtons action="signup" />
-
 							<FieldDescription className="text-center">
 								Already have an account?{" "}
 								<Link
-									className={cn(
-										buttonVariants({ variant: "link" }),
-										"text-muted-foreground h-auto px-0"
-									)}
+									className={cn(buttonVariants({ variant: "link" }), "h-auto px-0 font-semibold")}
+									replace
 									href="/login"
 								>
 									Sign in
@@ -231,17 +224,8 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 							</FieldDescription>
 						</FieldGroup>
 					</form>
-					<div className="bg-muted relative hidden md:block">
-						<Image
-							src="/placeholder.svg"
-							alt="Image"
-							fill
-							className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
-						/>
-					</div>
 				</CardContent>
 			</Card>
-			<TermsPrivacyNote />
 		</div>
 	)
 }
