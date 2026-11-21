@@ -1,3 +1,5 @@
+import type { ResolvedScope } from "@/common/scope/scope-match"
+import { NO_SCOPE } from "@/common/scope/scope.token"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
 import { LocationsController } from "./locations.controller"
@@ -45,12 +47,19 @@ jest.mock("./locations.service", () => ({
 
 const MANAGE_KEY = "settings.locations:manage"
 
+/** ADM-2: the Scope the resolver hands back for the signed-in user. */
+const SCOPE: ResolvedScope = {
+	nationwide: false,
+	entries: [{ serviceCategoryId: null, locationId: 10 }],
+}
+
 function requiredPermissions(handler: keyof LocationsController): unknown {
 	return Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, LocationsController.prototype[handler])
 }
 
 describe("LocationsController", () => {
 	let controller: LocationsController
+	let scopeResolver: { resolve: jest.Mock }
 	let service: {
 		list: jest.Mock
 		listAvailable: jest.Mock
@@ -70,7 +79,8 @@ describe("LocationsController", () => {
 			setActive: jest.fn(),
 			delete: jest.fn(),
 		}
-		controller = new LocationsController(service as unknown as LocationsService)
+		scopeResolver = { resolve: jest.fn().mockResolvedValue(SCOPE) }
+		controller = new LocationsController(service as unknown as LocationsService, scopeResolver)
 	})
 
 	// RbacGuard reads this metadata and answers 403 plus a denied Audit Entry
@@ -99,22 +109,35 @@ describe("LocationsController", () => {
 		await expect(controller.create({ user: { id: "staff-1" } } as never)).resolves.toEqual({
 			code: "MNL",
 		})
-		expect(service.create).toHaveBeenCalledWith(handlerInput, "staff-1")
+		expect(service.create).toHaveBeenCalledWith(handlerInput, "staff-1", SCOPE)
+		expect(scopeResolver.resolve).toHaveBeenCalledWith("staff-1")
 	})
 
 	it("attributes an update and a status change to the signed-in user", async () => {
 		handlerInput = { code: "MNL", name: "Manila Main" }
 		await controller.update({ user: { id: "staff-1" } } as never)
-		expect(service.update).toHaveBeenCalledWith(handlerInput, "staff-1")
+		expect(service.update).toHaveBeenCalledWith(handlerInput, "staff-1", SCOPE)
 
 		handlerInput = { code: "MNL", isActive: false }
 		await controller.setActive({ user: { id: "staff-1" } } as never)
-		expect(service.setActive).toHaveBeenCalledWith(handlerInput, "staff-1")
+		expect(service.setActive).toHaveBeenCalledWith(handlerInput, "staff-1", SCOPE)
 	})
 
 	it("passes only the code to delete", async () => {
 		handlerInput = { code: "MNL" }
 		await controller.delete({ user: { id: "staff-1" } } as never)
-		expect(service.delete).toHaveBeenCalledWith("MNL", "staff-1")
+		expect(service.delete).toHaveBeenCalledWith("MNL", "staff-1", SCOPE)
+	})
+
+	// ADM-2: the staff list is limited to the caller's Scope.
+	it("lists only inside the caller's Scope", async () => {
+		await controller.list({ user: { id: "staff-1" } } as never)
+		expect(service.list).toHaveBeenCalledWith(SCOPE)
+	})
+
+	it("fails closed with no Scope when no resolver is wired in", async () => {
+		const unwired = new LocationsController(service as unknown as LocationsService)
+		await unwired.list({ user: { id: "staff-1" } } as never)
+		expect(service.list).toHaveBeenCalledWith(NO_SCOPE)
 	})
 })

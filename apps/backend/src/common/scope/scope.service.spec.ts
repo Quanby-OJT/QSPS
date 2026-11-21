@@ -2,6 +2,9 @@ import { ORPCError } from "@orpc/server"
 
 import type { ResolvedPermissionSet } from "@/common/rbac/rbac-cache.service"
 
+import { inScope, scopeCondition, scopeContains, toResolvedScope } from "./scope-match"
+import { ScopeService } from "./scope.service"
+
 // @orpc/server and the real services load ESM-only packages that Jest's
 // CommonJS runtime cannot read, so stand-ins are used. ScopeService only
 // needs the error class, the audit domain name and the two injected services.
@@ -15,16 +18,16 @@ jest.mock("@orpc/server", () => ({
 		}
 	},
 }))
-jest.mock("@/common/audit/audit.service", () => ({ AUDIT_DOMAIN_RBAC: "rbac", AuditService: class {} }))
+jest.mock("@/common/audit/audit.service", () => ({
+	AUDIT_DOMAIN_RBAC: "rbac",
+	AuditService: class {},
+}))
 jest.mock("@/common/rbac/rbac.service", () => ({ RbacService: class {} }))
 // The contracts package's entry point loads @orpc/contract (ESM only). Only the
 // nationwide role list is needed here, so it is copied from rbac.catalog.ts.
 jest.mock("@repo/contracts", () => ({
 	NATIONWIDE_ROLES: ["Super Admin", "System Admin", "Auditor"],
 }))
-
-import { inScope, scopeCondition, scopeContains, toResolvedScope } from "./scope-match"
-import { ScopeService } from "./scope.service"
 
 const IMMUNIZATION = 1
 const PORT_HEALTH = 2
@@ -49,11 +52,15 @@ describe("Scope matching (ADM-2)", () => {
 	})
 
 	it("limits a scoped user to Immunization at Cebu", () => {
-		expect(inScope(cebuImmunization, { serviceCategoryId: IMMUNIZATION, locationId: CEBU })).toBe(true)
+		expect(inScope(cebuImmunization, { serviceCategoryId: IMMUNIZATION, locationId: CEBU })).toBe(
+			true
+		)
 		expect(inScope(cebuImmunization, { serviceCategoryId: IMMUNIZATION, locationId: MANILA })).toBe(
 			false
 		)
-		expect(inScope(cebuImmunization, { serviceCategoryId: PORT_HEALTH, locationId: CEBU })).toBe(false)
+		expect(inScope(cebuImmunization, { serviceCategoryId: PORT_HEALTH, locationId: CEBU })).toBe(
+			false
+		)
 	})
 
 	it("checks only the dimensions a record has", () => {
@@ -66,10 +73,12 @@ describe("Scope matching (ADM-2)", () => {
 		const allCategoriesAtCebu = toResolvedScope(
 			access(["Module Admin"], [{ serviceCategoryId: null, locationId: CEBU }])
 		)
-		expect(inScope(allCategoriesAtCebu, { serviceCategoryId: PORT_HEALTH, locationId: CEBU })).toBe(true)
-		expect(inScope(allCategoriesAtCebu, { serviceCategoryId: PORT_HEALTH, locationId: MANILA })).toBe(
-			false
+		expect(inScope(allCategoriesAtCebu, { serviceCategoryId: PORT_HEALTH, locationId: CEBU })).toBe(
+			true
 		)
+		expect(
+			inScope(allCategoriesAtCebu, { serviceCategoryId: PORT_HEALTH, locationId: MANILA })
+		).toBe(false)
 	})
 
 	it("gives a scoped role with no rows nothing", () => {
@@ -78,12 +87,22 @@ describe("Scope matching (ADM-2)", () => {
 	})
 
 	it("lets an admin give only scopes inside their own", () => {
-		const allAtCebu = toResolvedScope(access(["Module Admin"], [{ serviceCategoryId: null, locationId: CEBU }]))
-		expect(scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: CEBU }])).toBe(true)
+		const allAtCebu = toResolvedScope(
+			access(["Module Admin"], [{ serviceCategoryId: null, locationId: CEBU }])
+		)
+		expect(scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: CEBU }])).toBe(
+			true
+		)
 		expect(scopeContains(allAtCebu, [{ serviceCategoryId: null, locationId: CEBU }])).toBe(true)
-		expect(scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: MANILA }])).toBe(false)
-		expect(scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: null }])).toBe(false)
-		expect(scopeContains(cebuImmunization, [{ serviceCategoryId: null, locationId: CEBU }])).toBe(false)
+		expect(
+			scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: MANILA }])
+		).toBe(false)
+		expect(scopeContains(allAtCebu, [{ serviceCategoryId: IMMUNIZATION, locationId: null }])).toBe(
+			false
+		)
+		expect(scopeContains(cebuImmunization, [{ serviceCategoryId: null, locationId: CEBU }])).toBe(
+			false
+		)
 	})
 
 	it("builds no condition for nationwide users and an empty one for users without rows", () => {
@@ -91,7 +110,10 @@ describe("Scope matching (ADM-2)", () => {
 		expect(scopeCondition({ nationwide: true }, columns)).toBeUndefined()
 		expect(scopeCondition({ nationwide: false, entries: [] }, columns)).toBeDefined()
 		expect(
-			scopeCondition({ nationwide: false, entries: [{ serviceCategoryId: null, locationId: null }] }, columns)
+			scopeCondition(
+				{ nationwide: false, entries: [{ serviceCategoryId: null, locationId: null }] },
+				columns
+			)
 		).toBeUndefined()
 	})
 })
@@ -120,10 +142,17 @@ describe("ScopeService.assert (ADM-2)", () => {
 		const { service, auditService } = serviceWith(
 			access(["Processing Officer"], [{ serviceCategoryId: IMMUNIZATION, locationId: CEBU }])
 		)
-		const attempt = service.assert("u1", { serviceCategoryId: IMMUNIZATION, locationId: MANILA }, target)
+		const attempt = service.assert(
+			"u1",
+			{ serviceCategoryId: IMMUNIZATION, locationId: MANILA },
+			target
+		)
 
 		await expect(attempt).rejects.toBeInstanceOf(ORPCError)
-		await expect(attempt).rejects.toMatchObject({ code: "NOT_FOUND", message: target.notFoundMessage })
+		await expect(attempt).rejects.toMatchObject({
+			code: "NOT_FOUND",
+			message: target.notFoundMessage,
+		})
 		expect(auditService.record).toHaveBeenCalledWith(
 			expect.objectContaining({
 				action: "scope.check",

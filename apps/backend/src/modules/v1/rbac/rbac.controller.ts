@@ -1,9 +1,10 @@
-import { Controller, UseInterceptors } from "@nestjs/common"
+import { Controller, Inject, Optional, UseInterceptors } from "@nestjs/common"
 import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
 import { RbacService } from "@/common/rbac/rbac.service"
+import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
@@ -19,8 +20,14 @@ function actorId(session?: UserSession): string | null {
 export class RbacController {
 	constructor(
 		private readonly rbacAdminService: RbacAdminService,
-		private readonly rbacService: RbacService
+		private readonly rbacService: RbacService,
+		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver
 	) {}
+
+	/** ADM-2: user routes work inside the caller's Scope. */
+	private async scopeOf(session?: UserSession) {
+		return this.scopeResolver ? this.scopeResolver.resolve(actorId(session)) : NO_SCOPE
+	}
 
 	// ---------------------------------------------------------------- roles
 	@RequirePermissions("users.roles:manage")
@@ -90,7 +97,7 @@ export class RbacController {
 				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
 				: false
 
-			return this.rbacAdminService.listUsers(input, includeDirectory)
+			return this.rbacAdminService.listUsers(input, includeDirectory, await this.scopeOf(session))
 		})
 	}
 
@@ -103,7 +110,12 @@ export class RbacController {
 				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
 				: false
 
-			return this.rbacAdminService.exportUsers(input, includeDirectory, actorId(session))
+			return this.rbacAdminService.exportUsers(
+				input,
+				includeDirectory,
+				actorId(session),
+				await this.scopeOf(session)
+			)
 		})
 	}
 
@@ -123,7 +135,7 @@ export class RbacController {
 	@Implement(v1.rbac.users.update)
 	async updateUser(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.update).handler(async ({ input }) => {
-			return this.rbacAdminService.updateUser(input, actorId(session))
+			return this.rbacAdminService.updateUser(input, actorId(session), await this.scopeOf(session))
 		})
 	}
 
@@ -133,7 +145,11 @@ export class RbacController {
 	@Implement(v1.rbac.users.setStatus)
 	async setUserStatus(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.setStatus).handler(async ({ input }) => {
-			return this.rbacAdminService.setUserStatus(input, actorId(session))
+			return this.rbacAdminService.setUserStatus(
+				input,
+				actorId(session),
+				await this.scopeOf(session)
+			)
 		})
 	}
 
@@ -143,7 +159,11 @@ export class RbacController {
 	@Implement(v1.rbac.users.delete)
 	async deleteUser(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.delete).handler(async ({ input }) => {
-			return this.rbacAdminService.deleteUser(input.userId, actorId(session))
+			return this.rbacAdminService.deleteUser(
+				input.userId,
+				actorId(session),
+				await this.scopeOf(session)
+			)
 		})
 	}
 

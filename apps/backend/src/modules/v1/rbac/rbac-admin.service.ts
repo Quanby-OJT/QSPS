@@ -6,6 +6,7 @@ import type { z } from "zod"
 
 import {
 	ADMIN_ROLE,
+	MODULE_ADMIN_ASSIGNABLE_ROLES,
 	PERMISSION_NAMES,
 	type AssignRoleRequest,
 	type CreateRoleInput,
@@ -30,15 +31,30 @@ import {
 	type UserFilterQuerySchema,
 	type UserWithRoles,
 } from "@repo/contracts"
-import { permissions, rolePermissions, roles, sessions, userRoles, users } from "@repo/db/schema"
+import {
+	permissions,
+	rolePermissions,
+	roles,
+	sessions,
+	userRoles,
+	users,
+	userScopes,
+} from "@repo/db/schema"
 
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
-import { PrivilegeGuardError, RbacService } from "@/common/rbac/rbac.service"
+import { PrivilegeGuardError, RbacService, type TransactionLike } from "@/common/rbac/rbac.service"
+import { denyOutsideScope } from "@/common/scope/scope-denial"
+import { NATIONWIDE_SCOPE, userWithinScope, type ResolvedScope } from "@/common/scope/scope-match"
 
 const PERMISSION_CATALOG = new Set<string>(PERMISSION_NAMES)
+
+/** Roles that may give any role (ADM-2). Everyone else with `users.accounts:manage` is a Module Admin. */
+const FULL_ADMIN_ROLES = [ADMIN_ROLE, "System Admin"]
+
+const ASSIGNABLE_BY_MODULE_ADMIN = new Set<string>(MODULE_ADMIN_ASSIGNABLE_ROLES)
 
 type UserFilterInput = z.infer<typeof UserFilterQuerySchema>
 
@@ -286,8 +302,12 @@ export class RbacAdminService {
 	}
 
 	// ---------------------------------------------------------------- users
-	async listUsers(query: ListUsersRequest, includeDirectory: boolean): Promise<ListUsersResponse> {
-		const { items } = await this.queryFilteredUsers(query, includeDirectory)
+	async listUsers(
+		query: ListUsersRequest,
+		includeDirectory: boolean,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ListUsersResponse> {
+		const { items } = await this.queryFilteredUsers(query, includeDirectory, scope)
 		const total = items.length
 		const pageSize = query.pageSize ?? 20
 		const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -313,9 +333,10 @@ export class RbacAdminService {
 	async exportUsers(
 		query: ExportUsersRequest,
 		includeDirectory: boolean,
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<ExportUsersResponse> {
-		const { items } = await this.queryFilteredUsers(query, includeDirectory)
+		const { items } = await this.queryFilteredUsers(query, includeDirectory, scope)
 		const rows = items.map(user => ({
 			name: user.name ?? "",
 			email: includeDirectory ? user.email : "[redacted]",
@@ -401,6 +422,17 @@ export class RbacAdminService {
 					}
 				}
 
+				// ADM-2: a Module Admin gives only the roles below Module Admin.
+				// The actor's roles are read only when a higher role is asked for.
+				const tooHigh = uniqueRoleNames.filter(name => !ASSIGNABLE_BY_MODULE_ADMIN.has(name))
+				if (tooHigh.length > 0 && actorId && !(await this.isFullAdmin(tx, actorId))) {
+					throw new PrivilegeGuardError(
+						"FORBIDDEN",
+						`You can give only these roles: ${MODULE_ADMIN_ASSIGNABLE_ROLES.join(", ")}`,
+						`role above Module Admin: ${tooHigh.join(", ")}`
+					)
+				}
+
 				const [existing] = await tx
 					.select({ id: users.id })
 					.from(users)
@@ -476,7 +508,11 @@ export class RbacAdminService {
 		return createdUser
 	}
 
-	async updateUser(payload: UpdateUserRequest, actorId: string | null): Promise<UserWithRoles> {
+	async updateUser(
+		payload: UpdateUserRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<UserWithRoles> {
 		const updated = await db.transaction(async tx => {
 			const [current] = await tx
 				.select()
@@ -485,6 +521,7 @@ export class RbacAdminService {
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `User "${payload.userId}" was not found` })
 			}
+			await this.requireUserInScope(tx, scope, actorId, current.id)
 
 			const changedFields: string[] = []
 			const updates: Partial<typeof users.$inferInsert> = { updatedAt: new Date() }
@@ -552,7 +589,8 @@ export class RbacAdminService {
 
 	async setUserStatus(
 		payload: SetUserStatusRequest,
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<UserWithRoles> {
 		const action = payload.isActive ? "user.enable" : "user.disable"
 
@@ -571,6 +609,7 @@ export class RbacAdminService {
 				if (!current) {
 					throw new ORPCError("NOT_FOUND", { message: `User "${payload.userId}" was not found` })
 				}
+				await this.requireUserInScope(tx, scope, actorId, current.id)
 
 				if (!payload.isActive) {
 					await this.rbacService.assertCanDeactivateUser(tx, current.id, actorId)
@@ -627,7 +666,11 @@ export class RbacAdminService {
 		return updated
 	}
 
-	async deleteUser(userId: string, actorId: string | null): Promise<DeleteUserResponse> {
+	async deleteUser(
+		userId: string,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<DeleteUserResponse> {
 		await this.runUserGuarded(
 			{
 				action: "user.delete",
@@ -643,6 +686,7 @@ export class RbacAdminService {
 				if (!current) {
 					throw new ORPCError("NOT_FOUND", { message: `User "${userId}" was not found` })
 				}
+				await this.requireUserInScope(tx, scope, actorId, current.id)
 
 				await this.rbacService.assertCanDeactivateUser(tx, current.id, actorId)
 
@@ -697,7 +741,8 @@ export class RbacAdminService {
 	// -------------------------------------------------------------- helpers
 	private async queryFilteredUsers(
 		filters: UserFilterInput,
-		includeDirectory: boolean
+		includeDirectory: boolean,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<{ items: UserWithRoles[] }> {
 		const conditions: SQL[] = []
 
@@ -754,11 +799,84 @@ export class RbacAdminService {
 			this.toUserWithRoles(user, rolesByUser.get(user.id) ?? [], includeDirectory)
 		)
 
+		// ADM-2: a scoped admin sees only scoped staff whose Scope sits inside their own.
+		if (!scope.nationwide) {
+			const scopeRows = await db
+				.select({
+					userId: userScopes.userId,
+					serviceCategoryId: userScopes.serviceCategoryId,
+					locationId: userScopes.locationId,
+				})
+				.from(userScopes)
+				.where(inArray(userScopes.userId, userIds))
+			const scopesByUser = new Map<
+				string,
+				{ serviceCategoryId: number | null; locationId: number | null }[]
+			>()
+			for (const { userId, ...entry } of scopeRows) {
+				const list = scopesByUser.get(userId) ?? []
+				list.push(entry)
+				scopesByUser.set(userId, list)
+			}
+			items = items.filter(user =>
+				userWithinScope(scope, {
+					roleNames: new Set(user.roles),
+					scopes: scopesByUser.get(user.id) ?? [],
+				})
+			)
+		}
+
 		if (filters.role) {
 			items = items.filter(user => user.roles.includes(filters.role!))
 		}
 
 		return { items }
+	}
+
+	/** Super Admin or System Admin: may give any role. */
+	private async isFullAdmin(tx: TransactionLike, actorId: string): Promise<boolean> {
+		const [row] = await tx
+			.select({ userId: userRoles.userId })
+			.from(userRoles)
+			.innerJoin(roles, eq(userRoles.roleId, roles.id))
+			.where(and(eq(userRoles.userId, actorId), inArray(roles.name, FULL_ADMIN_ROLES)))
+			.limit(1)
+		return Boolean(row)
+	}
+
+	/**
+	 * ADM-2: a user outside the caller's Scope answers like a missing one, and
+	 * the attempt is audited as denied.
+	 */
+	private async requireUserInScope(
+		tx: TransactionLike,
+		scope: ResolvedScope,
+		actorId: string | null,
+		userId: string
+	): Promise<void> {
+		if (scope.nationwide) return
+
+		const roleRows = await tx
+			.select({ name: roles.name })
+			.from(userRoles)
+			.innerJoin(roles, eq(userRoles.roleId, roles.id))
+			.where(eq(userRoles.userId, userId))
+		const scopeRows = await tx
+			.select({
+				serviceCategoryId: userScopes.serviceCategoryId,
+				locationId: userScopes.locationId,
+			})
+			.from(userScopes)
+			.where(eq(userScopes.userId, userId))
+
+		const target = { roleNames: new Set(roleRows.map(row => row.name)), scopes: scopeRows }
+		if (userWithinScope(scope, target)) return
+
+		await denyOutsideScope(this.auditService, actorId, {
+			type: "user",
+			id: userId,
+			notFoundMessage: `User "${userId}" was not found`,
+		})
 	}
 
 	private toUserWithRoles(

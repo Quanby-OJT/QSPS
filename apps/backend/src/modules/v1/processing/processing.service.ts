@@ -27,6 +27,12 @@ import {
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import {
+	inScope,
+	NATIONWIDE_SCOPE,
+	scopeCondition,
+	type ResolvedScope,
+} from "@/common/scope/scope-match"
 
 import { BookingService } from "../bookings/bookings.service"
 import { DocumentService } from "../certificates/documents.service"
@@ -61,7 +67,9 @@ interface StaffLocation {
  * BOQ staff assessment (PRC-1, TOR §VIII.3).
  *
  * Every read and write is limited to the staff user's Location, read from
- * `user_scopes` (DOMAIN-MODEL.md section 4) until ADM-2 adds `ScopeService`.
+ * `user_scopes` (DOMAIN-MODEL.md section 4). ADM-2 adds the Service Category:
+ * the controller passes the caller's Scope, and items outside it are left out
+ * of the queue and answer 404.
  * Item status changes go through `BookingService`; this service writes only
  * `assessments`.
  */
@@ -77,7 +85,8 @@ export class ProcessingService {
 	async queue(
 		input: ProcessingQueueRequest,
 		actorId: string | null,
-		now: Date = new Date()
+		now: Date = new Date(),
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<ProcessingQueue> {
 		const staffId = requireActor(actorId)
 		const date = input.date ?? manilaDateOf(now)
@@ -110,7 +119,11 @@ export class ProcessingService {
 					eq(bookingItems.locationId, location.id),
 					gte(scheduleSlots.startsAt, dayStart),
 					lt(scheduleSlots.startsAt, dayEnd),
-					inArray(bookings.status, QUEUE_BOOKING_STATUSES)
+					inArray(bookings.status, QUEUE_BOOKING_STATUSES),
+					scopeCondition(scope, {
+						serviceCategoryId: services.serviceCategoryId,
+						locationId: bookingItems.locationId,
+					})
 				)
 			)
 			.orderBy(asc(scheduleSlots.startsAt), asc(bookings.referenceNumber))
@@ -126,9 +139,13 @@ export class ProcessingService {
 	}
 
 	/** One Booking Item with the client's profile and assessment history. */
-	async item(input: BookingItemIdParam, actorId: string | null): Promise<ProcessingItem> {
+	async item(
+		input: BookingItemIdParam,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
-		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.read")
+		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.read", scope)
 		return this.loadItem(input.bookingItemId)
 	}
 
@@ -197,9 +214,13 @@ export class ProcessingService {
 	}
 
 	/** Start assessing: `checked_in` (or `returned`, after the client corrects it) to `in_assessment`. */
-	async open(input: BookingItemIdParam, actorId: string | null): Promise<ProcessingItem> {
+	async open(
+		input: BookingItemIdParam,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
-		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.open")
+		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.open", scope)
 
 		await db.transaction(tx =>
 			this.bookingService.transitionItem(tx, input.bookingItemId, "in_assessment", {
@@ -220,9 +241,13 @@ export class ProcessingService {
 	 * against this officer. If the certificate details are missing, nothing is
 	 * saved.
 	 */
-	async assess(input: RecordAssessmentInput, actorId: string | null): Promise<ProcessingItem> {
+	async assess(
+		input: RecordAssessmentInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
-		await this.requireItemInScope(input.bookingItemId, staffId, "assessment.create")
+		await this.requireItemInScope(input.bookingItemId, staffId, "assessment.create", scope)
 
 		await db.transaction(async tx => {
 			const moved = await this.bookingService.transitionItem(
@@ -301,20 +326,34 @@ export class ProcessingService {
 	}
 
 	/**
-	 * 404 unless the item exists and is at the caller's Location. A refused
-	 * attempt on an item that does exist is audited as denied.
+	 * 404 unless the item exists, is at the caller's Location, and its Service
+	 * Category is in the caller's Scope (ADM-2). A refused attempt on an item
+	 * that does exist is audited as denied.
 	 */
 	private async requireItemInScope(
 		bookingItemId: number,
 		staffId: string,
-		action: string
+		action: string,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<void> {
 		const [item] = await db
-			.select({ id: bookingItems.id, locationId: bookingItems.locationId })
+			.select({
+				id: bookingItems.id,
+				locationId: bookingItems.locationId,
+				serviceCategoryId: services.serviceCategoryId,
+			})
 			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, bookingItemId))
 			.limit(1)
 		if (!item) throw itemNotFound()
+
+		if (
+			!inScope(scope, { serviceCategoryId: item.serviceCategoryId, locationId: item.locationId })
+		) {
+			await this.recordDenial(staffId, action, "booking_item", bookingItemId, "outside_scope")
+			throw itemNotFound()
+		}
 
 		const location = await this.staffLocation(staffId)
 		if (!location || location.id !== item.locationId) {

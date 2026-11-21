@@ -1,4 +1,5 @@
 import type { RbacService } from "@/common/rbac/rbac.service"
+import type { ResolvedScope } from "@/common/scope/scope-match"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
 import type { RbacAdminService } from "./rbac-admin.service"
@@ -52,6 +53,12 @@ jest.mock("./rbac-admin.service", () => ({
 	RbacAdminService: jest.fn(),
 }))
 
+/** ADM-2: the Scope the resolver hands back for the signed-in user. */
+const SCOPE: ResolvedScope = {
+	nationwide: false,
+	entries: [{ serviceCategoryId: 1, locationId: 10 }],
+}
+
 function requiredPermissions(handler: keyof RbacController): unknown {
 	return Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, RbacController.prototype[handler])
 }
@@ -85,7 +92,8 @@ describe("RbacController", () => {
 		}
 		controller = new RbacController(
 			adminService as unknown as RbacAdminService,
-			rbacService as unknown as RbacService
+			rbacService as unknown as RbacService,
+			{ resolve: jest.fn().mockResolvedValue(SCOPE) }
 		)
 	})
 
@@ -112,11 +120,11 @@ describe("RbacController", () => {
 		rbacService.hasPermission.mockResolvedValue(false)
 		handlerInput = { page: 1, pageSize: 20 }
 		await controller.listUsers({ user: { id: "auditor-1" } } as never)
-		expect(adminService.listUsers).toHaveBeenCalledWith(handlerInput, false)
+		expect(adminService.listUsers).toHaveBeenCalledWith(handlerInput, false, SCOPE)
 
 		handlerInput = { format: "csv" }
 		await controller.exportUsers({ user: { id: "auditor-1" } } as never)
-		expect(adminService.exportUsers).toHaveBeenCalledWith(handlerInput, false, "auditor-1")
+		expect(adminService.exportUsers).toHaveBeenCalledWith(handlerInput, false, "auditor-1", SCOPE)
 	})
 
 	it("attributes staff user creation, updates, status changes, and soft-deletes to the actor", async () => {
@@ -126,14 +134,14 @@ describe("RbacController", () => {
 
 		handlerInput = { userId: "u-2", name: "Ana M. Reyes" }
 		await controller.updateUser({ user: { id: "admin-1" } } as never)
-		expect(adminService.updateUser).toHaveBeenCalledWith(handlerInput, "admin-1")
+		expect(adminService.updateUser).toHaveBeenCalledWith(handlerInput, "admin-1", SCOPE)
 
 		handlerInput = { userId: "u-2", isActive: false }
 		await controller.setUserStatus({ user: { id: "admin-1" } } as never)
-		expect(adminService.setUserStatus).toHaveBeenCalledWith(handlerInput, "admin-1")
+		expect(adminService.setUserStatus).toHaveBeenCalledWith(handlerInput, "admin-1", SCOPE)
 
 		handlerInput = { userId: "u-2" }
 		await controller.deleteUser({ user: { id: "admin-1" } } as never)
-		expect(adminService.deleteUser).toHaveBeenCalledWith("u-2", "admin-1")
+		expect(adminService.deleteUser).toHaveBeenCalledWith("u-2", "admin-1", SCOPE)
 	})
 })

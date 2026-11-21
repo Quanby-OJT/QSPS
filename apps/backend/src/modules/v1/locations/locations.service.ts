@@ -7,6 +7,14 @@ import { locations } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { denyOutsideScope } from "@/common/scope/scope-denial"
+import {
+	coversAll,
+	inScope,
+	NATIONWIDE_SCOPE,
+	scopeCondition,
+	type ResolvedScope,
+} from "@/common/scope/scope-match"
 
 const AUDIT_DOMAIN_LOCATIONS = "locations"
 
@@ -14,15 +22,42 @@ const AUDIT_DOMAIN_LOCATIONS = "locations"
 export class LocationsService {
 	constructor(private readonly auditService: AuditService) {}
 
-	async list(): Promise<Location[]> {
-		return db.select().from(locations).orderBy(locations.name)
+	/** Staff list. ADM-2: limited to the Locations in the caller's Scope. */
+	async list(scope: ResolvedScope = NATIONWIDE_SCOPE): Promise<Location[]> {
+		return db
+			.select()
+			.from(locations)
+			.where(scopeCondition(scope, { locationId: locations.id }))
+			.orderBy(locations.name)
 	}
 
 	async listAvailable(): Promise<Location[]> {
 		return db.select().from(locations).where(eq(locations.isActive, true)).orderBy(locations.name)
 	}
 
-	async create(input: CreateLocationInput, actorId: string | null): Promise<Location> {
+	async create(
+		input: CreateLocationInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<Location> {
+		// ADM-2: a new Location is in nobody's Scope yet, so only a user whose
+		// Scope reaches every Location may add one.
+		if (!coversAll(scope, "locationId")) {
+			await this.auditService.record({
+				domain: AUDIT_DOMAIN_LOCATIONS,
+				action: "location.create",
+				outcome: "denied",
+				actorId,
+				targetType: "location",
+				targetId: input.code,
+				newValue: { code: input.code },
+				reason: "outside scope",
+			})
+			throw new ORPCError("FORBIDDEN", {
+				message: "Only an administrator for all locations can add a location",
+			})
+		}
+
 		return db.transaction(async tx => {
 			const [location] = await tx
 				.insert(locations)
@@ -56,12 +91,17 @@ export class LocationsService {
 		})
 	}
 
-	async update(input: UpdateLocationRequest, actorId: string | null): Promise<Location> {
+	async update(
+		input: UpdateLocationRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<Location> {
 		return db.transaction(async tx => {
 			const [current] = await tx.select().from(locations).where(eq(locations.code, input.code))
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Location "${input.code}" was not found` })
 			}
+			await this.requireInScope(current, actorId, scope)
 
 			const next = {
 				name: input.name ?? current.name,
@@ -99,13 +139,15 @@ export class LocationsService {
 
 	async setActive(
 		input: { code: string; isActive: boolean },
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<Location> {
 		return db.transaction(async tx => {
 			const [current] = await tx.select().from(locations).where(eq(locations.code, input.code))
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Location "${input.code}" was not found` })
 			}
+			await this.requireInScope(current, actorId, scope)
 
 			const [updated] = await tx
 				.update(locations)
@@ -135,11 +177,16 @@ export class LocationsService {
 		})
 	}
 
-	async delete(code: string, actorId: string | null): Promise<never> {
+	async delete(
+		code: string,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<never> {
 		const [location] = await db.select().from(locations).where(eq(locations.code, code))
 		if (!location) {
 			throw new ORPCError("NOT_FOUND", { message: `Location "${code}" was not found` })
 		}
+		await this.requireInScope(location, actorId, scope)
 
 		const reason =
 			"Locations cannot be safely deleted because booking references cannot yet be checked. Disable the location instead."
@@ -155,6 +202,20 @@ export class LocationsService {
 			reason,
 		})
 		throw new ORPCError("CONFLICT", { message: reason })
+	}
+
+	/** ADM-2: a Location outside the caller's Scope answers like a missing one. */
+	private async requireInScope(
+		location: Location,
+		actorId: string | null,
+		scope: ResolvedScope
+	): Promise<void> {
+		if (inScope(scope, { locationId: location.id })) return
+		await denyOutsideScope(this.auditService, actorId, {
+			type: "location",
+			id: location.code,
+			notFoundMessage: `Location "${location.code}" was not found`,
+		})
 	}
 
 	private auditValue(location: Location) {

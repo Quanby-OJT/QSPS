@@ -1,7 +1,5 @@
 import { and, eq, or, sql, type Column, type SQL } from "drizzle-orm"
 
-import { NATIONWIDE_ROLES } from "@repo/contracts"
-
 import type { ResolvedPermissionSet, ScopeEntry } from "@/common/rbac/rbac-cache.service"
 
 /**
@@ -9,6 +7,15 @@ import type { ResolvedPermissionSet, ScopeEntry } from "@/common/rbac/rbac-cache
  * other user sees what their `user_scopes` rows cover, and nothing when they
  * have none (DOMAIN-MODEL: "No rows means no scoped access for scoped roles").
  */
+/**
+ * Roles that act nationwide. Same list as `NATIONWIDE_ROLES` in
+ * packages/contracts/src/modules/v1/rbac/rbac.catalog.ts; keep the two in step.
+ * Copied rather than imported: the contracts entry point loads @orpc/contract,
+ * which Jest (CommonJS) cannot read, and every service using Scope would fail
+ * to load in tests.
+ */
+const NATIONWIDE_ROLES: readonly string[] = ["Super Admin", "System Admin", "Auditor"]
+
 export type ResolvedScope = { nationwide: true } | { nationwide: false; entries: ScopeEntry[] }
 
 /**
@@ -25,6 +32,9 @@ export type ScopeColumns = {
 	serviceCategoryId?: Column
 	locationId?: Column
 }
+
+/** No limit. The default for service methods called without a Scope (System jobs, tests). */
+export const NATIONWIDE_SCOPE: ResolvedScope = { nationwide: true }
 
 export function toResolvedScope(
 	access: Pick<ResolvedPermissionSet, "roleNames" | "scopes">
@@ -66,6 +76,30 @@ export function scopeContains(outer: ResolvedScope, inner: readonly ScopeEntry[]
 				(held.locationId === null || held.locationId === row.locationId)
 		)
 	)
+}
+
+/**
+ * Whether the Scope reaches every value of one dimension: nationwide, or a row
+ * with that column null. Creating a new Location (or a new Service Category's
+ * service) needs this, because the new record is in nobody's Scope yet.
+ */
+export function coversAll(scope: ResolvedScope, dimension: keyof ScopeEntry): boolean {
+	if (scope.nationwide) return true
+	return scope.entries.some(entry => entry[dimension] === null)
+}
+
+/**
+ * Whether a scoped admin may see and manage another user (ADM-2): the other
+ * user must be scoped (not nationwide), have at least one Scope row, and
+ * every row must sit inside the admin's own Scope.
+ */
+export function userWithinScope(
+	actor: ResolvedScope,
+	target: Pick<ResolvedPermissionSet, "roleNames" | "scopes">
+): boolean {
+	if (actor.nationwide) return true
+	if (toResolvedScope(target).nationwide) return false
+	return target.scopes.length > 0 && scopeContains(actor, target.scopes)
 }
 
 /**

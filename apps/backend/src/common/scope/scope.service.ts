@@ -1,10 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common"
-import { ORPCError } from "@orpc/server"
+import { Injectable } from "@nestjs/common"
 import type { SQL } from "drizzle-orm"
 
-import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
+import { AuditService } from "@/common/audit/audit.service"
 import { RbacService } from "@/common/rbac/rbac.service"
 
+import { denyOutsideScope, type ScopeTarget } from "./scope-denial"
 import {
 	inScope,
 	scopeCondition,
@@ -13,15 +13,9 @@ import {
 	type ScopeColumns,
 	type ScopedRecord,
 } from "./scope-match"
+import type { ScopeResolver } from "./scope.token"
 
-/** The record a Scope check is about, for the audit entry and the 404. */
-export interface ScopeTarget {
-	/** Kind of record, e.g. "booking", "schedule_slot", "user". */
-	type: string
-	id: string | number
-	/** The same message a missing record gets, so the 404 reveals nothing. */
-	notFoundMessage: string
-}
+export type { ScopeTarget } from "./scope-denial"
 
 /**
  * Limits staff to their Service Categories and Locations (ADM-2, Flow A
@@ -32,15 +26,15 @@ export interface ScopeTarget {
  * is dropped by the same `RbacCacheService.invalidate`.
  */
 @Injectable()
-export class ScopeService {
-	private readonly logger = new Logger(ScopeService.name)
-
+export class ScopeService implements ScopeResolver {
 	constructor(
 		private readonly rbacService: RbacService,
 		private readonly auditService: AuditService
 	) {}
 
-	async resolve(userId: string): Promise<ResolvedScope> {
+	/** The caller's Scope. No user (no session) means no Scope at all. */
+	async resolve(userId: string | null): Promise<ResolvedScope> {
+		if (!userId) return { nationwide: false, entries: [] }
 		return toResolvedScope(await this.rbacService.getResolvedAccess(userId))
 	}
 
@@ -70,34 +64,6 @@ export class ScopeService {
 			: [record as ScopedRecord]
 		if (records.some(entry => inScope(scope, entry))) return
 
-		await this.recordDenial(userId, target, records)
-		throw new ORPCError("NOT_FOUND", { message: target.notFoundMessage })
-	}
-
-	/** Same rule as the RBAC guard: a failed audit write is logged, and the denial still stands. */
-	private async recordDenial(
-		userId: string,
-		target: ScopeTarget,
-		records: readonly ScopedRecord[]
-	): Promise<void> {
-		try {
-			await this.auditService.record({
-				domain: AUDIT_DOMAIN_RBAC,
-				action: "scope.check",
-				outcome: "denied",
-				actorId: userId,
-				targetType: target.type,
-				targetId: String(target.id),
-				newValue: { record: records },
-				reason: "outside scope",
-			})
-		} catch (error) {
-			this.logger.error({
-				event: "scope.denied.audit_failed",
-				actorId: userId,
-				targetType: target.type,
-				error: error instanceof Error ? error.message : String(error),
-			})
-		}
+		await denyOutsideScope(this.auditService, userId, target, records)
 	}
 }

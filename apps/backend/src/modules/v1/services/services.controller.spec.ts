@@ -40,9 +40,12 @@ const permissionsOn = (method: keyof ServicesController): unknown =>
 describe("ServicesController permissions", () => {
 	// RbacGuard reads this metadata: 403 plus a denied audit entry without the
 	// key, 401 without a session (rbac.guard.spec.ts).
-	it.each(["create", "update", "setActive"] as const)("requires %s to hold the manage key", method => {
-		expect(permissionsOn(method)).toEqual([MANAGE_KEY])
-	})
+	it.each(["create", "update", "setActive"] as const)(
+		"requires %s to hold the manage key",
+		method => {
+			expect(permissionsOn(method)).toEqual([MANAGE_KEY])
+		}
+	)
 
 	it("requires the manage key to list every service, inactive ones included", () => {
 		expect(permissionsOn("list")).toEqual([MANAGE_KEY])
