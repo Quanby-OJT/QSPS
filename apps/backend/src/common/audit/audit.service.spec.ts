@@ -15,14 +15,16 @@
  * service).
  */
 
-import { and, eq } from "drizzle-orm"
+import { and, asc, desc, eq, gt } from "drizzle-orm"
 
 import { auditLog, roles, userRoles, users } from "@repo/db/schema"
 
+import { verifyChain } from "@/common/audit/audit-chain"
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
 import { RbacService } from "@/common/rbac/rbac.service"
+import { runWithRequestContext } from "@/common/request-context/request-context"
 import { RbacAdminService } from "@/modules/v1/rbac/rbac-admin.service"
 import { bindDbBackedTests, bindSeededCases } from "@/testing/db-ready"
 
@@ -51,9 +53,15 @@ jest.mock("@orpc/server", () => ({
 	},
 }))
 
-const TEST_USER = "az4-test-subject"
-const TEST_ACTOR = "az4-test-actor"
-const TEST_ROLE = "AZ4TestRole"
+// audit_log is append-only (FND-3): a database trigger refuses DELETE, so this
+// suite can no longer wipe its rows between runs. Each run uses its own ids,
+// and each test reads only rows written after it started (`since`). The two
+// users stay behind in the local database: a user with audit entries cannot
+// be deleted, by design.
+const RUN = Date.now().toString(36)
+const TEST_USER = `az4-test-subject-${RUN}`
+const TEST_ACTOR = `az4-test-actor-${RUN}`
+const TEST_ROLE = `AZ4TestRole-${RUN}`
 
 const dbTests = bindDbBackedTests({
 	label: "az-4",
@@ -67,14 +75,24 @@ const adminSeed = bindSeededCases({
 	itDb,
 })
 
+/** Removes what can be removed. Audit rows, and the users they name, stay. */
 async function cleanup() {
-	await db.delete(auditLog).where(eq(auditLog.actorId, TEST_ACTOR))
-	await db.delete(auditLog).where(eq(auditLog.targetId, TEST_USER))
 	await db.delete(userRoles).where(eq(userRoles.userId, TEST_USER))
+	await db.delete(userRoles).where(eq(userRoles.userId, TEST_ACTOR))
 	await db.delete(roles).where(eq(roles.name, TEST_ROLE))
-	await db.delete(users).where(eq(users.id, TEST_USER))
-	await db.delete(users).where(eq(users.id, TEST_ACTOR))
 }
+
+/** Highest audit id so far; a test reads only rows above the value it took at its start. */
+async function latestAuditId(): Promise<number> {
+	const [row] = await db
+		.select({ id: auditLog.id })
+		.from(auditLog)
+		.orderBy(desc(auditLog.id))
+		.limit(1)
+	return row?.id ?? 0
+}
+
+let since = 0
 
 beforeAll(async () => {
 	await dbTests.probe()
@@ -87,19 +105,23 @@ beforeAll(async () => {
 		{
 			id: TEST_USER,
 			name: "AZ4 Subject",
-			email: "az4-subject@test.local",
+			email: `az4-subject-${RUN}@test.local`,
 			createdAt: now,
 			updatedAt: now,
 		},
 		{
 			id: TEST_ACTOR,
 			name: "AZ4 Actor",
-			email: "az4-actor@test.local",
+			email: `az4-actor-${RUN}@test.local`,
 			createdAt: now,
 			updatedAt: now,
 		},
 	])
 	await db.insert(roles).values({ name: TEST_ROLE, description: "fixture" })
+})
+
+beforeEach(async () => {
+	if (dbTests.ready) since = await latestAuditId()
 })
 
 afterAll(async () => {
@@ -119,14 +141,27 @@ function makeAdminService() {
 	return new RbacAdminService(new RbacService(cache, audit), cache, audit)
 }
 
+/** Entries about `targetId` written during the current test, oldest first. */
 async function entriesFor(targetId: string) {
-	return db.select().from(auditLog).where(eq(auditLog.targetId, targetId))
+	return db
+		.select()
+		.from(auditLog)
+		.where(and(eq(auditLog.targetId, targetId), gt(auditLog.id, since)))
+		.orderBy(asc(auditLog.id))
+}
+
+/** Entries by `actorId` written during the current test, oldest first. */
+async function entriesBy(actorId: string) {
+	return db
+		.select()
+		.from(auditLog)
+		.where(and(eq(auditLog.actorId, actorId), gt(auditLog.id, since)))
+		.orderBy(asc(auditLog.id))
 }
 
 describe("audit trail is written in the same transaction as the mutation", () => {
 	beforeEach(async () => {
 		if (!dbTests.ready) return
-		await db.delete(auditLog).where(eq(auditLog.targetId, TEST_USER))
 		await db.delete(userRoles).where(eq(userRoles.userId, TEST_USER))
 	})
 
@@ -220,11 +255,6 @@ describe("refused privileged attempts are recorded", () => {
 		adminRoleId = admin.id
 	})
 
-	beforeEach(async () => {
-		if (!dbTests.ready || adminSeed.missing) return
-		await db.delete(auditLog).where(eq(auditLog.actorId, TEST_ACTOR))
-	})
-
 	const itAdmin = adminSeed.itDb
 
 	itAdmin("records the refusal to rename the Admin role", async () => {
@@ -232,7 +262,7 @@ describe("refused privileged attempts are recorded", () => {
 			makeAdminService().updateRole({ id: adminRoleId, name: "NotAdmin" }, TEST_ACTOR)
 		).rejects.toThrow(/cannot be renamed/)
 
-		const [entry] = await db.select().from(auditLog).where(eq(auditLog.actorId, TEST_ACTOR))
+		const [entry] = await entriesBy(TEST_ACTOR)
 
 		expect(entry).toBeDefined()
 		expect(entry!.domain).toBe(AUDIT_DOMAIN_RBAC)
@@ -251,7 +281,7 @@ describe("refused privileged attempts are recorded", () => {
 			/cannot be deleted/
 		)
 
-		const [entry] = await db.select().from(auditLog).where(eq(auditLog.actorId, TEST_ACTOR))
+		const [entry] = await entriesBy(TEST_ACTOR)
 
 		expect(entry!.action).toBe("role.delete")
 		expect(entry!.outcome).toBe("denied")
@@ -277,6 +307,11 @@ describe("refused privileged attempts are recorded", () => {
 })
 
 describe("audit log reads", () => {
+	beforeEach(async () => {
+		if (!dbTests.ready) return
+		await db.delete(userRoles).where(eq(userRoles.userId, TEST_USER))
+	})
+
 	itDb("returns entries newest first", async () => {
 		const service = makeRbacService()
 		await service.assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
@@ -297,7 +332,7 @@ describe("audit log reads", () => {
 		const { entries } = await new AuditService().list({ limit: 50 })
 		const mine = entries.find(e => e.targetId === TEST_USER)
 
-		expect(mine?.actorEmail).toBe("az4-actor@test.local")
+		expect(mine?.actorEmail).toBe(`az4-actor-${RUN}@test.local`)
 	})
 
 	itDb("pages with a cursor and reports the next one", async () => {
@@ -317,5 +352,85 @@ describe("audit log reads", () => {
 		// The append-only rule is enforced by there being no other way in.
 		const surface = Object.getOwnPropertyNames(AuditService.prototype)
 		expect(surface.sort()).toEqual(["constructor", "list", "record"])
+	})
+})
+
+describe("tamper-resistant trail (FND-3)", () => {
+	beforeEach(async () => {
+		if (!dbTests.ready) return
+		await db.delete(userRoles).where(eq(userRoles.userId, TEST_USER))
+		await db.delete(userRoles).where(eq(userRoles.userId, TEST_ACTOR))
+	})
+
+	itDb("stores the actor's roles, IP address and user agent from the request", async () => {
+		const [role] = await db.select().from(roles).where(eq(roles.name, TEST_ROLE))
+		await db.insert(userRoles).values({ userId: TEST_ACTOR, roleId: role!.id })
+
+		await runWithRequestContext({ ipAddress: "203.0.113.7", userAgent: "fnd3-test-agent" }, () =>
+			makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		)
+
+		const [entry] = await entriesFor(TEST_USER)
+		expect(entry!.actorRole).toBe(TEST_ROLE)
+		expect(entry!.ipAddress).toBe("203.0.113.7")
+		expect(entry!.userAgent).toBe("fnd3-test-agent")
+		expect(entry!.entryHash).toMatch(/^[0-9a-f]{64}$/)
+	})
+
+	itDb("records a System action with no actor, role, IP or user agent", async () => {
+		const target = `fnd3-hold-${RUN}`
+		await new AuditService().record({
+			domain: "booking.hold-expiry",
+			action: "booking.cancel",
+			actorId: null,
+			targetType: "booking",
+			targetId: target,
+		})
+
+		const [entry] = await entriesFor(target)
+		expect(entry!.domain).toBe("booking.hold-expiry")
+		expect(entry!.actorId).toBeNull()
+		expect(entry!.actorRole).toBeNull()
+		expect(entry!.ipAddress).toBeNull()
+		expect(entry!.userAgent).toBeNull()
+	})
+
+	itDb("chains each entry to the one before it", async () => {
+		const service = makeRbacService()
+		await service.assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		await service.removeRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+
+		// Every entry since this test started, from any writer, in id order.
+		const rows = await db
+			.select()
+			.from(auditLog)
+			.where(gt(auditLog.id, since))
+			.orderBy(asc(auditLog.id))
+		for (let i = 1; i < rows.length; i++) {
+			expect(rows[i]!.prevHash).toBe(rows[i - 1]!.entryHash)
+		}
+	})
+
+	itDb("verifies the whole stored chain", async () => {
+		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+
+		const rows = await db.select().from(auditLog).orderBy(asc(auditLog.id))
+		const check = verifyChain(rows)
+
+		expect(check).toMatchObject({ ok: true })
+		expect(check.checked).toBeGreaterThan(0)
+	})
+
+	itDb("rejects UPDATE and DELETE on audit_log at the database", async () => {
+		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		const [entry] = await entriesFor(TEST_USER)
+
+		await expect(
+			db.update(auditLog).set({ reason: "edited" }).where(eq(auditLog.id, entry!.id))
+		).rejects.toThrow()
+		await expect(db.delete(auditLog).where(eq(auditLog.id, entry!.id))).rejects.toThrow()
+
+		const [after] = await db.select().from(auditLog).where(eq(auditLog.id, entry!.id))
+		expect(after!.reason).toBe(entry!.reason)
 	})
 })

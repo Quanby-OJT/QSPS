@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common"
-import { desc, eq, lt } from "drizzle-orm"
+import { desc, eq, lt, sql } from "drizzle-orm"
 
 import type { AuditLogEntry, AuditOutcome, ListAuditLogRequest } from "@repo/contracts"
-import { auditLog, users } from "@repo/db/schema"
+import { auditLog, roles, userRoles, users } from "@repo/db/schema"
 
+import { computeEntryHash, normalizeJson, type ChainedFields } from "@/common/audit/audit-chain"
 import { db } from "@/common/database/database.client"
+import { currentRequestContext } from "@/common/request-context/request-context"
 
 /**
  * A database handle that may be either the pool or an open transaction.
@@ -14,26 +16,27 @@ import { db } from "@/common/database/database.client"
  * `PgTransaction` because the pool and a transaction share the query surface
  * used here but not their full types.
  */
-export type AuditDb = Pick<typeof db, "insert">
+export type AuditDb = Pick<typeof db, "insert" | "select" | "execute">
 
 /** Domain tag for RBAC events. Kept here so callers cannot drift on spelling. */
 export const AUDIT_DOMAIN_RBAC = "rbac"
 
 /**
- * One privileged event to record.
+ * One event to record.
  *
- * The shape is deliberately generic (domain, action, target, old→new) so auth
- * and other domains can adopt this trail later without a schema change — see
- * the cross-epic ownership rule in DOMAIN-MODEL.md.
+ * The shape is deliberately generic (domain, action, target, old→new) so every
+ * domain can use this trail without a schema change — see the cross-epic
+ * ownership rule in DOMAIN-MODEL.md. IP, user agent and the actor's roles are
+ * filled in by {@link AuditService.record}, never by the caller.
  */
 export interface AuditEvent {
-	/** Broad area, e.g. "rbac". */
+	/** Broad area, e.g. "rbac". For System actions, the job, e.g. "booking.hold-expiry". */
 	domain: string
 	/** What happened, e.g. "role.assign". */
 	action: string
 	/** Defaults to "success"; pass "denied" to record a refused attempt. */
 	outcome?: AuditOutcome
-	/** Who acted. Null only for system-initiated events. */
+	/** Who acted. Null only for System actions. */
 	actorId: string | null
 	targetType?: string | null
 	targetId?: string | null
@@ -44,38 +47,90 @@ export interface AuditEvent {
 }
 
 /**
- * Append-only audit trail for privileged mutations.
+ * Write one chained entry inside `tx`. Module functions rather than private
+ * methods, so `AuditService`'s public surface stays record + list (the spec
+ * checks there is no other way in).
+ */
+async function appendEntry(event: AuditEvent, tx: AuditDb): Promise<void> {
+	// Looked up before the lock below, to keep the time it is held short.
+	const actorRole = event.actorId ? await roleNames(event.actorId, tx) : null
+	const context = currentRequestContext()
+
+	// One writer at a time, until this transaction ends: two entries must
+	// never both chain onto the same previous row. Released automatically on
+	// commit or rollback; a rolled-back entry simply never joins the chain.
+	await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('qsps.audit_log'))`)
+
+	const [last] = await tx
+		.select({ entryHash: auditLog.entryHash })
+		.from(auditLog)
+		.orderBy(desc(auditLog.id))
+		.limit(1)
+	// Null for the first entry, and for the first entry after the pre-FND-3 rows.
+	const prevHash = last?.entryHash ?? null
+
+	const fields: ChainedFields = {
+		domain: event.domain,
+		action: event.action,
+		outcome: event.outcome ?? "success",
+		actorId: event.actorId,
+		actorRole,
+		targetType: event.targetType ?? null,
+		targetId: event.targetId ?? null,
+		// Stored exactly as hashed (see normalizeJson).
+		oldValue: normalizeJson(event.oldValue),
+		newValue: normalizeJson(event.newValue),
+		reason: event.reason ?? null,
+		ipAddress: context?.ipAddress ?? null,
+		userAgent: context?.userAgent ?? null,
+		// Set here, not by the database default, so the hash covers the stored value.
+		createdAt: new Date(),
+	}
+
+	await tx.insert(auditLog).values({
+		...fields,
+		outcome: fields.outcome as AuditOutcome,
+		prevHash,
+		entryHash: computeEntryHash(prevHash, fields),
+	})
+}
+
+/** The actor's role names right now, sorted, e.g. "Cashier, Processing Officer". */
+async function roleNames(actorId: string, tx: AuditDb): Promise<string | null> {
+	const rows = await tx
+		.select({ name: roles.name })
+		.from(userRoles)
+		.innerJoin(roles, eq(userRoles.roleId, roles.id))
+		.where(eq(userRoles.userId, actorId))
+	const names = rows.map(row => row.name).sort()
+	return names.length > 0 ? names.join(", ") : null
+}
+
+/**
+ * Append-only, tamper-resistant audit trail (FND-3, TOR §VIII.1).
  *
- * The `authz` epic owns both the `audit_log` schema and this service. Other
- * domains record events by calling {@link record}; nothing else inserts into
- * the table directly, so the append-only guarantee has a single enforcement
- * point. There is no update or delete method here, and none may be added — a
- * log the application can rewrite is not evidence.
+ * Other domains record events by calling {@link record}; nothing else inserts
+ * into the table, so the rules below have a single enforcement point. There is
+ * no update or delete method here, and none may be added. The database backs
+ * this up: a trigger rejects UPDATE, DELETE and TRUNCATE for every role.
  */
 @Injectable()
 export class AuditService {
 	/**
-	 * Append one entry.
+	 * Append one entry, chained to the entry before it.
 	 *
 	 * Pass the caller's transaction as `tx` whenever the event describes a
-	 * mutation. Writing inside that transaction is what makes the trail
-	 * trustworthy: if the audit insert fails the mutation rolls back with it,
-	 * so a privileged change can never commit unrecorded. Omitting `tx` is
-	 * correct only for events with nothing to roll back, such as a denial that
-	 * rejected before any write.
+	 * mutation: if the audit insert fails the mutation rolls back with it, so a
+	 * change can never commit unrecorded. Without `tx` the entry gets a
+	 * transaction of its own, which is correct only for events with nothing to
+	 * roll back, such as a denial that rejected before any write.
 	 */
-	async record(event: AuditEvent, tx: AuditDb = db): Promise<void> {
-		await tx.insert(auditLog).values({
-			domain: event.domain,
-			action: event.action,
-			outcome: event.outcome ?? "success",
-			actorId: event.actorId,
-			targetType: event.targetType ?? null,
-			targetId: event.targetId ?? null,
-			oldValue: event.oldValue ?? null,
-			newValue: event.newValue ?? null,
-			reason: event.reason ?? null,
-		})
+	async record(event: AuditEvent, tx?: AuditDb): Promise<void> {
+		if (tx) {
+			await appendEntry(event, tx)
+			return
+		}
+		await db.transaction(async own => appendEntry(event, own))
 	}
 
 	/**
