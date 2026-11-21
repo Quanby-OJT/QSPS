@@ -24,6 +24,7 @@ afterAll(() => {
 const SET: ResolvedPermissionSet = {
 	roleNames: new Set(["Super Admin"]),
 	permissionNames: new Set(["users.accounts:read", "users.roles:manage"]),
+	scopes: [],
 }
 
 /** Minimal in-memory stand-in for the ioredis surface this service uses. */
