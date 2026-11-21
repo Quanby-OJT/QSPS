@@ -10,18 +10,13 @@ export const metadata: Metadata = {
 }
 
 export default async function UserManagementPage() {
-	// ADM-2: show only the tabs the caller may use. A Module Admin has neither
-	// users.roles:manage nor audit.logs:read; asking anyway only produced 403s
-	// and a denied audit entry on every visit.
+	// ADM-2: show only the tabs the caller may use. A Module Admin lacks
+	// users.roles:manage; asking anyway only produced 403s and a denied audit
+	// entry on every visit. The audit log has its own page since ADM-3.
 	const access = await getAccess()
 	const holds = (key: PermissionName) =>
 		(access.roles as readonly string[]).includes(ADMIN_ROLE) ||
 		(access.permissions as readonly string[]).includes(key)
 
-	return (
-		<UserManagementView
-			canManageRoles={holds("users.roles:manage")}
-			canReadAudit={holds("audit.logs:read")}
-		/>
-	)
+	return <UserManagementView canManageRoles={holds("users.roles:manage")} />
 }

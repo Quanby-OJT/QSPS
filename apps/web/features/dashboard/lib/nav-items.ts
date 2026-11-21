@@ -4,6 +4,7 @@ import {
 	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
 	File01Icon,
+	ShieldKeyIcon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
@@ -74,6 +75,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		icon: AccountSetting01Icon,
 		section: "Administration",
 		requiredPermission: "schedules.slots:manage",
+	},
+	{
+		label: "Audit log",
+		href: "/audit-log",
+		icon: ShieldKeyIcon,
+		section: "Administration",
+		requiredPermission: "audit.logs:read",
 	},
 ]
 

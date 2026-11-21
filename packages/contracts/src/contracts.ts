@@ -192,8 +192,14 @@ export {
 	UserRoleMutationResponseSchema,
 	AuditOutcomeSchema,
 	AuditLogEntrySchema,
+	AuditLogEntryDetailSchema,
+	AuditLogFilterSchema,
+	AuditExportFormatSchema,
+	AuditLogIdParamSchema,
 	ListAuditLogRequestSchema,
 	ListAuditLogResponseSchema,
+	ExportAuditLogRequestSchema,
+	ExportAuditLogResponseSchema,
 } from "./modules/v1/rbac/rbac.schema.js"
 export type {
 	Role,
@@ -206,8 +212,13 @@ export type {
 	RemoveRoleRequest,
 	AuditOutcome,
 	AuditLogEntry,
+	AuditLogEntryDetail,
+	AuditLogFilter,
+	AuditExportFormat,
 	ListAuditLogRequest,
 	ListAuditLogResponse,
+	ExportAuditLogRequest,
+	ExportAuditLogResponse,
 } from "./modules/v1/rbac/rbac.schema.js"
 
 // Current-user access schemas
@@ -232,5 +243,4 @@ export type {
 // Business timezone (PRD: schedules, cutoffs, and reports use Asia/Manila)
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
-
 export * from "./common/privacy-notice.js"

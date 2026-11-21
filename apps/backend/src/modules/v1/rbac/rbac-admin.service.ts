@@ -12,7 +12,11 @@ import {
 	type AssignRoleRequest,
 	type CreateRoleInput,
 	type CreateStaffUserInput,
+	type AuditLogEntryDetail,
+	type AuditLogFilter,
 	type DeleteUserResponse,
+	type ExportAuditLogRequest,
+	type ExportAuditLogResponse,
 	type ExportUsersRequest,
 	type ExportUsersResponse,
 	type ListAuditLogRequest,
@@ -47,7 +51,11 @@ import {
 	userScopes,
 } from "@repo/db/schema"
 
-import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
+import {
+	AUDIT_DOMAIN_AUDIT,
+	AUDIT_DOMAIN_RBAC,
+	AuditService,
+} from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
@@ -69,6 +77,16 @@ const ASSIGNABLE_BY_MODULE_ADMIN = new Set<string>(MODULE_ADMIN_ASSIGNABLE_ROLES
 
 /** ADM-7: the roles seeded with QSPS. Code refers to them by name, so they keep it. */
 const SEEDED_ROLES = new Set<string>(ROLE_NAMES)
+
+/** ADM-3: the most entries one audit export holds. Narrow the filters for more. */
+const AUDIT_EXPORT_MAX_ROWS = 5000
+
+/** Export times in Manila, the business timezone: "2026-11-21 16:08:35". */
+const MANILA_TIME = new Intl.DateTimeFormat("sv-SE", {
+	timeZone: "Asia/Manila",
+	dateStyle: "short",
+	timeStyle: "medium",
+})
 
 type UserFilterInput = z.infer<typeof UserFilterQuerySchema>
 
@@ -953,8 +971,118 @@ export class RbacAdminService {
 	}
 
 	// ------------------------------------------------------------ audit log
+	/** ADM-3: filtered, newest first, cursor paged. Read-only: there is no edit or delete. */
 	async listAuditLog(query: ListAuditLogRequest): Promise<ListAuditLogResponse> {
+		assertDateRange(query)
 		return this.auditService.list(query)
+	}
+
+	/** ADM-3: one entry with its old and new values, IP address and device. */
+	async getAuditEntry(id: number): Promise<AuditLogEntryDetail> {
+		const entry = await this.auditService.get(id)
+		if (!entry) {
+			throw new ORPCError("NOT_FOUND", { message: `Audit entry ${id} was not found` })
+		}
+		return entry
+	}
+
+	/**
+	 * ADM-3: export the entries matching the filters as CSV or PDF, through
+	 * ExportService. The export is itself audited: who, which format and
+	 * filters, how many rows. The actor filter is recorded only as given or
+	 * not, because it is often a person's email.
+	 */
+	async exportAuditLog(
+		query: ExportAuditLogRequest,
+		actorId: string | null
+	): Promise<ExportAuditLogResponse> {
+		assertDateRange(query)
+		const { format, ...filters } = query
+
+		const { entries, nextCursor } = await this.auditService.list({
+			...filters,
+			limit: AUDIT_EXPORT_MAX_ROWS,
+		})
+		const truncated = nextCursor !== null
+
+		const rows = entries.map(entry => ({
+			id: entry.id,
+			createdAt: MANILA_TIME.format(entry.createdAt),
+			actor: entry.actorEmail ?? entry.actorId ?? "System",
+			actorRole: entry.actorRole ?? "",
+			domain: entry.domain,
+			action: entry.action,
+			outcome: entry.outcome,
+			target: entry.targetType
+				? `${entry.targetType}${entry.targetId ? `: ${entry.targetId}` : ""}`
+				: "",
+			reason: entry.reason ?? "",
+			ipAddress: entry.ipAddress ?? "",
+			userAgent: entry.userAgent ?? "",
+			oldValue: jsonCell(entry.oldValue),
+			newValue: jsonCell(entry.newValue),
+		}))
+
+		type Row = (typeof rows)[number]
+		const csvColumns: { key: keyof Row & string; header: string }[] = [
+			{ key: "id", header: "ID" },
+			{ key: "createdAt", header: "When (Manila)" },
+			{ key: "actor", header: "Actor" },
+			{ key: "actorRole", header: "Actor role" },
+			{ key: "domain", header: "Domain" },
+			{ key: "action", header: "Action" },
+			{ key: "outcome", header: "Outcome" },
+			{ key: "target", header: "Target" },
+			{ key: "reason", header: "Reason" },
+			{ key: "ipAddress", header: "IP address" },
+			{ key: "userAgent", header: "Device" },
+			{ key: "oldValue", header: "Old value" },
+			{ key: "newValue", header: "New value" },
+		]
+		// A landscape page fits about nine readable columns; the CSV has everything.
+		const pdfKeys = new Set<string>([
+			"id",
+			"createdAt",
+			"actor",
+			"actorRole",
+			"action",
+			"outcome",
+			"target",
+			"reason",
+			"ipAddress",
+		])
+
+		const dateStamp = new Date().toISOString().slice(0, 10)
+		const exported = await this.exportService.exportTable({
+			format,
+			fileBaseName: `qsps-audit-log-${dateStamp}`,
+			title: "QSPS Audit Log",
+			columns: format === "pdf" ? csvColumns.filter(c => pdfKeys.has(c.key)) : csvColumns,
+			rows,
+		})
+
+		// Nothing to roll back: the export only reads, so the entry stands alone.
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_AUDIT,
+			action: "audit.export",
+			actorId,
+			targetType: "audit_log",
+			targetId: null,
+			newValue: {
+				format,
+				filters: auditFiltersForRecord(filters),
+				rowCount: rows.length,
+				truncated,
+			},
+		})
+
+		return {
+			fileName: exported.fileName,
+			mimeType: exported.mimeType,
+			contentBase64: exported.buffer.toString("base64"),
+			rowCount: rows.length,
+			truncated,
+		}
 	}
 
 	// -------------------------------------------------------------- helpers
@@ -1262,6 +1390,41 @@ export class RbacAdminService {
 	private orderPermissions(names: PermissionName[]): PermissionName[] {
 		const held = new Set(names)
 		return PERMISSION_NAMES.filter(name => held.has(name))
+	}
+}
+
+/** ADM-3: refuse a date range that ends before it starts. */
+function assertDateRange(filter: AuditLogFilter): void {
+	if (filter.from && filter.to && filter.from > filter.to) {
+		throw new ORPCError("BAD_REQUEST", {
+			message: "The start date must be on or before the end date",
+		})
+	}
+}
+
+/** The filters as stored in the export's own audit entry. */
+function auditFiltersForRecord(filter: AuditLogFilter): Record<string, unknown> {
+	return {
+		from: filter.from ?? null,
+		to: filter.to ?? null,
+		actor: Boolean(filter.actor),
+		role: filter.role ?? null,
+		domain: filter.domain ?? null,
+		action: filter.action ?? null,
+		outcome: filter.outcome ?? null,
+		targetType: filter.targetType ?? null,
+		targetId: filter.targetId ?? null,
+	}
+}
+
+/** Old and new values are JSON; text stays as it is. */
+function jsonCell(value: unknown): string {
+	if (value === null || value === undefined) return ""
+	if (typeof value === "string") return value
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return String(value)
 	}
 }
 

@@ -1,7 +1,13 @@
 import { Injectable } from "@nestjs/common"
-import { desc, eq, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from "drizzle-orm"
 
-import type { AuditLogEntry, AuditOutcome, ListAuditLogRequest } from "@repo/contracts"
+import type {
+	AuditLogEntry,
+	AuditLogEntryDetail,
+	AuditLogFilter,
+	AuditOutcome,
+	ListAuditLogRequest,
+} from "@repo/contracts"
 import { auditLog, roles, userRoles, users } from "@repo/db/schema"
 
 import { computeEntryHash, normalizeJson, type ChainedFields } from "@/common/audit/audit-chain"
@@ -20,6 +26,9 @@ export type AuditDb = Pick<typeof db, "insert" | "select" | "execute">
 
 /** Domain tag for RBAC events. Kept here so callers cannot drift on spelling. */
 export const AUDIT_DOMAIN_RBAC = "rbac"
+
+/** Domain tag for actions on the audit log itself, such as an export (ADM-3). */
+export const AUDIT_DOMAIN_AUDIT = "audit"
 
 /**
  * One event to record.
@@ -48,7 +57,7 @@ export interface AuditEvent {
 
 /**
  * Write one chained entry inside `tx`. Module functions rather than private
- * methods, so `AuditService`'s public surface stays record + list (the spec
+ * methods, so `AuditService`'s public surface stays record, list and get (the spec
  * checks there is no other way in).
  */
 async function appendEntry(event: AuditEvent, tx: AuditDb): Promise<void> {
@@ -134,7 +143,7 @@ export class AuditService {
 	}
 
 	/**
-	 * Read entries newest-first.
+	 * Read entries newest-first, narrowed by the ADM-3 filters.
 	 *
 	 * Cursor paging on the monotonic id rather than OFFSET: entries are
 	 * appended constantly, and OFFSET would silently skip or repeat rows as the
@@ -145,26 +154,15 @@ export class AuditService {
 		nextCursor: number | null
 	}> {
 		const limit = query.limit
+		const conditions = filterConditions(query)
+		if (query.before) conditions.push(lt(auditLog.id, query.before))
 
 		const rows = await db
-			.select({
-				id: auditLog.id,
-				domain: auditLog.domain,
-				action: auditLog.action,
-				outcome: auditLog.outcome,
-				actorId: auditLog.actorId,
-				actorEmail: users.email,
-				targetType: auditLog.targetType,
-				targetId: auditLog.targetId,
-				oldValue: auditLog.oldValue,
-				newValue: auditLog.newValue,
-				reason: auditLog.reason,
-				createdAt: auditLog.createdAt,
-			})
+			.select(entryColumns())
 			.from(auditLog)
 			// Left join: an entry outlives the account that produced it, by design.
 			.leftJoin(users, eq(auditLog.actorId, users.id))
-			.where(query.before ? lt(auditLog.id, query.before) : undefined)
+			.where(and(...conditions))
 			// Ordered by id, not createdAt: two rows written in the same
 			// transaction share a timestamp, and only the id totally orders them.
 			.orderBy(desc(auditLog.id))
@@ -175,12 +173,93 @@ export class AuditService {
 		const hasMore = rows.length > limit
 
 		return {
-			entries: page.map(row => ({
-				...row,
-				outcome: row.outcome as AuditOutcome,
-				actorEmail: row.actorEmail ?? null,
-			})),
+			entries: page.map(toEntry),
 			nextCursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,
 		}
 	}
+
+	/** One entry with its hash-chain fields (ADM-3), or null when there is none. */
+	async get(id: number): Promise<AuditLogEntryDetail | null> {
+		const [row] = await db
+			.select({ ...entryColumns(), prevHash: auditLog.prevHash, entryHash: auditLog.entryHash })
+			.from(auditLog)
+			.leftJoin(users, eq(auditLog.actorId, users.id))
+			.where(eq(auditLog.id, id))
+			.limit(1)
+		if (!row) return null
+		return { ...toEntry(row), prevHash: row.prevHash, entryHash: row.entryHash }
+	}
+}
+
+/**
+ * The columns every audit read returns. A function, not a constant: specs
+ * that mock `@repo/db/schema` load this file without `auditLog`.
+ */
+const entryColumns = () => ({
+	id: auditLog.id,
+	domain: auditLog.domain,
+	action: auditLog.action,
+	outcome: auditLog.outcome,
+	actorId: auditLog.actorId,
+	actorEmail: users.email,
+	actorRole: auditLog.actorRole,
+	targetType: auditLog.targetType,
+	targetId: auditLog.targetId,
+	oldValue: auditLog.oldValue,
+	newValue: auditLog.newValue,
+	reason: auditLog.reason,
+	ipAddress: auditLog.ipAddress,
+	userAgent: auditLog.userAgent,
+	createdAt: auditLog.createdAt,
+})
+
+function toEntry<T extends { outcome: string; actorEmail: string | null }>(
+	row: T
+): T & { outcome: AuditOutcome; actorEmail: string | null } {
+	return { ...row, outcome: row.outcome as AuditOutcome, actorEmail: row.actorEmail ?? null }
+}
+
+/** Manila is UTC+8 all year (no daylight saving), so a business day starts at 16:00 UTC the day before. */
+function manilaDayStart(date: string): Date {
+	return new Date(`${date}T00:00:00+08:00`)
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** `%` and `_` typed by the user are matched literally. */
+function likeText(value: string): string {
+	return value.replace(/[\\%_]/g, match => `\\${match}`)
+}
+
+/** ADM-3: each filter given narrows the result; they combine with AND. */
+function filterConditions(filter: AuditLogFilter): SQL[] {
+	const conditions: SQL[] = []
+
+	if (filter.from) conditions.push(gte(auditLog.createdAt, manilaDayStart(filter.from)))
+	if (filter.to) {
+		// `to` is included: stop at the start of the next Manila day.
+		conditions.push(lt(auditLog.createdAt, new Date(manilaDayStart(filter.to).getTime() + DAY_MS)))
+	}
+
+	if (filter.actor) {
+		if (filter.actor.toLowerCase() === "system") {
+			conditions.push(isNull(auditLog.actorId))
+		} else {
+			const byActor = or(
+				eq(auditLog.actorId, filter.actor),
+				ilike(users.email, `%${likeText(filter.actor)}%`)
+			)
+			if (byActor) conditions.push(byActor)
+		}
+	}
+
+	// actor_role holds every role the actor had, e.g. "Cashier, Processing Officer".
+	if (filter.role) conditions.push(ilike(auditLog.actorRole, `%${likeText(filter.role)}%`))
+	if (filter.domain) conditions.push(eq(auditLog.domain, filter.domain))
+	if (filter.action) conditions.push(ilike(auditLog.action, `${likeText(filter.action)}%`))
+	if (filter.outcome) conditions.push(eq(auditLog.outcome, filter.outcome))
+	if (filter.targetType) conditions.push(eq(auditLog.targetType, filter.targetType))
+	if (filter.targetId) conditions.push(eq(auditLog.targetId, filter.targetId))
+
+	return conditions
 }

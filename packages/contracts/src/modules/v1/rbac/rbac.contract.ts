@@ -3,10 +3,14 @@ import { z } from "zod"
 
 import {
 	AssignRoleRequestSchema,
+	AuditLogEntryDetailSchema,
+	AuditLogIdParamSchema,
 	CreateRoleSchema,
 	CreateStaffUserSchema,
 	DeleteRoleResponseSchema,
 	DeleteUserResponseSchema,
+	ExportAuditLogRequestSchema,
+	ExportAuditLogResponseSchema,
 	ExportUsersRequestSchema,
 	ExportUsersResponseSchema,
 	ListAuditLogRequestSchema,
@@ -221,10 +225,36 @@ export const rbacContract = {
 				method: "GET",
 				path: "/rbac/audit-log",
 				summary: "List audit log entries",
-				description: "List privileged-mutation audit entries, newest first.",
+				description:
+					"Audit entries newest first, filtered by date range, actor, role, domain, action, outcome and target, with cursor paging (ADM-3). Needs audit.logs:read.",
 				tags: ["RBAC"],
 			})
 			.input(ListAuditLogRequestSchema)
 			.output(ListAuditLogResponseSchema),
+
+		// Declared before `get` so "/export" is never read as an id.
+		export: oc
+			.route({
+				method: "GET",
+				path: "/rbac/audit-log/export",
+				summary: "Export audit log",
+				description:
+					"Export the entries matching the filters as CSV or PDF (ADM-3). Needs audit.logs:export. The export is itself audited.",
+				tags: ["RBAC"],
+			})
+			.input(ExportAuditLogRequestSchema)
+			.output(ExportAuditLogResponseSchema),
+
+		get: oc
+			.route({
+				method: "GET",
+				path: "/rbac/audit-log/{id}",
+				summary: "Get one audit entry",
+				description:
+					"One entry with its old and new values, IP address, device and hash (ADM-3). Needs audit.logs:read.",
+				tags: ["RBAC"],
+			})
+			.input(AuditLogIdParamSchema)
+			.output(AuditLogEntryDetailSchema),
 	},
 }
