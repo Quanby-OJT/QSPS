@@ -6,10 +6,13 @@ import { getAuth } from "@repo/auth"
 /**
  * User attached to a request after a verified session lookup.
  * `role` is read by the same role checks the library auth guard performs.
+ * `accountType` and `twoFactorEnabled` are read by the staff MFA rule (AUTH-2).
  */
 export interface RequestSessionUser {
 	id?: string
 	role?: string | string[]
+	accountType?: string
+	twoFactorEnabled?: boolean | null
 }
 
 /** Session stored on the request for later guards and `@Session()`. */

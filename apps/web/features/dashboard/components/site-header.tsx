@@ -21,7 +21,7 @@ export function SiteHeader() {
 	return (
 		<header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-10 flex h-14 items-center gap-2 border-b px-4 backdrop-blur">
 			<SidebarTrigger className="-ml-1" />
-			<Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+			<Separator orientation="vertical" className="mr-1 h-4! self-center!" />
 			<Breadcrumb>
 				<BreadcrumbList>
 					<BreadcrumbItem className="text-muted-foreground hidden sm:inline-flex">

@@ -9,7 +9,14 @@ import { SiteHeader } from "@/features/dashboard/components/site-header"
 import { getAccess } from "@/features/dashboard/server/get-access"
 
 /** QSPS fields the session carries (see `user.additionalFields` in @repo/auth). */
-type QspsSessionUser = { profileCompletedAt?: string | Date | null }
+type QspsSessionUser = {
+	profileCompletedAt?: string | Date | null
+	accountType?: string | null
+	twoFactorEnabled?: boolean | null
+}
+
+/** AUTH-2: where a staff account sets up two-factor authentication. */
+const MFA_SETUP_PATH = "/security/setup-mfa"
 
 export default async function SiteLayout({
 	children,
@@ -23,14 +30,22 @@ export default async function SiteLayout({
 		redirect("/login")
 	}
 
+	const qspsUser = session.user as QspsSessionUser
+
+	// AUTH-2: MFA is mandatory for staff. A staff account without it goes to
+	// enrolment before any other screen. Checked before `getAccess`, because
+	// the backend refuses that staff account's API calls until it enrols.
+	if (qspsUser.accountType === "staff" && qspsUser.twoFactorEnabled !== true) {
+		redirect(MFA_SETUP_PATH)
+	}
+
 	const access = await getAccess()
 
 	// AUTH-1: a client completes the profile (name, birth date, mobile,
 	// nationality, gender) before reaching the portal. Staff and the seeded
 	// administrators do not hold the Client role, so they are not stopped here.
 	const isClient = (access.roles as readonly string[]).includes("Client")
-	const profileCompletedAt = (session.user as QspsSessionUser).profileCompletedAt
-	if (isClient && !profileCompletedAt) {
+	if (isClient && !qspsUser.profileCompletedAt) {
 		redirect("/complete-profile")
 	}
 

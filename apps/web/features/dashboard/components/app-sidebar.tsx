@@ -9,6 +9,7 @@ import {
 	ArrowDown01Icon,
 	ArrowReloadHorizontalIcon,
 	Logout01Icon,
+	SecurityCheckIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
@@ -42,7 +43,6 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
-	SidebarSeparator,
 	useSidebar,
 } from "@/core/components/ui/sidebar"
 import { cn } from "@/core/lib/utils"
@@ -106,7 +106,8 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 
 	return (
 		<Sidebar collapsible="icon">
-			<SidebarHeader>
+			{/* Same height and bottom line as SiteHeader (h-14 border-b), so the two lines meet. */}
+			<SidebarHeader className="border-sidebar-border h-14 shrink-0 justify-center border-b py-0">
 				<Link
 					href="/dashboard"
 					onClick={closeMobileSidebarOnSelect}
@@ -126,7 +127,6 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 					</div>
 				</Link>
 			</SidebarHeader>
-			<SidebarSeparator />
 			<SidebarContent>
 				{access.status === "error" ? (
 					<SidebarGroup className="group-data-[collapsible=icon]:hidden">
@@ -236,6 +236,12 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 								>
 									<HugeiconsIcon icon={AccountSetting01Icon} strokeWidth={2} />
 									Profile
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									render={<Link href="/settings/security" onClick={closeMobileSidebarOnSelect} />}
+								>
+									<HugeiconsIcon icon={SecurityCheckIcon} strokeWidth={2} />
+									Security
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									variant="destructive"
