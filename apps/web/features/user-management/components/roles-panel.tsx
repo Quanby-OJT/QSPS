@@ -71,7 +71,11 @@ export function RolesPanel() {
 
 	async function confirmDelete() {
 		if (!roleToDelete) return
-		await deleteRole.mutateAsync(roleToDelete.id)
+		try {
+			await deleteRole.mutateAsync(roleToDelete.id)
+		} catch {
+			// The error is shown under the table from the mutation's state.
+		}
 		setRoleToDelete(null)
 	}
 
@@ -79,7 +83,8 @@ export function RolesPanel() {
 		<div className="flex flex-col gap-4">
 			<div className="flex items-center justify-between">
 				<div>
-					<h2 className="text-lg font-semibold">Roles</h2>
+					<div className="bg-gold mb-2 h-1 w-10 rounded-full" />
+					<h2 className="text-lg font-bold tracking-tight">Roles</h2>
 					<p className="text-muted-foreground text-sm">
 						Create roles and choose which permissions they grant.
 					</p>
@@ -104,6 +109,12 @@ export function RolesPanel() {
 				</p>
 			) : null}
 
+			{deleteRole.error ? (
+				<p className="text-destructive text-sm" role="alert">
+					{deleteRole.error.message}
+				</p>
+			) : null}
+
 			{roles && roles.length > 0 ? (
 				<div className="rounded-lg border">
 					<Table>
@@ -118,10 +129,25 @@ export function RolesPanel() {
 						<TableBody>
 							{roles.map(role => {
 								const isAdmin = role.name === ADMIN_ROLE
+								// ADM-7: the API refuses these too; the buttons say why up front.
+								const deleteBlockedReason = isAdmin
+									? `The ${ADMIN_ROLE} role cannot be deleted`
+									: role.isSystem
+										? "Built-in roles cannot be deleted"
+										: role.userCount > 0
+											? `Remove it from ${role.userCount === 1 ? "its 1 user" : `its ${role.userCount} users`} first`
+											: null
 								return (
 									<TableRow key={role.id}>
 										<TableCell className="align-top">
-											<div className="font-medium">{role.name}</div>
+											<div className="flex items-center gap-2 font-medium">
+												{role.name}
+												{role.isSystem ? (
+													<Badge variant="outline" className="border-navy/30 text-navy text-[10px]">
+														Built-in
+													</Badge>
+												) : null}
+											</div>
 											{role.description ? (
 												<div className="text-muted-foreground text-xs">{role.description}</div>
 											) : null}
@@ -130,13 +156,11 @@ export function RolesPanel() {
 											{isAdmin ? (
 												<Badge variant="secondary">All permissions</Badge>
 											) : role.permissions.length ? (
-												<div className="flex flex-wrap gap-1">
-													{role.permissions.map(permission => (
-														<Badge key={permission} variant="outline">
-															{permission}
-														</Badge>
-													))}
-												</div>
+												<span className="text-sm">
+													{role.permissions.length === 1
+														? "1 permission"
+														: `${role.permissions.length} permissions`}
+												</span>
 											) : (
 												<span className="text-muted-foreground text-xs">None</span>
 											)}
@@ -150,6 +174,8 @@ export function RolesPanel() {
 													variant="ghost"
 													size="icon-sm"
 													onClick={() => openEdit(role)}
+													disabled={isAdmin}
+													title={isAdmin ? `The ${ADMIN_ROLE} role cannot be changed` : undefined}
 													aria-label={`Edit ${role.name}`}
 												>
 													<HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2} />
@@ -158,7 +184,8 @@ export function RolesPanel() {
 													variant="ghost"
 													size="icon-sm"
 													onClick={() => setRoleToDelete(role)}
-													disabled={isAdmin}
+													disabled={deleteBlockedReason !== null}
+													title={deleteBlockedReason ?? undefined}
 													aria-label={`Delete ${role.name}`}
 												>
 													<HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
@@ -196,7 +223,7 @@ export function RolesPanel() {
 						<AlertDialogTitle>Delete role</AlertDialogTitle>
 						<AlertDialogDescription>
 							{roleToDelete
-								? `Delete "${roleToDelete.name}"? This removes it from all assigned users.`
+								? `Delete "${roleToDelete.name}"? It is not assigned to anyone, and this cannot be undone.`
 								: ""}
 						</AlertDialogDescription>
 					</AlertDialogHeader>

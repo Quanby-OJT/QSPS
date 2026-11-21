@@ -8,6 +8,7 @@ import {
 	ADMIN_ROLE,
 	MODULE_ADMIN_ASSIGNABLE_ROLES,
 	PERMISSION_NAMES,
+	ROLE_NAMES,
 	type AssignRoleRequest,
 	type CreateRoleInput,
 	type CreateStaffUserInput,
@@ -66,6 +67,9 @@ const FULL_ADMIN_ROLES = [ADMIN_ROLE, "System Admin"]
 
 const ASSIGNABLE_BY_MODULE_ADMIN = new Set<string>(MODULE_ADMIN_ASSIGNABLE_ROLES)
 
+/** ADM-7: the roles seeded with QSPS. Code refers to them by name, so they keep it. */
+const SEEDED_ROLES = new Set<string>(ROLE_NAMES)
+
 type UserFilterInput = z.infer<typeof UserFilterQuerySchema>
 
 @Injectable()
@@ -110,6 +114,7 @@ export class RbacAdminService {
 			description: role.description,
 			permissions: this.orderPermissions(permsByRole.get(role.id) ?? []),
 			userCount: countByRole.get(role.id) ?? 0,
+			isSystem: SEEDED_ROLES.has(role.name),
 			createdAt: role.createdAt,
 			updatedAt: role.updatedAt,
 		}))
@@ -150,22 +155,35 @@ export class RbacAdminService {
 		return this.buildRole(roleId)
 	}
 
+	/**
+	 * ADM-7: rename or re-describe a role. The Super Admin role cannot be changed
+	 * at all, and the seeded roles keep their names (code refers to them by
+	 * name). Both refusals are audited.
+	 */
 	async updateRole(payload: UpdateRoleRequest, actorId: string | null): Promise<Role> {
 		const role = await this.getRoleRowOrThrow(payload.id)
+		const attempted = { name: payload.name, description: payload.description }
 
-		if (role.name === ADMIN_ROLE && payload.name !== undefined && payload.name !== ADMIN_ROLE) {
-			await this.auditService.record({
-				domain: AUDIT_DOMAIN_RBAC,
-				action: "role.update",
-				outcome: "denied",
-				actorId,
-				targetType: "role",
-				targetId: String(role.id),
-				oldValue: { name: role.name },
-				newValue: { name: payload.name },
-				reason: "The Admin role cannot be renamed",
-			})
-			throw new ORPCError("FORBIDDEN", { message: "The Admin role cannot be renamed" })
+		if (role.name === ADMIN_ROLE) {
+			// FND-3's audit tests read "cannot be renamed" for a rename attempt.
+			const renaming = payload.name !== undefined && payload.name !== role.name
+			const message = renaming
+				? `The ${ADMIN_ROLE} role cannot be renamed`
+				: `The ${ADMIN_ROLE} role cannot be changed`
+			await this.refuseRole(
+				{ action: "role.update", actorId, role, attempted },
+				"FORBIDDEN",
+				message,
+				renaming ? message : `the ${ADMIN_ROLE} role is protected`
+			)
+		}
+		if (payload.name !== undefined && payload.name !== role.name && SEEDED_ROLES.has(role.name)) {
+			await this.refuseRole(
+				{ action: "role.update", actorId, role, attempted },
+				"FORBIDDEN",
+				"Built-in roles keep their name. You can still change their description and permissions.",
+				"seeded role rename"
+			)
 		}
 
 		await db.transaction(async tx => {
@@ -203,13 +221,29 @@ export class RbacAdminService {
 		return this.buildRole(role.id)
 	}
 
+	/**
+	 * ADM-7: replace the permissions a role grants. Every grant and revoke is
+	 * audited. The Super Admin role holds everything and cannot be edited, and
+	 * only a Super Admin may grant a permission they do not hold themselves.
+	 * The whole permission cache is cleared, so holders gain or lose access on
+	 * their next request (the 60-second TTL is only the fallback).
+	 */
 	async setRolePermissions(
 		payload: SetRolePermissionsRequest,
 		actorId: string | null
 	): Promise<Role> {
 		const role = await this.getRoleRowOrThrow(payload.id)
-
 		const uniqueNames = Array.from(new Set(payload.permissions))
+
+		if (role.name === ADMIN_ROLE) {
+			await this.refuseRole(
+				{ action: "role.setPermissions", actorId, role, attempted: { permissions: uniqueNames } },
+				"FORBIDDEN",
+				`The ${ADMIN_ROLE} role holds every permission and cannot be changed`,
+				`the ${ADMIN_ROLE} role is protected`
+			)
+		}
+
 		const permissionRows = uniqueNames.length
 			? await db.select().from(permissions).where(inArray(permissions.name, uniqueNames))
 			: []
@@ -226,6 +260,31 @@ export class RbacAdminService {
 			.innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
 			.where(eq(rolePermissions.roleId, role.id))
 
+		const before = new Set(previous.map(p => p.name))
+		const after = new Set<string>(uniqueNames)
+		const granted = uniqueNames.filter(name => !before.has(name)).sort()
+		const revoked = [...before].filter(name => !after.has(name)).sort()
+
+		// No escalation through roles: below Super Admin, you can only hand out
+		// what you already hold.
+		if (granted.length > 0 && actorId) {
+			const access = await this.rbacService.getResolvedAccess(actorId)
+			if (!access.roleNames.has(ADMIN_ROLE)) {
+				const notHeld = granted.filter(name => {
+					const resource = name.split(":")[0]
+					return !access.permissionNames.has(name) && !access.permissionNames.has(`${resource}:*`)
+				})
+				if (notHeld.length > 0) {
+					await this.refuseRole(
+						{ action: "role.setPermissions", actorId, role, attempted: { granted } },
+						"FORBIDDEN",
+						`You can only grant permissions you hold yourself: ${notHeld.join(", ")}`,
+						`grants permissions the caller does not hold: ${notHeld.join(", ")}`
+					)
+				}
+			}
+		}
+
 		await db.transaction(async tx => {
 			await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, role.id))
 			if (permissionRows.length) {
@@ -241,8 +300,8 @@ export class RbacAdminService {
 					actorId,
 					targetType: "role",
 					targetId: String(role.id),
-					oldValue: { permissions: previous.map(p => p.name).sort() },
-					newValue: { permissions: uniqueNames.slice().sort() },
+					oldValue: { permissions: [...before].sort() },
+					newValue: { permissions: uniqueNames.slice().sort(), granted, revoked },
 				},
 				tx
 			)
@@ -252,21 +311,42 @@ export class RbacAdminService {
 		return this.buildRole(role.id)
 	}
 
+	/**
+	 * ADM-7: delete a custom role. Refused (and audited) for Super Admin, for
+	 * the seeded roles, and for any role still assigned to a user: unassign it
+	 * first, so nobody loses access as a side effect of a delete.
+	 */
 	async deleteRole(id: number, actorId: string | null): Promise<{ success: boolean; id: number }> {
 		const role = await this.getRoleRowOrThrow(id)
 
 		if (role.name === ADMIN_ROLE) {
-			await this.auditService.record({
-				domain: AUDIT_DOMAIN_RBAC,
-				action: "role.delete",
-				outcome: "denied",
-				actorId,
-				targetType: "role",
-				targetId: String(role.id),
-				oldValue: { name: role.name },
-				reason: "The Admin role cannot be deleted",
-			})
-			throw new ORPCError("FORBIDDEN", { message: "The Admin role cannot be deleted" })
+			await this.refuseRole(
+				{ action: "role.delete", actorId, role },
+				"FORBIDDEN",
+				`The ${ADMIN_ROLE} role cannot be deleted`,
+				`The ${ADMIN_ROLE} role cannot be deleted`
+			)
+		}
+		if (SEEDED_ROLES.has(role.name)) {
+			await this.refuseRole(
+				{ action: "role.delete", actorId, role },
+				"FORBIDDEN",
+				"Built-in roles cannot be deleted",
+				"seeded role delete"
+			)
+		}
+
+		const [{ count: holders } = { count: 0 }] = await db
+			.select({ count: sql<number>`count(*)::int` })
+			.from(userRoles)
+			.where(eq(userRoles.roleId, role.id))
+		if (holders > 0) {
+			await this.refuseRole(
+				{ action: "role.delete", actorId, role, attempted: { assignedUsers: holders } },
+				"CONFLICT",
+				`This role is assigned to ${holders === 1 ? "1 user" : `${holders} users`}. Remove it from them before deleting it.`,
+				"role still assigned"
+			)
 		}
 
 		const grantedPermissions = await db
@@ -298,6 +378,32 @@ export class RbacAdminService {
 
 		await this.cacheService.clear()
 		return { success: true, id: role.id }
+	}
+
+	/** Audits a refused role change, then throws the matching API error. */
+	private async refuseRole(
+		context: {
+			action: string
+			actorId: string | null
+			role: { id: number; name: string }
+			attempted?: Record<string, unknown>
+		},
+		code: "FORBIDDEN" | "CONFLICT",
+		message: string,
+		reason: string
+	): Promise<never> {
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_RBAC,
+			action: context.action,
+			outcome: "denied",
+			actorId: context.actorId,
+			targetType: "role",
+			targetId: String(context.role.id),
+			oldValue: { name: context.role.name },
+			newValue: context.attempted ?? null,
+			reason,
+		})
+		throw new ORPCError(code, { message })
 	}
 
 	// ---------------------------------------------------------- permissions
@@ -1147,6 +1253,7 @@ export class RbacAdminService {
 			description: role.description,
 			permissions: this.orderPermissions(grantedPermissions),
 			userCount: count,
+			isSystem: SEEDED_ROLES.has(role.name),
 			createdAt: role.createdAt,
 			updatedAt: role.updatedAt,
 		}

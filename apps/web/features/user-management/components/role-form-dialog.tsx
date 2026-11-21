@@ -33,7 +33,7 @@ interface RoleFormDialogProps {
 export function RoleFormDialog({ open, onOpenChange, role }: RoleFormDialogProps) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
 				{open ? (
 					<RoleForm key={role?.id ?? "new"} role={role} onClose={() => onOpenChange(false)} />
 				) : null}
@@ -45,6 +45,8 @@ export function RoleFormDialog({ open, onOpenChange, role }: RoleFormDialogProps
 function RoleForm({ role, onClose }: { role?: Role; onClose: () => void }) {
 	const isEdit = Boolean(role)
 	const isAdminRole = role?.name === ADMIN_ROLE
+	// ADM-7: seeded roles keep their name (code refers to them by name).
+	const isBuiltIn = role?.isSystem === true
 
 	const [name, setName] = useState(role?.name ?? "")
 	const [description, setDescription] = useState(role?.description ?? "")
@@ -75,12 +77,20 @@ function RoleForm({ role, onClose }: { role?: Role; onClose: () => void }) {
 
 		try {
 			if (isEdit && role) {
-				await updateRole.mutateAsync({
-					id: role.id,
-					name: trimmed,
-					description: description.trim() || null,
-				})
-				await setRolePermissions.mutateAsync({ id: role.id, permissions })
+				const nextDescription = description.trim() || null
+				// Only send what changed, so the audit log shows real changes.
+				if (trimmed !== role.name || nextDescription !== role.description) {
+					await updateRole.mutateAsync({
+						id: role.id,
+						...(trimmed !== role.name ? { name: trimmed } : {}),
+						description: nextDescription,
+					})
+				}
+				const before = new Set(role.permissions)
+				const changed = permissions.length !== before.size || permissions.some(p => !before.has(p))
+				if (changed) {
+					await setRolePermissions.mutateAsync({ id: role.id, permissions })
+				}
 			} else {
 				const created = await createRole.mutateAsync({
 					name: trimmed,
@@ -115,12 +125,12 @@ function RoleForm({ role, onClose }: { role?: Role; onClose: () => void }) {
 						value={name}
 						onChange={e => setName(e.target.value)}
 						placeholder="e.g. Editor"
-						disabled={isPending || isAdminRole}
+						disabled={isPending || isAdminRole || isBuiltIn}
 						aria-invalid={Boolean(formError)}
 					/>
-					{isAdminRole ? (
+					{isBuiltIn ? (
 						<p className="text-muted-foreground text-xs">
-							The {ADMIN_ROLE} role cannot be renamed.
+							Built-in roles keep their name. You can change the description and permissions.
 						</p>
 					) : null}
 				</Field>
