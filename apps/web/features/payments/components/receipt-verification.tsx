@@ -1,6 +1,13 @@
 "use client"
 
-import { Badge } from "@/core/components/ui/badge"
+import { AlertCircleIcon, Cancel01Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+
+import { cn } from "@/core/lib/utils"
+import {
+	verificationCard,
+	VerificationShell,
+} from "@/features/certificates/components/document-verification"
 import { useReceiptVerificationQuery } from "@/features/payments/api/payments.hooks"
 import { feeInPesos } from "@/features/services/lib/fee"
 
@@ -12,6 +19,35 @@ function manilaDateTime(instant: Date): string {
 	}).format(instant)
 }
 
+const tones = {
+	valid: "bg-success/10 text-success border-success/30",
+	muted: "bg-muted text-muted-foreground border-border",
+	invalid: "bg-destructive/10 text-destructive border-destructive/30",
+} as const
+
+/** The coloured line at the top of a result: valid, refunded or not found. */
+function StatusBanner({
+	tone,
+	icon,
+	children,
+}: {
+	tone: keyof typeof tones
+	icon: IconSvgElement
+	children: React.ReactNode
+}) {
+	return (
+		<div
+			className={cn(
+				"flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold",
+				tones[tone]
+			)}
+		>
+			<HugeiconsIcon icon={icon} strokeWidth={2} className="size-5 shrink-0" />
+			{children}
+		</div>
+	)
+}
+
 /**
  * Shows what QSPS has on record for a scanned e-Receipt: number, amount,
  * date and status, read from the database. Nothing about the client.
@@ -20,54 +56,68 @@ export function ReceiptVerification({ token }: { token: string }) {
 	const receipt = useReceiptVerificationQuery(token)
 
 	return (
-		<main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-6">
-			<div>
-				<p className="text-muted-foreground text-sm">Bureau of Quarantine · QSPS</p>
-				<h1 className="text-2xl font-bold">e-Receipt verification</h1>
-			</div>
-
-			<div className="border-border flex flex-col gap-3 rounded-lg border p-6" role="status">
-				{receipt.isPending ? <p>Checking the receipt…</p> : null}
+		<VerificationShell
+			title="e-Receipt verification"
+			description="What QSPS has on record for this receipt."
+		>
+			<div className={verificationCard} role="status">
+				{receipt.isPending ? (
+					<p className="text-muted-foreground text-sm">Checking the receipt…</p>
+				) : null}
 
 				{receipt.isError ? (
-					<p role="alert">The receipt could not be checked right now. Please try again.</p>
+					<p role="alert" className="text-destructive text-sm">
+						The receipt could not be checked right now. Please try again.
+					</p>
 				) : null}
 
 				{receipt.data === null ? (
 					<>
-						<Badge variant="destructive">No record found</Badge>
-						<p>No QSPS e-Receipt matches this code.</p>
+						<StatusBanner tone="invalid" icon={Cancel01Icon}>
+							No record found
+						</StatusBanner>
+						<p className="text-sm">No QSPS e-Receipt matches this code.</p>
 					</>
 				) : null}
 
 				{receipt.data ? (
 					<>
-						<Badge variant={receipt.data.status === "valid" ? "default" : "secondary"}>
-							{receipt.data.status === "valid" ? "Valid receipt" : "Refunded"}
-						</Badge>
-						<dl className="grid gap-3 text-sm">
-							<div>
-								<dt className="text-muted-foreground">Receipt number</dt>
+						{receipt.data.status === "valid" ? (
+							<StatusBanner tone="valid" icon={CheckmarkCircle02Icon}>
+								Valid receipt
+							</StatusBanner>
+						) : (
+							<StatusBanner tone="muted" icon={AlertCircleIcon}>
+								Refunded
+							</StatusBanner>
+						)}
+						<dl className="divide-border grid divide-y text-sm">
+							<div className="flex flex-col gap-0.5 py-3 first:pt-0">
+								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+									Receipt number
+								</dt>
 								<dd className="font-mono text-base font-semibold">{receipt.data.receiptNumber}</dd>
 							</div>
-							<div>
-								<dt className="text-muted-foreground">Amount paid</dt>
-								<dd className="text-base font-semibold">
-									₱{feeInPesos(receipt.data.amountCentavos)}
-								</dd>
+							<div className="flex flex-col gap-0.5 py-3">
+								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+									Amount paid
+								</dt>
+								<dd className="text-lg font-bold">₱{feeInPesos(receipt.data.amountCentavos)}</dd>
 							</div>
-							<div>
-								<dt className="text-muted-foreground">Date issued (Asia/Manila)</dt>
+							<div className="flex flex-col gap-0.5 py-3 last:pb-0">
+								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+									Date issued (Asia/Manila)
+								</dt>
 								<dd>{manilaDateTime(receipt.data.issuedAt)}</dd>
 							</div>
 						</dl>
-						<p className="text-muted-foreground text-xs">
+						<p className="text-muted-foreground border-t pt-4 text-xs">
 							These details come from QSPS records. If a printed receipt shows anything different,
 							it has been altered.
 						</p>
 					</>
 				) : null}
 			</div>
-		</main>
+		</VerificationShell>
 	)
 }

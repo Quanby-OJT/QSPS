@@ -1,15 +1,10 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
-import {
-	ArrowRight01Icon,
-	SecurityCheckIcon,
-	UserGroupIcon,
-	UserMultipleIcon,
-} from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon, UserGroupIcon, UserMultipleIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 
-import { Badge } from "@/core/components/ui/badge"
 import {
 	Card,
 	CardContent,
@@ -51,33 +46,51 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 	const quickActions = getAccessibleNavItems(access).filter(item => item.href !== "/dashboard")
 
 	return (
-		<div className="flex w-full flex-col gap-8">
-			<header className="flex flex-wrap items-end justify-between gap-4">
-				<div className="min-w-0">
-					<h1 className="text-2xl font-bold tracking-tight">Welcome back, {firstName}</h1>
-					<p className="text-muted-foreground text-sm">Here is an overview of your workspace.</p>
-				</div>
-				{access.roles.length ? (
-					<div className="flex flex-wrap gap-1">
-						{access.roles.map(role => (
-							<Badge key={role} variant="secondary">
-								{role}
-							</Badge>
-						))}
+		<div className="flex w-full flex-col gap-6">
+			{/* Welcome banner: navy, gold accent line, BOQ seal (UI-1). */}
+			<header className="bg-navy text-navy-foreground relative overflow-hidden rounded-xl p-6 sm:p-8">
+				<div
+					aria-hidden
+					className="bg-gold/10 pointer-events-none absolute -top-16 -right-16 size-56 rounded-full"
+				/>
+				<div className="relative flex flex-wrap items-center justify-between gap-6">
+					<div className="min-w-0">
+						<div className="bg-gold mb-3 h-1 w-12 rounded-full" />
+						<h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+							Welcome back, {firstName}
+						</h1>
+						<p className="text-navy-foreground/75 mt-1 text-sm">
+							{!canReadUsers && canCreateOwnBookings
+								? "Book a quarantine service, then pay and track it here."
+								: "Here is an overview of your workspace."}
+						</p>
+						{access.roles.length ? (
+							<div className="mt-4 flex flex-wrap gap-1.5">
+								{access.roles.map(role => (
+									<span
+										key={role}
+										className="border-gold/40 text-gold rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide uppercase"
+									>
+										{role}
+									</span>
+								))}
+							</div>
+						) : null}
 					</div>
-				) : null}
+					<Image
+						src="/brand/boq.png"
+						alt=""
+						width={88}
+						height={88}
+						className="hidden size-20 shrink-0 rounded-full bg-white/95 p-1 sm:block"
+					/>
+				</div>
 			</header>
 
 			{canCreateOwnBookings ? <ClientLocationPicker /> : null}
 
-			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-				<StatCard
-					icon={SecurityCheckIcon}
-					label="Your permissions"
-					value={access.permissions.length}
-					hint="Granted on your account"
-				/>
-				{canReadUsers ? (
+			{canReadUsers ? (
+				<div className="grid gap-4 sm:grid-cols-2">
 					<StatCard
 						icon={UserGroupIcon}
 						label="Users"
@@ -86,8 +99,6 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 						isLoading={isQueryLoading(users)}
 						isError={users.isError}
 					/>
-				) : null}
-				{canReadUsers ? (
 					<StatCard
 						icon={UserMultipleIcon}
 						label="Roles"
@@ -96,37 +107,39 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 						isLoading={isQueryLoading(roles)}
 						isError={roles.isError}
 					/>
-				) : null}
-			</div>
+				</div>
+			) : null}
 
 			<Card>
 				<CardHeader>
 					<CardTitle>Quick actions</CardTitle>
-					<CardDescription>Jump to a workspace destination you can access.</CardDescription>
+					<CardDescription>Jump to a page you can access.</CardDescription>
 				</CardHeader>
 				<CardContent>
 					{quickActions.length ? (
-						<div className="grid gap-3 sm:grid-cols-2">
+						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 							{quickActions.map(item => (
 								<Link
 									key={item.href}
 									href={item.href}
-									className="group/action border-border hover:bg-muted/60 hover:border-ring/40 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 outline-none transition-colors focus-visible:ring-[3px]"
+									className="group/action border-border hover:border-primary/40 hover:bg-primary/5 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 transition-all outline-none hover:-translate-y-0.5 hover:shadow-sm focus-visible:ring-[3px] motion-reduce:hover:translate-y-0"
 								>
-									<div className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
+									<div className="bg-primary/10 text-primary group-hover/action:bg-primary group-hover/action:text-primary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors">
 										<HugeiconsIcon icon={item.icon} strokeWidth={2} className="size-5" />
 									</div>
-									<span className="min-w-0 flex-1 truncate text-sm font-medium">{item.label}</span>
+									<span className="min-w-0 flex-1 truncate text-sm font-semibold">
+										{item.label}
+									</span>
 									<HugeiconsIcon
 										icon={ArrowRight01Icon}
 										strokeWidth={2}
-										className="text-muted-foreground size-4 transition-transform group-hover/action:translate-x-0.5"
+										className="text-muted-foreground group-hover/action:text-primary size-4 transition-transform group-hover/action:translate-x-0.5"
 									/>
 								</Link>
 							))}
 						</div>
 					) : (
-						<p className="text-muted-foreground text-sm">No destinations available.</p>
+						<p className="text-muted-foreground text-sm">No pages available yet.</p>
 					)}
 				</CardContent>
 			</Card>
@@ -145,20 +158,22 @@ interface StatCardProps {
 
 function StatCard({ icon, label, value, hint, isLoading, isError }: StatCardProps) {
 	return (
-		<Card>
+		<Card className="border-t-gold border-t-4">
 			<CardHeader>
 				<div className="flex items-center justify-between gap-2">
-					<CardDescription>{label}</CardDescription>
-					<div className="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md">
+					<CardDescription className="text-xs font-semibold tracking-wide uppercase">
+						{label}
+					</CardDescription>
+					<div className="bg-navy text-gold flex size-9 items-center justify-center rounded-lg">
 						<HugeiconsIcon icon={icon} strokeWidth={2} className="size-4" />
 					</div>
 				</div>
 				{isLoading ? (
-					<Skeleton className="mt-1 h-8 w-16" />
+					<Skeleton className="mt-1 h-9 w-16" />
 				) : isError ? (
-					<p className="text-destructive text-2xl font-bold tabular-nums">—</p>
+					<p className="text-destructive text-3xl font-bold tabular-nums">—</p>
 				) : (
-					<p className="text-2xl font-bold tabular-nums">{value ?? 0}</p>
+					<p className="text-3xl font-bold tabular-nums">{value ?? 0}</p>
 				)}
 			</CardHeader>
 			<CardContent>

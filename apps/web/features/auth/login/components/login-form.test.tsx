@@ -39,7 +39,7 @@ async function submitCredentials() {
 	const user = userEvent.setup()
 	await user.type(screen.getByLabelText(/^email$/i), "ada@example.com")
 	await user.type(screen.getByLabelText(/^password$/i), "wrong-password")
-	await user.click(screen.getByRole("button", { name: /^login$/i }))
+	await user.click(screen.getByRole("button", { name: /^sign in$/i }))
 }
 
 beforeEach(() => {

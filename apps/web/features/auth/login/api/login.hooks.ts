@@ -1,6 +1,5 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
@@ -34,7 +33,6 @@ function isUnverifiedEmailError(error: { message?: string; code?: string; status
 }
 
 export function useLoginMutation() {
-	const router = useRouter()
 	const queryClient = useQueryClient()
 
 	return useMutation({
@@ -57,8 +55,11 @@ export function useLoginMutation() {
 		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: sessionKeys.all })
-			router.push("/")
-			router.refresh()
+			// A full load straight to the dashboard (UI-1). push + refresh raced:
+			// the refresh cancelled the push, so the address stayed on /login and
+			// the sign in panel stayed open. A full load also gives every page a
+			// fresh session, and `replace` keeps /login out of the back button.
+			window.location.replace("/dashboard")
 		},
 	})
 }

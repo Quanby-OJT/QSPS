@@ -1,4 +1,4 @@
-import { defineRelations } from "drizzle-orm"
+import { defineRelations, sql } from "drizzle-orm"
 import { index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
@@ -184,33 +184,38 @@ export const rolePermissions = createTable(
 // ============================================================================
 
 /**
- * Append-only record of privileged mutations.
+ * Append-only record of user and System actions (FND-3, TOR §VIII.1).
  *
- * Owned by the `authz` epic. Rows are written **in the same transaction** as
- * the mutation they describe, so a failed insert rolls the mutation back and
- * the log can never disagree with the data. Other domains record events by
- * calling the audit service's helper — never by inserting here directly — so
- * that the append-only rule has exactly one enforcement point.
+ * Rows are written **in the same transaction** as the mutation they describe,
+ * so a failed insert rolls the mutation back and the log can never disagree
+ * with the data. Only `AuditService.record` inserts here (DOMAIN-MODEL §6).
  *
- * There is deliberately no `updatedAt`: a row that can be updated is not an
- * audit trail. The application exposes no UPDATE or DELETE path to this table.
+ * Tamper resistance:
+ * - A database trigger rejects UPDATE, DELETE and TRUNCATE for every role,
+ *   administrators included (migration `audit_log_append_only`).
+ * - Each row stores `entry_hash = sha256(prev_hash + this row)`, chaining it to
+ *   the row before. `pnpm audit:verify` recomputes the chain and reports the
+ *   first row changed outside the application. Rows written before FND-3 have
+ *   no hash and are reported as before the chain started.
  *
- * `actorId` is nullable and uses `set null` rather than `cascade`: deleting a
- * user must never erase the record of what they did.
+ * `actorId` stays `set null`, but users are never hard-deleted (DOMAIN-MODEL
+ * §4): with the trigger in place, deleting a user who has audit entries fails,
+ * which is the intended protection.
  */
 export const auditLog = createTable(
 	"audit_log",
 	t => ({
 		id: t.serial("id").primaryKey(),
-		/** Broad area the event belongs to, e.g. "rbac". Kept generic so auth
-		 *  events can adopt this table without a schema change. */
+		/** Broad area the event belongs to, e.g. "rbac", or the job name for System actions. */
 		domain: t.text("domain").notNull(),
 		/** What happened, e.g. "role.assign", "role.remove", "role.create". */
 		action: t.text("action").notNull(),
 		/** Whether the attempt succeeded or was refused. A denial is evidence. */
 		outcome: t.text("outcome").notNull().default("success").$type<"success" | "denied">(),
-		/** Who acted. Null only for system-initiated events. */
+		/** Who acted. Null only for System actions. */
 		actorId: t.text("actor_id").references(() => users.id, { onDelete: "set null" }),
+		/** The actor's role names at that moment, e.g. "Cashier, Processing Officer". Null for System. */
+		actorRole: t.text("actor_role"),
 		/** Kind of thing acted on, e.g. "user", "role". */
 		targetType: t.text("target_type"),
 		/** Identifier of the thing acted on, as text so any key type fits. */
@@ -219,6 +224,14 @@ export const auditLog = createTable(
 		oldValue: t.jsonb("old_value").$type<unknown>(),
 		newValue: t.jsonb("new_value").$type<unknown>(),
 		reason: t.text("reason"),
+		/** Client address, resolved with the same trusted-proxy rule as the rate limiter. Null for System. */
+		ipAddress: t.text("ip_address"),
+		/** Client User-Agent header, capped in length. Null for System. */
+		userAgent: t.text("user_agent"),
+		/** `entry_hash` of the row before this one; null for the first chained row. */
+		prevHash: t.text("prev_hash"),
+		/** sha256 (hex) of `prev_hash` plus this row's fields. Null only for rows from before FND-3. */
+		entryHash: t.text("entry_hash"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	}),
 	t => [
@@ -270,6 +283,11 @@ export const services = createTable(
 		requiresApproval: t.boolean("requires_approval").notNull().default(false),
 		/** Document issued when a booking item is cleared (CRT-1); null when the service issues none. */
 		documentType: t.text("document_type"),
+		/**
+		 * Issue the document as soon as a Booking Item is cleared (CRT-1). On by
+		 * default; when off, staff issue it as a separate step.
+		 */
+		autoIssue: t.boolean("auto_issue").notNull().default(true),
 		isActive: t.boolean("is_active").notNull().default(true),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
@@ -486,6 +504,83 @@ export const assessments = createTable(
 )
 
 // ============================================================================
+// CERTIFICATES (CRT-1)
+// ============================================================================
+
+/**
+ * An official document issued for a cleared Booking Item (CRT-1, Flow D):
+ * certificate, permit or vaccination record. Never deleted. Created only by
+ * `DocumentService.issue`, inside the transaction that marks the item
+ * `issued`. The PDF is rendered on demand from `payload`, never stored.
+ *
+ * Columns from DOMAIN-MODEL.md section 4. `superseded_by`, `revoked_reason`,
+ * `print_count` and `legacy_id` are added by the tickets that use them
+ * (CRT-8, CRT-3, MIG-4).
+ */
+export const documents = createTable(
+	"documents",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		/** Null only for documents imported from the legacy system (MIG-4). */
+		bookingItemId: t
+			.integer("booking_item_id")
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		/** A key in the document-type registry, e.g. "icv-record". */
+		documentType: t.text("document_type").notNull(),
+		/** e.g. ICV-MNL-2026-000001. Unique per document type. */
+		documentNumber: t.text("document_number").notNull(),
+		/** 128 random bits, base64url. Encoded in the QR code; the public lookup key (CRT-2). */
+		verificationToken: t.text("verification_token").notNull().unique(),
+		issuingLocationId: t
+			.integer("issuing_location_id")
+			.notNull()
+			.references(() => locations.id, { onDelete: "restrict" }),
+		/** The officer who issued it (for auto-issue, the officer who cleared the item). */
+		issuedBy: t.text("issued_by").references(() => users.id, { onDelete: "restrict" }),
+		issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+		/** Last valid day; null means it does not expire. */
+		validUntil: t.date("valid_until"),
+		status: t.text("status").notNull().default("valid").$type<"valid" | "revoked" | "superseded">(),
+		source: t.text("source").notNull().default("qsps").$type<"qsps" | "legacy">(),
+		/** Everything printed on the document, copied at issue time (shape set by the type registry). */
+		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("documents_type_number_uq").on(t.documentType, t.documentNumber),
+		// At most one valid document per Booking Item: issuing twice can never
+		// create a second one. A reissue (CRT-8) supersedes the old row first.
+		uniqueIndex("documents_booking_item_valid_uq")
+			.on(t.bookingItemId)
+			.where(sql`${t.status} = 'valid'`),
+		index("documents_issuing_location_idx").on(t.issuingLocationId),
+	]
+)
+
+/**
+ * The next Document Number for each document type at each Location (CRT-1).
+ * Read and incremented with a row lock inside the issuing transaction, so a
+ * number is never used twice. The counter never resets; the year in the
+ * number is only the issue year.
+ */
+export const documentSequences = createTable(
+	"document_sequences",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		documentType: t.text("document_type").notNull(),
+		locationId: t
+			.integer("location_id")
+			.notNull()
+			.references(() => locations.id, { onDelete: "restrict" }),
+		nextNumber: t.integer("next_number").notNull().default(1),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [uniqueIndex("document_sequences_type_location_uq").on(t.documentType, t.locationId)]
+)
+
+// ============================================================================
 // PAYMENTS (PAY-1)
 // ============================================================================
 
@@ -603,6 +698,8 @@ export const relations = defineRelations(
 		assessments,
 		receipts,
 		userScopes,
+		documents,
+		documentSequences,
 	},
 	r => ({
 		users: {
@@ -698,6 +795,21 @@ export const relations = defineRelations(
 				to: r.locations.id,
 			}),
 			assessments: r.many.assessments(),
+			documents: r.many.documents(),
+		},
+		documents: {
+			bookingItem: r.one.bookingItems({
+				from: r.documents.bookingItemId,
+				to: r.bookingItems.id,
+			}),
+			issuingLocation: r.one.locations({
+				from: r.documents.issuingLocationId,
+				to: r.locations.id,
+			}),
+			issuer: r.one.users({
+				from: r.documents.issuedBy,
+				to: r.users.id,
+			}),
 		},
 		assessments: {
 			bookingItem: r.one.bookingItems({
@@ -781,6 +893,8 @@ export const schema = Object.assign(
 		assessments,
 		receipts,
 		userScopes,
+		documents,
+		documentSequences,
 	},
 	relations
 )

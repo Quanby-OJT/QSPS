@@ -183,6 +183,7 @@ describe("navItems", () => {
 		).toEqual([
 			"Dashboard",
 			"Book an appointment",
+			"My documents",
 			"Processing",
 			"User Management",
 			"Locations",

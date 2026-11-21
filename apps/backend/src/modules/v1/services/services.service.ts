@@ -29,6 +29,7 @@ function serviceResponse(service: ServiceRow, category: CategoryRow): Service {
 		feeCentavos: service.feeCentavos,
 		requiresApproval: service.requiresApproval,
 		documentType: service.documentType,
+		autoIssue: service.autoIssue,
 		isActive: service.isActive,
 		createdAt: service.createdAt,
 		updatedAt: service.updatedAt,
@@ -98,6 +99,7 @@ export class ServicesService {
 					feeCentavos: input.feeCentavos,
 					requiresApproval: input.requiresApproval,
 					documentType: input.documentType ?? null,
+					autoIssue: input.autoIssue ?? true,
 					isActive: true,
 				})
 				.onConflictDoNothing()
@@ -170,6 +172,7 @@ export class ServicesService {
 					// undefined = leave as is; null = clear it.
 					documentType:
 						input.documentType === undefined ? current.documentType : input.documentType,
+					autoIssue: input.autoIssue ?? current.autoIssue,
 					updatedAt: new Date(),
 				})
 				.where(eq(services.id, current.id))
@@ -251,6 +254,7 @@ export class ServicesService {
 			feeCentavos: service.feeCentavos,
 			requiresApproval: service.requiresApproval,
 			documentType: service.documentType,
+			autoIssue: service.autoIssue,
 			isActive: service.isActive,
 		}
 	}

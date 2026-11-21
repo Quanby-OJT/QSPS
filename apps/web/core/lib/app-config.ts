@@ -10,25 +10,23 @@
 /**
  * Full application name shown in the manifest and install prompts.
  */
-// TODO: Replace with your app name before shipping
-export const APP_NAME = "QSPS"
+export const APP_NAME = "QSPS · Bureau of Quarantine"
 
 /**
  * Short application name used where space is constrained (home screen label).
  */
-// TODO: Replace with your app short name before shipping
 export const APP_SHORT_NAME = "QSPS"
 
 /**
  * Human-readable description of the app for the manifest and metadata.
  */
-// TODO: Replace with your app description before shipping
 export const APP_DESCRIPTION = "Quarantine Services and Payment System for the Bureau of Quarantine"
 
 /**
- * Fixed brand theme color for the manifest and generated icon backgrounds (indigo).
+ * Fixed brand theme color for the manifest and generated icon backgrounds
+ * (BOQ navy, UI-1).
  */
-export const APP_THEME_COLOR = "#4f46e5"
+export const APP_THEME_COLOR = "#0a2540"
 
 /**
  * Manifest background color shown behind the splash screen.
@@ -41,6 +39,6 @@ export const APP_BACKGROUND_COLOR = "#ffffff"
 export const VIEWPORT_THEME_COLOR_LIGHT = "#ffffff"
 
 /**
- * `<meta name="theme-color">` value for dark color scheme.
+ * `<meta name="theme-color">` value for dark color scheme (BOQ dark background).
  */
-export const VIEWPORT_THEME_COLOR_DARK = "#0a0a0a"
+export const VIEWPORT_THEME_COLOR_DARK = "#0a1a2f"

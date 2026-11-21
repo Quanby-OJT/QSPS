@@ -16,9 +16,22 @@
  */
 export const TOKEN_PARAMS = ["token", "code", "otp", "secret"] as const
 
+/**
+ * Public pages whose path ends in a Verification Token: the e-Receipt check
+ * (PAY-2) and the document check (CRT-2). The token is the only key to the
+ * record, so these pages are treated like a token query parameter: never
+ * cached, never answered with the offline page.
+ */
+export const TOKEN_PATH_PREFIXES = ["/verify/", "/receipts/verify/"] as const
+
 /** True when a URL carries a credential that must never reach a cache. */
 export function carriesToken(url: URL): boolean {
-	return TOKEN_PARAMS.some(param => url.searchParams.has(param))
+	return (
+		TOKEN_PARAMS.some(param => url.searchParams.has(param)) ||
+		TOKEN_PATH_PREFIXES.some(
+			prefix => url.pathname.startsWith(prefix) && url.pathname.length > prefix.length
+		)
+	)
 }
 
 /**

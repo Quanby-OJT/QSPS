@@ -5,7 +5,7 @@ import { Add01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
 
-import type { CreateServiceInput, Service } from "@repo/contracts"
+import { DOCUMENT_TYPES, type CreateServiceInput, type Service } from "@repo/contracts"
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
@@ -37,13 +37,30 @@ import {
 } from "@/features/services/api/services.hooks"
 import { feeInPesos, parseFeeCentavos } from "@/features/services/lib/fee"
 
+type DocumentType = (typeof DOCUMENT_TYPES)[number]
+
+/** Names shown to admins for each document type (CRT-1). */
+const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+	"icv-record": "International Certificate of Vaccination",
+}
+
+function isDocumentType(value: string | null): value is DocumentType {
+	return value !== null && (DOCUMENT_TYPES as readonly string[]).includes(value)
+}
+
+function documentTypeLabel(value: string | null): string {
+	if (value === null) return "—"
+	return isDocumentType(value) ? DOCUMENT_TYPE_LABELS[value] : value
+}
+
 type ServiceForm = {
 	serviceCategoryId: number | ""
 	code: string
 	name: string
 	fee: string
 	requiresApproval: boolean
-	documentType: string
+	documentType: DocumentType | ""
+	autoIssue: boolean
 }
 
 const emptyForm: ServiceForm = {
@@ -53,6 +70,7 @@ const emptyForm: ServiceForm = {
 	fee: "",
 	requiresApproval: false,
 	documentType: "",
+	autoIssue: true,
 }
 
 export function ServicesView() {
@@ -81,7 +99,9 @@ export function ServicesView() {
 			name: service.name,
 			fee: feeInPesos(service.feeCentavos),
 			requiresApproval: service.requiresApproval,
-			documentType: service.documentType ?? "",
+			// An old free-text value is not a document type QSPS can issue, so it shows as none.
+			documentType: isDocumentType(service.documentType) ? service.documentType : "",
+			autoIssue: service.autoIssue,
 		})
 		setDialogOpen(true)
 	}
@@ -97,7 +117,7 @@ export function ServicesView() {
 			toast.error("Enter a fee in pesos with no more than two decimal places")
 			return
 		}
-		const documentType = form.documentType.trim() === "" ? null : form.documentType.trim()
+		const documentType = form.documentType === "" ? null : form.documentType
 
 		try {
 			if (editing) {
@@ -109,6 +129,7 @@ export function ServicesView() {
 					feeCentavos,
 					requiresApproval: form.requiresApproval,
 					documentType,
+					autoIssue: form.autoIssue,
 				})
 				toast.success("Service updated")
 			} else {
@@ -119,6 +140,7 @@ export function ServicesView() {
 					feeCentavos,
 					requiresApproval: form.requiresApproval,
 					documentType,
+					autoIssue: form.autoIssue,
 				}
 				await createService.mutateAsync(input)
 				toast.success("Service added")
@@ -202,7 +224,12 @@ export function ServicesView() {
 									<TableCell className="font-medium">{service.name}</TableCell>
 									<TableCell>₱{feeInPesos(service.feeCentavos)}</TableCell>
 									<TableCell>{service.requiresApproval ? "Required" : "Not required"}</TableCell>
-									<TableCell>{service.documentType ?? "—"}</TableCell>
+									<TableCell>
+										{documentTypeLabel(service.documentType)}
+										{isDocumentType(service.documentType) && !service.autoIssue ? (
+											<span className="text-muted-foreground block text-xs">Not automatic</span>
+										) : null}
+									</TableCell>
 									<TableCell>
 										<Badge variant={service.isActive ? "default" : "secondary"}>
 											{service.isActive ? "Active" : "Inactive"}
@@ -238,7 +265,7 @@ export function ServicesView() {
 							<DialogDescription>
 								{editing
 									? "Update the service details and fee. Fee changes apply to new bookings only."
-									: "Enter the category, code, name, fee, and approval requirement."}
+									: "Enter the category, code, name, fee, document, and approval requirement."}
 							</DialogDescription>
 						</DialogHeader>
 
@@ -313,15 +340,43 @@ export function ServicesView() {
 							</div>
 
 							<div className="grid gap-2">
-								<Label htmlFor="service-document-type">Document issued (optional)</Label>
-								<Input
+								<Label htmlFor="service-document-type">Document issued</Label>
+								<select
 									id="service-document-type"
+									className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-lg border px-3 text-sm focus-visible:ring-[3px]"
 									value={form.documentType}
-									onChange={event => setForm({ ...form, documentType: event.target.value })}
-									placeholder="e.g. Vaccination Certificate"
-									maxLength={100}
-								/>
+									onChange={event =>
+										setForm({
+											...form,
+											documentType: isDocumentType(event.target.value) ? event.target.value : "",
+										})
+									}
+									aria-describedby="service-document-type-help"
+								>
+									<option value="">None</option>
+									{DOCUMENT_TYPES.map(type => (
+										<option key={type} value={type}>
+											{DOCUMENT_TYPE_LABELS[type]}
+										</option>
+									))}
+								</select>
+								<p id="service-document-type-help" className="text-muted-foreground text-xs">
+									The document the client receives once the service is cleared.
+								</p>
 							</div>
+
+							{form.documentType !== "" ? (
+								<label className="flex items-center gap-2 text-sm" htmlFor="service-auto-issue">
+									<input
+										id="service-auto-issue"
+										type="checkbox"
+										checked={form.autoIssue}
+										onChange={event => setForm({ ...form, autoIssue: event.target.checked })}
+										className="accent-primary size-4"
+									/>
+									Issue the document automatically when cleared
+								</label>
+							) : null}
 
 							<label className="flex items-center gap-2 text-sm" htmlFor="service-approval">
 								<input

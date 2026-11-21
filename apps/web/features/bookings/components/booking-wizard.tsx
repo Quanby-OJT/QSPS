@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import type { Booking, SlotAvailability } from "@repo/contracts"
 
+import { BoqLoader } from "@/core/components/boq-loader"
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
@@ -58,6 +59,8 @@ export function BookingWizard() {
 	const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
 	// Its own key, so a double click on "Pay now" opens one checkout, not two.
 	const [paymentKey, setPaymentKey] = useState(newIdempotencyKey)
+	// Keeps the BOQ loader up while the browser leaves for the checkout page.
+	const [redirecting, setRedirecting] = useState(false)
 
 	const service = services.data?.find(item => item.id === serviceId)
 	const location = locations.data?.find(item => item.id === locationId)
@@ -81,6 +84,7 @@ export function BookingWizard() {
 				channelCode: DEFAULT_PAYMENT_CHANNEL,
 				idempotencyKey: paymentKey,
 			})
+			setRedirecting(true)
 			window.location.assign(checkout.checkoutUrl)
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "Could not start the payment")
@@ -116,6 +120,10 @@ export function BookingWizard() {
 
 	return (
 		<section className="flex w-full max-w-3xl flex-col gap-6">
+			{createBooking.isPending ? <BoqLoader label="Reserving your slot" /> : null}
+			{createPayment.isPending || redirecting ? (
+				<BoqLoader label="Opening secure checkout" />
+			) : null}
 			<PageHeader
 				title="Book an appointment"
 				description="Choose a service, a BOQ location, and a date and time. You can pay later."

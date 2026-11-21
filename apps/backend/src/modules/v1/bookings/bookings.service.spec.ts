@@ -617,3 +617,58 @@ describe("BookingService.transitionItem (PRC-1)", () => {
 		).rejects.toMatchObject({ code: "NOT_FOUND" })
 	})
 })
+
+describe("BookingService.completeIfAllItemsFinal (CRT-1)", () => {
+	let bookingService: BookingService
+	let auditService: { record: jest.Mock }
+
+	beforeEach(() => {
+		jest.clearAllMocks()
+		auditService = { record: jest.fn().mockResolvedValue(undefined) }
+		bookingService = new BookingService(auditService as unknown as AuditService)
+	})
+
+	it("completes a paid booking when every item is final, under a lock, with an audit entry", async () => {
+		const { tx, locks, sets } = itemTransaction([
+			[{ id: 31, status: "paid" }],
+			[{ status: "issued" }, { status: "rejected" }],
+		])
+		await expect(
+			bookingService.completeIfAllItemsFinal(tx as never, 31, "staff-1", NOW)
+		).resolves.toBe(true)
+		expect(locks).toHaveBeenCalledWith("update")
+		expect(sets).toHaveBeenCalledWith({ status: "completed", updatedAt: NOW })
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking.completed",
+				targetId: "31",
+				oldValue: { status: "paid" },
+				newValue: { status: "completed" },
+			}),
+			tx
+		)
+	})
+
+	it("leaves the booking alone while an item is still open", async () => {
+		const { tx, sets } = itemTransaction([
+			[{ id: 31, status: "paid" }],
+			[{ status: "issued" }, { status: "in_assessment" }],
+		])
+		await expect(
+			bookingService.completeIfAllItemsFinal(tx as never, 31, "staff-1", NOW)
+		).resolves.toBe(false)
+		expect(sets).not.toHaveBeenCalled()
+		expect(auditService.record).not.toHaveBeenCalled()
+	})
+
+	it("leaves a booking that is not paid alone", async () => {
+		const { tx, sets } = itemTransaction([
+			[{ id: 31, status: "completed" }],
+			[{ status: "issued" }],
+		])
+		await expect(
+			bookingService.completeIfAllItemsFinal(tx as never, 31, "staff-1", NOW)
+		).resolves.toBe(false)
+		expect(sets).not.toHaveBeenCalled()
+	})
+})

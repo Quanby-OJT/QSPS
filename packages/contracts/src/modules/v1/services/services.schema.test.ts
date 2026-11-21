@@ -40,10 +40,26 @@ describe("service schemas", () => {
 	it("treats the document type as optional and nullable", () => {
 		expect(CreateServiceSchema.parse(base).documentType).toBeUndefined()
 		expect(CreateServiceSchema.parse({ ...base, documentType: null }).documentType).toBeNull()
-		expect(
-			CreateServiceSchema.parse({ ...base, documentType: "Vaccination Certificate" }).documentType
-		).toBe("Vaccination Certificate")
+		expect(CreateServiceSchema.parse({ ...base, documentType: "icv-record" }).documentType).toBe(
+			"icv-record"
+		)
 		expect(CreateServiceSchema.safeParse({ ...base, documentType: "" }).success).toBe(false)
+	})
+
+	it("accepts only document types QSPS can issue (CRT-1)", () => {
+		expect(
+			CreateServiceSchema.safeParse({ ...base, documentType: "Vaccination Certificate" }).success
+		).toBe(false)
+		expect(
+			UpdateServiceRequestSchema.safeParse({ id: 1, documentType: "Vaccination Certificate" })
+				.success
+		).toBe(false)
+	})
+
+	it("treats auto-issue as optional", () => {
+		expect(CreateServiceSchema.parse(base).autoIssue).toBeUndefined()
+		expect(CreateServiceSchema.parse({ ...base, autoIssue: false }).autoIssue).toBe(false)
+		expect(UpdateServiceRequestSchema.safeParse({ id: 1, autoIssue: false }).success).toBe(true)
 	})
 
 	it("requires an update to include at least one editable field", () => {
@@ -52,9 +68,11 @@ describe("service schemas", () => {
 		expect(UpdateServiceRequestSchema.safeParse({ id: 1, documentType: null }).success).toBe(true)
 	})
 
-		it("accepts the service id from the URL path as text", () => {
+	it("accepts the service id from the URL path as text", () => {
 		expect(UpdateServiceRequestSchema.parse({ id: "7", feeCentavos: 200 }).id).toBe(7)
 		expect(SetServiceActiveRequestSchema.parse({ id: "7", isActive: false }).id).toBe(7)
-		expect(UpdateServiceRequestSchema.safeParse({ id: "abc", feeCentavos: 200 }).success).toBe(false)
+		expect(UpdateServiceRequestSchema.safeParse({ id: "abc", feeCentavos: 200 }).success).toBe(
+			false
+		)
 	})
 })
