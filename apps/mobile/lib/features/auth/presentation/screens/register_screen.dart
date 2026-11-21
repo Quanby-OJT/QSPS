@@ -5,6 +5,8 @@ import 'package:mobile/features/auth/presentation/utils/auth_validation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile/features/auth/presentation/providers/auth_provider.dart';
+import 'package:mobile/features/auth/presentation/widgets/turnstile_captcha.dart';
+import 'package:mobile/core/constants/captcha_constants.dart';
 import 'package:mobile/shared/widgets/app_text_field.dart';
 import 'package:mobile/shared/widgets/app_button.dart';
 
@@ -24,6 +26,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  /// AUTH-3: the current CAPTCHA token, and a key that is bumped to load a
+  /// fresh challenge after every attempt (a token works once).
+  String? _captchaToken;
+  int _captchaKey = 0;
+
+  bool get _captchaReady =>
+      !CaptchaConstants.isEnabled || _captchaToken != null;
+
+  void _resetCaptcha() {
+    if (!CaptchaConstants.isEnabled) return;
+    setState(() {
+      _captchaToken = null;
+      _captchaKey++;
+    });
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -35,6 +53,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_captchaReady) return;
 
     await ref
         .read(authStateProvider.notifier)
@@ -42,9 +61,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           email: _emailController.text.trim(),
           password: _passwordController.text,
           name: _nameController.text.trim(),
+          captchaToken: _captchaToken,
         );
 
     if (!mounted) return;
+    _resetCaptcha();
 
     final authState = ref.read(authStateProvider);
     if (authState.hasError) {
@@ -64,7 +85,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
         );
     } else if (authState.hasValue && authState.value != null) {
-      // Sign up succeeded – go_router redirect will handle navigation.
+      // Sign up succeeded â€“ go_router redirect will handle navigation.
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -75,7 +96,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             backgroundColor: Colors.transparent,
             content: AwesomeSnackbarContent(
               title: 'Account Created!',
-              message: 'Welcome aboard — your account is ready.',
+              message: 'Welcome aboard â€” your account is ready.',
               contentType: ContentType.success,
             ),
           ),
@@ -211,9 +232,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     },
                     onFieldSubmitted: (_) => _handleSignUp(),
                   ),
+                  if (CaptchaConstants.isEnabled) ...[
+                    const SizedBox(height: 16),
+                    TurnstileCaptcha(
+                      key: ValueKey(_captchaKey),
+                      onToken: (token) => setState(() => _captchaToken = token),
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   AppButton(
-                    onPressed: isLoading ? null : _handleSignUp,
+                    onPressed: isLoading || !_captchaReady
+                        ? null
+                        : _handleSignUp,
                     isLoading: isLoading,
                     child: const Text('Sign Up'),
                   ),

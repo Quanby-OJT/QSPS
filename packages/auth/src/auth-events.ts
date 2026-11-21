@@ -1,5 +1,5 @@
 /**
- * Account events the host process records in its audit trail (AUTH-1, AUTH-2).
+ * Account events the host process records in its audit trail (AUTH-1, AUTH-2, AUTH-3).
  *
  * DOMAIN-MODEL §6: only the backend's `AuditService` writes `audit_log`. This
  * package cannot depend on the backend, so — like `setAuthRateLimitStorage` —
@@ -27,6 +27,19 @@ export type AuthEvent =
 	| { type: "mfa.locked"; userId: string; method: MfaMethod }
 	/** A settings change the rules refuse, e.g. staff turning MFA off. */
 	| { type: "mfa.refused"; userId: string; reason: string }
+	// AUTH-3: brute-force protection and password rotation.
+	/** A sign-in with the wrong password for an existing account. */
+	| { type: "sign_in.failed"; userId: string }
+	/** A sign-in attempted while the account is locked. */
+	| { type: "sign_in.locked"; userId: string }
+	/** Repeated failures locked the account. */
+	| { type: "account.locked"; userId: string; attempts: number; minutes: number }
+	/** A staff password reached the maximum age; it must be changed before anything else. */
+	| { type: "password.expired"; userId: string }
+	/** A password was set or changed. */
+	| { type: "password.changed"; userId: string }
+	/** A new staff password matched one of the recent ones and was refused. */
+	| { type: "password.reuse_refused"; userId: string }
 
 export type AuthEventListener = (event: AuthEvent) => Promise<void> | void
 

@@ -13,10 +13,14 @@ type QspsSessionUser = {
 	profileCompletedAt?: string | Date | null
 	accountType?: string | null
 	twoFactorEnabled?: boolean | null
+	mustResetPassword?: boolean | null
 }
 
 /** AUTH-2: where a staff account sets up two-factor authentication. */
 const MFA_SETUP_PATH = "/security/setup-mfa"
+
+/** AUTH-3: where an account that must set a new password does so. */
+const CHANGE_PASSWORD_PATH = "/security/change-password"
 
 export default async function SiteLayout({
 	children,
@@ -31,6 +35,13 @@ export default async function SiteLayout({
 	}
 
 	const qspsUser = session.user as QspsSessionUser
+
+	// AUTH-3: a staff password past the rotation Policy (or any account flagged
+	// to set a new password) is changed first. The backend refuses this
+	// account's API calls until then, so it is checked before `getAccess`.
+	if (qspsUser.mustResetPassword === true) {
+		redirect(CHANGE_PASSWORD_PATH)
+	}
 
 	// AUTH-2: MFA is mandatory for staff. A staff account without it goes to
 	// enrolment before any other screen. Checked before `getAccess`, because

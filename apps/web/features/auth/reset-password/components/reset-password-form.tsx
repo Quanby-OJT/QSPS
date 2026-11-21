@@ -16,6 +16,7 @@ import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
 import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
 import { PasswordInput } from "@/features/auth/components/password-input"
+import { useCaptcha } from "@/features/auth/captcha/captcha"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
 
 import { useResetPasswordMutation } from "../api/reset-password.hooks"
@@ -38,6 +39,7 @@ export function ResetPasswordForm({ token, className, ...props }: ResetPasswordF
 		isSuccess,
 		error,
 	} = useResetPasswordMutation()
+	const captcha = useCaptcha()
 	const rateLimit = parseRateLimitError(error)
 	const { secondsLeft, isActive } = useRateLimitCountdown(
 		rateLimit.isRateLimit ? rateLimit.retryAfter : null
@@ -54,7 +56,13 @@ export function ResetPasswordForm({ token, className, ...props }: ResetPasswordF
 		onSubmit: async ({ value }) => {
 			if (!token) return
 			// The mutation stores the error, and the banner reads that state.
-			await resetPassword({ newPassword: value.newPassword, token }).catch(() => undefined)
+			const done = await resetPassword({
+				newPassword: value.newPassword,
+				token,
+				captchaToken: captcha.token,
+			}).catch(() => null)
+			// AUTH-3: a CAPTCHA token works once.
+			if (!done) captcha.reset()
 		},
 	})
 
@@ -157,9 +165,10 @@ export function ResetPasswordForm({ token, className, ...props }: ResetPasswordF
 							/>
 
 							<Field>
+								{captcha.widget}
 								<Button
 									type="submit"
-									disabled={isPending || isActive}
+									disabled={isPending || isActive || !captcha.ready}
 									className="w-full hover:cursor-pointer"
 								>
 									{isActive

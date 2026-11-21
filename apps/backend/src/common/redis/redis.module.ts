@@ -6,8 +6,10 @@ import {
 	type OnModuleInit,
 } from "@nestjs/common"
 
+import { setLockoutStore } from "@repo/auth/lockout-store"
 import { setAuthRateLimitStorage } from "@repo/auth/rate-limit-storage"
 
+import { createRedisLockoutStore } from "./auth-lockout.storage"
 import { createRedisAuthRateLimitStorage } from "./auth-rate-limit.storage"
 import { createRedisClient, REDIS_CLIENT, type RedisClient } from "./redis.provider"
 
@@ -26,8 +28,8 @@ const REDIS_READY_WAIT_MS = 1_000
  * Shared Redis connection.
  *
  * Global because unrelated subsystems need the same connection (the
- * throttler store, the RBAC permission cache, and Better Auth's own rate
- * limiter) and opening one client per consumer would multiply the connection
+ * throttler store, the RBAC permission cache, Better Auth's own rate
+ * limiter, and the sign-in lockout counts) and opening one client per consumer would multiply the connection
  * count for no benefit.
  */
 @Global()
@@ -52,6 +54,8 @@ export class RedisModule implements OnModuleInit, OnApplicationShutdown {
 		// wait and whatever the status: the storage fails open, so a slow
 		// handshake must not leave Better Auth counting per process for good.
 		setAuthRateLimitStorage(createRedisAuthRateLimitStorage(client))
+		// AUTH-3: sign-in lockout counts, shared the same way.
+		setLockoutStore(createRedisLockoutStore(client))
 
 		if (client.status === "ready" || client.status === "end") return
 
@@ -83,6 +87,7 @@ export class RedisModule implements OnModuleInit, OnApplicationShutdown {
 		// Back to the process-local store before the connection closes, so no
 		// auth request is sent to a client that is shutting down.
 		setAuthRateLimitStorage(null)
+		setLockoutStore(null)
 
 		const client = this.client
 		if (!client || client.status === "end") return

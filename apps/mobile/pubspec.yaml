@@ -19,6 +19,9 @@ dependencies:
   cookie_jar: ^4.0.8
   path_provider: ^2.1.5
 
+  # AUTH-3: Cloudflare Turnstile challenge on sign-in and sign-up
+  webview_flutter: ^4.13.0
+
   # State management
   flutter_riverpod: ^3.0.3
   riverpod_annotation: ^3.0.3

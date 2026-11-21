@@ -2,13 +2,14 @@ import { createEnv } from "@t3-oss/env-core"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
-import { eq } from "drizzle-orm"
+import { and, desc, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
 import { ADMIN_ROLE, PRIVACY_NOTICE_VERSION, type RoleName } from "@repo/contracts"
 import { createDBClient } from "@repo/db/client"
 import {
 	accounts,
+	passwordHistory,
 	permissions,
 	rolePermissions,
 	roles,
@@ -23,10 +24,19 @@ import { isApiDocsEnabled } from "./api-docs.js"
 import { emitAuthEvent, type MfaMethod } from "./auth-events.js"
 import { authLogger } from "./auth-logger.js"
 import { buildAuthPlugins, MFA_EMAIL_CODE_MINUTES } from "./auth-plugins.js"
+import {
+	isPasswordExpired,
+	PASSWORD_HISTORY_DEPTH,
+	readAuthPolicies,
+	type AuthPolicies,
+} from "./auth-policies.js"
+import { CAPTCHA_HEADER, CAPTCHA_PATHS, resolveCaptchaVerifier } from "./captcha.js"
 import { AUTH_CLIENT_ADDRESS_HEADER } from "./client-address.js"
 import { cookieDomainSchema } from "./cookie-domain-schema.js"
+import { lockoutKey, lockoutStore } from "./lockout-store.js"
 import { booleanFromEnv } from "./mailer/bool-schema.js"
 import { sendMail } from "./mailer/send-mail.js"
+import { buildAccountLockedEmail } from "./mailer/templates/account-locked-email.js"
 import { buildResetPasswordEmail } from "./mailer/templates/reset-password-email.js"
 import { buildTwoFactorCodeEmail } from "./mailer/templates/two-factor-code-email.js"
 import { buildVerificationEmail } from "./mailer/templates/verification-email.js"
@@ -83,6 +93,18 @@ export const authEnv = createEnv({
 		// Auth rate limiting
 		AUTH_RATE_LIMIT_WINDOW: z.coerce.number().int().positive().optional().default(60),
 		AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional().default(10),
+
+		// AUTH-3 (TOR §II, COA Circular 2021-014).
+		// Cloudflare Turnstile secret key. Required in production (boot fails
+		// without it); unset in development means CAPTCHA is not checked.
+		CAPTCHA_SECRET_KEY: z.string().optional(),
+		// Policy defaults until ADM-6 (PolicyService): `auth.lockout_threshold`,
+		// `auth.lockout_minutes`, `auth.staff_password_max_age_days`.
+		AUTH_LOCKOUT_THRESHOLD: z.coerce.number().int().positive().optional().default(5),
+		AUTH_LOCKOUT_MINUTES: z.coerce.number().int().positive().optional().default(15),
+		AUTH_STAFF_PASSWORD_MAX_AGE_DAYS: z.coerce.number().int().positive().optional().default(90),
+		// A session unused this long ends (idle timeout). Active use renews it.
+		AUTH_SESSION_IDLE_HOURS: z.coerce.number().int().positive().optional().default(8),
 	},
 	runtimeEnv: process.env,
 	// Validation is never skipped merely because CI is set.
@@ -143,6 +165,110 @@ async function holdsPermission(
 		.where(eq(userRoles.userId, userId))
 	return rows.some(
 		row => row.role === ADMIN_ROLE || row.permission === key || row.permission === `${resource}:*`
+	)
+}
+
+type Database = ReturnType<typeof createDBClient>
+
+/** Better Auth's provider id for email-and-password accounts. */
+const CREDENTIAL_PROVIDER = "credential"
+
+/** AUTH-3: the account behind an email, if there is one. */
+async function findUserByEmail(db: Database, email: string): Promise<{ id: string } | null> {
+	const [row] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, email.trim().toLowerCase()))
+	return row ?? null
+}
+
+async function isStaffAccount(db: Database, userId: string): Promise<boolean> {
+	const [row] = await db
+		.select({ accountType: users.accountType })
+		.from(users)
+		.where(eq(users.id, userId))
+	return row?.accountType === "staff"
+}
+
+/** The current password hash, as Better Auth stores it on the credential account. */
+async function credentialHash(db: Database, userId: string): Promise<string | null> {
+	const [row] = await db
+		.select({ password: accounts.password })
+		.from(accounts)
+		.where(and(eq(accounts.userId, userId), eq(accounts.providerId, CREDENTIAL_PROVIDER)))
+	return row?.password ?? null
+}
+
+/** AUTH-3: the current hash and the recent ones, newest first, at most PASSWORD_HISTORY_DEPTH. */
+async function recentPasswordHashes(db: Database, userId: string): Promise<string[]> {
+	const history = await db
+		.select({ hash: passwordHistory.passwordHash })
+		.from(passwordHistory)
+		.where(eq(passwordHistory.userId, userId))
+		.orderBy(desc(passwordHistory.createdAt), desc(passwordHistory.id))
+		.limit(PASSWORD_HISTORY_DEPTH)
+	const current = await credentialHash(db, userId)
+	const hashes = [...(current ? [current] : []), ...history.map(row => row.hash)]
+	return [...new Set(hashes)].slice(0, PASSWORD_HISTORY_DEPTH)
+}
+
+/**
+ * AUTH-3: keep the password about to be replaced in the history. A password
+ * set before AUTH-3 (or a temporary one from an admin) was never recorded, so
+ * without this it could be reused right after the change.
+ */
+async function rememberCurrentPassword(db: Database, userId: string): Promise<void> {
+	const current = await credentialHash(db, userId)
+	if (!current) return
+	const [newest] = await db
+		.select({ hash: passwordHistory.passwordHash })
+		.from(passwordHistory)
+		.where(eq(passwordHistory.userId, userId))
+		.orderBy(desc(passwordHistory.createdAt), desc(passwordHistory.id))
+		.limit(1)
+	if (newest?.hash === current) return
+	await db.insert(passwordHistory).values({ userId, passwordHash: current })
+}
+
+/**
+ * AUTH-3: a password was just set or changed. Stamps `password_changed_at`,
+ * clears `must_reset_password`, and for staff keeps the new hash in
+ * `password_history` (newest five kept).
+ */
+async function recordPasswordSet(db: Database, userId: string): Promise<void> {
+	if (await isStaffAccount(db, userId)) {
+		const hash = await credentialHash(db, userId)
+		if (hash) {
+			await db.insert(passwordHistory).values({ userId, passwordHash: hash })
+			const rows = await db
+				.select({ id: passwordHistory.id })
+				.from(passwordHistory)
+				.where(eq(passwordHistory.userId, userId))
+				.orderBy(desc(passwordHistory.createdAt), desc(passwordHistory.id))
+			const stale = rows.slice(PASSWORD_HISTORY_DEPTH).map(row => row.id)
+			if (stale.length > 0) {
+				await db.delete(passwordHistory).where(inArray(passwordHistory.id, stale))
+			}
+		}
+	}
+	const now = new Date()
+	await db
+		.update(users)
+		.set({ passwordChangedAt: now, mustResetPassword: false, updatedAt: now })
+		.where(eq(users.id, userId))
+	await emitAuthEvent({ type: "password.changed", userId })
+}
+
+/** AUTH-3: the answer while an account is locked. 429 with Retry-After, like the rate limiter. */
+function accountLockedError(secondsLeft: number): APIError {
+	const minutes = Math.max(1, Math.ceil(secondsLeft / 60))
+	return new APIError(
+		"TOO_MANY_REQUESTS",
+		{
+			code: "ACCOUNT_LOCKED",
+			message: `Too many failed sign-ins. This account is locked for ${minutes} more minute${minutes === 1 ? "" : "s"}.`,
+		},
+		{ "X-Retry-After": String(secondsLeft), "Retry-After": String(secondsLeft) }
 	)
 }
 
@@ -222,6 +348,18 @@ export function createAuth() {
 	// flags are made coherent here rather than left to trip an operator: if
 	// verification is required, sending is on.
 	const verificationEnabled = authEnv.EMAIL_VERIFICATION_ENABLED || verificationRequired
+
+	// AUTH-3. Production refuses to boot without a CAPTCHA secret.
+	const captcha = resolveCaptchaVerifier({
+		secret: authEnv.CAPTCHA_SECRET_KEY,
+		nodeEnv: process.env.NODE_ENV,
+	})
+	const policyDefaults: AuthPolicies = {
+		lockoutThreshold: authEnv.AUTH_LOCKOUT_THRESHOLD,
+		lockoutMinutes: authEnv.AUTH_LOCKOUT_MINUTES,
+		staffPasswordMaxAgeDays: authEnv.AUTH_STAFF_PASSWORD_MAX_AGE_DAYS,
+	}
+	const policies = () => readAuthPolicies(policyDefaults)
 
 	return betterAuth({
 		// Failed queries leave the adapter without their bound values.
@@ -389,10 +527,8 @@ export function createAuth() {
 			 * from the email link has no session, so the user comes from here.
 			 */
 			onPasswordReset: async ({ user }) => {
-				await db
-					.update(users)
-					.set({ mustResetPassword: false, updatedAt: new Date() })
-					.where(eq(users.id, user.id))
+				// AUTH-3: also stamps password_changed_at and keeps staff password history.
+				await recordPasswordSet(db, user.id)
 			},
 		},
 		/**
@@ -426,6 +562,74 @@ export function createAuth() {
 		 */
 		hooks: {
 			before: createAuthMiddleware(async ctx => {
+				/**
+				 * AUTH-3: CAPTCHA first, before any database work. The token comes
+				 * in a header so the forms' JSON bodies stay as Better Auth expects.
+				 */
+				if (CAPTCHA_PATHS.has(ctx.path)) {
+					const token = ctx.headers?.get(CAPTCHA_HEADER) ?? null
+					const address = ctx.headers?.get(AUTH_CLIENT_ADDRESS_HEADER) ?? null
+					if (!(await captcha.verify(token, address))) {
+						throw new APIError("BAD_REQUEST", {
+							code: "CAPTCHA_FAILED",
+							message: "Please complete the CAPTCHA check and try again.",
+						})
+					}
+				}
+
+				/**
+				 * AUTH-3: a locked account is refused before the password is checked,
+				 * so guessing during the lock learns nothing. Counted per email, so
+				 * the answer is the same for addresses with no account.
+				 */
+				if (ctx.path === "/sign-in/email") {
+					const email = (ctx.body as { email?: unknown } | undefined)?.email
+					if (typeof email !== "string") return
+					const secondsLeft = await lockoutStore.lockedFor(lockoutKey(email))
+					if (secondsLeft === null) return
+					const user = await findUserByEmail(db, email)
+					if (user) await emitAuthEvent({ type: "sign_in.locked", userId: user.id })
+					throw accountLockedError(secondsLeft)
+				}
+
+				/**
+				 * AUTH-3: a staff password must differ from the last five. Checked
+				 * on both ways a password changes: the reset link and the signed-in
+				 * change (including the forced change after rotation).
+				 */
+				if (ctx.path === "/change-password" || ctx.path === "/reset-password") {
+					const body = ctx.body as { newPassword?: unknown; token?: unknown } | undefined
+					const newPassword = body?.newPassword
+					if (typeof newPassword !== "string") return
+					let userId: string | null = null
+					if (ctx.path === "/change-password") {
+						userId = (await getSessionFromCtx(ctx))?.user.id ?? null
+					} else {
+						const token =
+							typeof body?.token === "string"
+								? body.token
+								: (ctx.query as { token?: unknown } | undefined)?.token
+						if (typeof token === "string") {
+							const record = await ctx.context.internalAdapter.findVerificationValue(
+								`reset-password:${token}`
+							)
+							userId = record?.value ?? null
+						}
+					}
+					if (!userId || !(await isStaffAccount(db, userId))) return
+					for (const hash of await recentPasswordHashes(db, userId)) {
+						if (await ctx.context.password.verify({ hash, password: newPassword })) {
+							await emitAuthEvent({ type: "password.reuse_refused", userId })
+							throw new APIError("BAD_REQUEST", {
+								code: "PASSWORD_REUSED",
+								message: `Choose a password you have not used recently. It must differ from your last ${PASSWORD_HISTORY_DEPTH} passwords.`,
+							})
+						}
+					}
+					await rememberCurrentPassword(db, userId)
+					return
+				}
+
 				if (ctx.path === "/sign-up/email") {
 					const accepted = (ctx.body as Record<string, unknown> | undefined)?.privacyNoticeVersion
 					if (accepted !== PRIVACY_NOTICE_VERSION) {
@@ -480,6 +684,59 @@ export function createAuth() {
 			after: createAuthMiddleware(async ctx => {
 				const failed = ctx.context.returned instanceof APIError
 				const signedInUserId = ctx.context.session?.user.id
+
+				/**
+				 * AUTH-3: count wrong passwords per email. A correct password (even
+				 * one still waiting for its second factor) clears the count. At the
+				 * threshold the email is locked and the owner is told by email.
+				 */
+				if (ctx.path === "/sign-in/email") {
+					const email = (ctx.body as { email?: unknown } | undefined)?.email
+					if (typeof email !== "string") return
+					const key = lockoutKey(email)
+					const returned = ctx.context.returned
+					if (!(returned instanceof APIError)) {
+						await lockoutStore.clearFailures(key)
+						return
+					}
+					// Only a wrong email or password counts, not an unverified or disabled account.
+					if (returned.statusCode !== 401) return
+
+					const { lockoutThreshold, lockoutMinutes } = await policies()
+					const attempts = await lockoutStore.recordFailure(key, lockoutMinutes * 60)
+					const user = await findUserByEmail(db, email)
+					if (user) await emitAuthEvent({ type: "sign_in.failed", userId: user.id })
+					if (attempts < lockoutThreshold) return
+
+					await lockoutStore.lock(key, lockoutMinutes * 60)
+					await lockoutStore.clearFailures(key)
+					if (!user) return
+					await emitAuthEvent({
+						type: "account.locked",
+						userId: user.id,
+						attempts,
+						minutes: lockoutMinutes,
+					})
+					try {
+						const message = buildAccountLockedEmail({ minutes: lockoutMinutes, attempts })
+						await sendMail(transporter, mailFrom, {
+							to: email.trim().toLowerCase(),
+							subject: message.subject,
+							html: message.html,
+							text: message.text,
+						})
+					} catch (err) {
+						// eslint-disable-next-line no-console -- delivery failure is logged; the lock stands
+						console.error("[mailer] account locked email failed:", err)
+					}
+					return
+				}
+
+				/** AUTH-3: a signed-in password change (including the forced one after rotation). */
+				if (ctx.path === "/change-password") {
+					if (!failed && signedInUserId) await recordPasswordSet(db, signedInUserId)
+					return
+				}
 
 				if (ctx.path === "/two-factor/disable") {
 					if (!failed && signedInUserId) {
@@ -584,13 +841,43 @@ export function createAuth() {
 					 */
 					before: async session => {
 						const [account] = await db
-							.select({ disabledAt: users.disabledAt, deletedAt: users.deletedAt })
+							.select({
+								disabledAt: users.disabledAt,
+								deletedAt: users.deletedAt,
+								accountType: users.accountType,
+								mustResetPassword: users.mustResetPassword,
+								passwordChangedAt: users.passwordChangedAt,
+								createdAt: users.createdAt,
+							})
 							.from(users)
 							.where(eq(users.id, session.userId))
 						if (!account || account.disabledAt !== null || account.deletedAt !== null) {
 							throw new APIError("FORBIDDEN", {
 								message: "This account is disabled or no longer active.",
 							})
+						}
+
+						/**
+						 * AUTH-3: a staff password older than the rotation Policy must
+						 * be changed. The sign-in still succeeds, but
+						 * `must_reset_password` keeps the account on the change-password
+						 * screen (web) and refuses the API until it is changed.
+						 */
+						if (account.accountType === "staff" && !account.mustResetPassword) {
+							const { staffPasswordMaxAgeDays } = await policies()
+							if (
+								isPasswordExpired(
+									account.passwordChangedAt,
+									account.createdAt,
+									staffPasswordMaxAgeDays
+								)
+							) {
+								await db
+									.update(users)
+									.set({ mustResetPassword: true, updatedAt: new Date() })
+									.where(eq(users.id, session.userId))
+								await emitAuthEvent({ type: "password.expired", userId: session.userId })
+							}
 						}
 					},
 					/** AUTH-1 audit: every new session is a sign-in. */
@@ -636,12 +923,12 @@ export function createAuth() {
 		 * upgrade without anyone noticing.
 		 */
 		session: {
-			// Absolute lifetime of a session record.
-			expiresIn: 60 * 60 * 24 * 7, // 7 days
-			// Sliding renewal: an active session is extended once a day, so a
-			// user in daily use is not signed out mid-work, while an abandoned
-			// session still dies within the window above.
-			updateAge: 60 * 60 * 24, // 1 day
+			// AUTH-3 idle timeout: a session unused for AUTH_SESSION_IDLE_HOURS
+			// (default 8) ends. It was 7 days.
+			expiresIn: 60 * 60 * authEnv.AUTH_SESSION_IDLE_HOURS,
+			// Sliding renewal every 15 minutes of use, so a user at work is
+			// never signed out mid-task while an idle session still ends on time.
+			updateAge: 60 * 15,
 			// Cookie cache is deliberately OFF. It serves session data from a
 			// signed cookie without hitting the database, which means a revoked
 			// session keeps working until the cache lapses — the same staleness the

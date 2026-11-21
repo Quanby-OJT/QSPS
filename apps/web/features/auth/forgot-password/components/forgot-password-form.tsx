@@ -17,6 +17,7 @@ import { Input } from "@/core/components/ui/input"
 import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
 import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
+import { useCaptcha } from "@/features/auth/captcha/captcha"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
 
 import { useForgotPasswordMutation } from "../api/forgot-password.hooks"
@@ -25,6 +26,7 @@ import { ForgotPasswordSchema } from "../api/forgot-password.schema"
 export function ForgotPasswordForm({ className, ...props }: React.ComponentProps<"div">) {
 	const [isSubmitted, setIsSubmitted] = useState(false)
 	const { mutateAsync: forgotPassword, isPending, isError, error } = useForgotPasswordMutation()
+	const captcha = useCaptcha()
 	const rateLimit = parseRateLimitError(error)
 	const { secondsLeft, isActive } = useRateLimitCountdown(
 		rateLimit.isRateLimit ? rateLimit.retryAfter : null
@@ -41,9 +43,11 @@ export function ForgotPasswordForm({ className, ...props }: React.ComponentProps
 			// A thrown rate-limit error stays on the mutation. Only a resolved
 			// call moves on to the neutral confirmation.
 			try {
-				await forgotPassword(value)
+				await forgotPassword({ ...value, captchaToken: captcha.token })
 				setIsSubmitted(true)
 			} catch {
+				// AUTH-3: a CAPTCHA token works once.
+				captcha.reset()
 				// Banner reads the mutation error.
 			}
 		},
@@ -119,9 +123,10 @@ export function ForgotPasswordForm({ className, ...props }: React.ComponentProps
 								/>
 
 								<Field>
+									{captcha.widget}
 									<Button
 										type="submit"
-										disabled={isPending || isActive}
+										disabled={isPending || isActive || !captcha.ready}
 										className="w-full hover:cursor-pointer"
 									>
 										{isActive

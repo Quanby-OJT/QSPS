@@ -28,8 +28,19 @@
 		"./auth-events": {
 			"types": "./dist/auth-events.d.ts",
 			"default": "./dist/auth-events.js"
+		},
+		"./lockout-store": {
+			"types": "./dist/lockout-store.d.ts",
+			"default": "./dist/lockout-store.js"
+		},
+		"./auth-policies": {
+			"types": "./dist/auth-policies.d.ts",
+			"default": "./dist/auth-policies.js"
+		},
+		"./captcha": {
+			"types": "./dist/captcha.d.ts",
+			"default": "./dist/captcha.js"
 		}
-		
 	},
 	"scripts": {
 		"build": "tsc",

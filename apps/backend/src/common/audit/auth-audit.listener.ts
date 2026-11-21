@@ -4,7 +4,7 @@ import { setAuthEventListener, type AuthEvent } from "@repo/auth/auth-events"
 
 import { AuditService, type AuditEvent } from "./audit.service"
 
-/** Audit domain for sign-up, verification, sign-in and MFA events (AUTH-1, AUTH-2). */
+/** Audit domain for sign-up, verification, sign-in, MFA and password events (AUTH-1, AUTH-2, AUTH-3). */
 export const AUDIT_DOMAIN_AUTH = "auth"
 
 /**
@@ -65,6 +65,22 @@ export function toAuditEvent(event: AuthEvent): AuditEvent {
 			}
 		case "mfa.refused":
 			return { ...base, outcome: "denied", reason: event.reason }
+		// AUTH-3
+		case "sign_in.failed":
+			return { ...base, outcome: "denied", reason: "wrong password" }
+		case "sign_in.locked":
+			return { ...base, outcome: "denied", reason: "account locked after repeated failed sign-ins" }
+		case "account.locked":
+			return {
+				...base,
+				outcome: "denied",
+				newValue: { attempts: event.attempts, minutes: event.minutes },
+				reason: "too many failed sign-ins",
+			}
+		case "password.reuse_refused":
+			return { ...base, outcome: "denied", reason: "matches a recent password" }
+		case "password.expired":
+			return { ...base, reason: "staff password older than the rotation Policy" }
 		default:
 			return base
 	}

@@ -163,3 +163,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # END Ruler Generated Files
 
 adm*-*.txt
+auth*-*.txt

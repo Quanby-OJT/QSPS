@@ -45,6 +45,9 @@ function runIsolated(): Promise<RunnerSuccess> {
 				...process.env,
 				NODE_ENV: "production",
 				SMTP_HOST: process.env.SMTP_HOST || "127.0.0.1",
+				// AUTH-3: production refuses to boot without one. Cloudflare's public
+				// always-pass test secret; the runner never calls a CAPTCHA path.
+				CAPTCHA_SECRET_KEY: process.env.CAPTCHA_SECRET_KEY || "1x0000000000000000000000000000000AA",
 				BETTER_AUTH_TELEMETRY: "0",
 			},
 		})

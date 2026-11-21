@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query"
 
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
 import { authClient } from "@/services/better-auth/auth-client"
+import { captchaHeaders } from "@/features/auth/captcha/captcha"
 
 import type { ForgotPassword } from "./forgot-password.schema"
 
@@ -13,12 +14,15 @@ export function useForgotPasswordMutation() {
 		// confirmation so account existence never leaks. Only surface genuine
 		// operational failures such as rate-limit (429) or server/transport
 		// errors (>= 500) so broken reset-email delivery is not hidden.
-		mutationFn: async ({ email }: ForgotPassword) => {
+		mutationFn: async ({
+			email,
+			captchaToken = null,
+		}: ForgotPassword & { captchaToken?: string | null }) => {
 			const retryAfterCapture = createRetryAfterCapture()
 			const result = await authClient.requestPasswordReset({
 				email,
 				redirectTo: "/reset-password",
-				fetchOptions: retryAfterCapture.fetchOptions,
+				fetchOptions: { ...retryAfterCapture.fetchOptions, headers: captchaHeaders(captchaToken) },
 			})
 
 			const status = result.error?.status
@@ -27,6 +31,12 @@ export function useForgotPasswordMutation() {
 			// user to wait rather than implying anything about the address.
 			if (status === 429 && result.error) {
 				throw new RateLimitError(retryAfterCapture.seconds(result.error))
+			}
+
+			// AUTH-3: a refused CAPTCHA says nothing about the address, so it is
+			// shown, and the person can try again.
+			if (status === 400 && (result.error as { code?: string } | null)?.code === "CAPTCHA_FAILED") {
+				throw new Error(result.error?.message || "Please complete the CAPTCHA check and try again.")
 			}
 
 			// Every other outcome is reported identically, including when mail

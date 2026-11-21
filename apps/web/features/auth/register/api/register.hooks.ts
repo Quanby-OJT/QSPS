@@ -8,6 +8,7 @@ import { PRIVACY_NOTICE_VERSION } from "@repo/contracts"
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
 import { authClient } from "@/services/better-auth/auth-client"
 import { sessionKeys } from "@/features/auth/api/session.hooks"
+import { captchaHeaders } from "@/features/auth/captcha/captcha"
 
 import type { Register } from "./register.schema"
 
@@ -18,14 +19,18 @@ export function useRegisterMutation() {
 	const queryClient = useQueryClient()
 
 	return useMutation({
-		mutationFn: async ({ privacyAccepted, ...data }: Register) => {
+		mutationFn: async ({
+			privacyAccepted,
+			captchaToken = null,
+			...data
+		}: Register & { captchaToken?: string | null }) => {
 			const retryAfterCapture = createRetryAfterCapture()
 			// The server refuses a sign-up without the current notice version, so
 			// the version is sent only when the visitor ticked the box.
 			const result = await authClient.signUp.email({
 				...data,
 				...(privacyAccepted ? { privacyNoticeVersion: PRIVACY_NOTICE_VERSION } : {}),
-				fetchOptions: retryAfterCapture.fetchOptions,
+				fetchOptions: { ...retryAfterCapture.fetchOptions, headers: captchaHeaders(captchaToken) },
 			} as SignUpInput)
 			if (result.error) {
 				if (result.error.status === 429) {

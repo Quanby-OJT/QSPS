@@ -5,17 +5,26 @@ import { useMutation } from "@tanstack/react-query"
 
 import { createRetryAfterCapture, RateLimitError } from "@/core/lib/rate-limit-utils"
 import { authClient } from "@/services/better-auth/auth-client"
+import { captchaHeaders } from "@/features/auth/captcha/captcha"
 
 export function useResetPasswordMutation() {
 	const router = useRouter()
 
 	return useMutation({
-		mutationFn: async ({ newPassword, token }: { newPassword: string; token: string }) => {
+		mutationFn: async ({
+			newPassword,
+			token,
+			captchaToken = null,
+		}: {
+			newPassword: string
+			token: string
+			captchaToken?: string | null
+		}) => {
 			const retryAfterCapture = createRetryAfterCapture()
 			const result = await authClient.resetPassword({
 				newPassword,
 				token,
-				fetchOptions: retryAfterCapture.fetchOptions,
+				fetchOptions: { ...retryAfterCapture.fetchOptions, headers: captchaHeaders(captchaToken) },
 			})
 			if (result.error) {
 				if (result.error.status === 429) {

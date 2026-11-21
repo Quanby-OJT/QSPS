@@ -115,7 +115,9 @@ const config: NextConfig = {
 			// `unsafe-inline` is required: Next.js inlines its hydration and
 			// bootstrap scripts. `unsafe-eval` is dev-only — React Refresh needs
 			// it, production does not.
-			`script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+			// AUTH-3: Cloudflare Turnstile (CAPTCHA) loads its script and frame from here.
+			`script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
+			"frame-src https://challenges.cloudflare.com",
 			// Tailwind and next-themes both set inline styles at runtime.
 			"style-src 'self' 'unsafe-inline'",
 			"img-src 'self' data: blob:",
