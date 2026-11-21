@@ -31,6 +31,8 @@ jest.mock("@/config/api-versions.config", () => ({
 				delete: {},
 				assignRole: {},
 				removeRole: {},
+				getScopes: {},
+				setScopes: {},
 			},
 			audit: { list: {} },
 		},
@@ -85,6 +87,8 @@ describe("RbacController", () => {
 			deleteUser: jest.fn(),
 			assignUserRole: jest.fn(),
 			removeUserRole: jest.fn(),
+			getUserScopes: jest.fn(),
+			setUserScopes: jest.fn(),
 			listAuditLog: jest.fn(),
 		}
 		rbacService = {
@@ -108,6 +112,24 @@ describe("RbacController", () => {
 		}
 	)
 
+	// ADM-2 acceptance 4: without users.scopes:manage the guard answers 403 and audits it.
+	it.each(["getUserScopes", "setUserScopes"] as const)(
+		"requires users.scopes:manage on %s",
+		handler => {
+			expect(requiredPermissions(handler)).toEqual(["users.scopes:manage"])
+		}
+	)
+
+	it("passes the caller's Scope to the scope endpoints", async () => {
+		handlerInput = { userId: "u-2" }
+		await controller.getUserScopes({ user: { id: "sysadmin-1" } } as never)
+		expect(adminService.getUserScopes).toHaveBeenCalledWith("u-2", "sysadmin-1", SCOPE)
+
+		handlerInput = { userId: "u-2", scopes: [{ serviceCategoryId: 1, locationId: 10 }] }
+		await controller.setUserScopes({ user: { id: "sysadmin-1" } } as never)
+		expect(adminService.setUserScopes).toHaveBeenCalledWith(handlerInput, "sysadmin-1", SCOPE)
+	})
+
 	it.each(["assignRole", "removeRole"] as const)("requires users.roles:manage on %s", handler => {
 		expect(requiredPermissions(handler)).toEqual(["users.roles:manage"])
 	})
@@ -130,7 +152,7 @@ describe("RbacController", () => {
 	it("attributes staff user creation, updates, status changes, and soft-deletes to the actor", async () => {
 		handlerInput = { name: "Ana Reyes", email: "ana@boq.gov.ph", roles: ["Cashier"] }
 		await controller.createUser({ user: { id: "admin-1" } } as never)
-		expect(adminService.createUser).toHaveBeenCalledWith(handlerInput, "admin-1")
+		expect(adminService.createUser).toHaveBeenCalledWith(handlerInput, "admin-1", SCOPE)
 
 		handlerInput = { userId: "u-2", name: "Ana M. Reyes" }
 		await controller.updateUser({ user: { id: "admin-1" } } as never)

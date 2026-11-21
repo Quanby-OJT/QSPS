@@ -18,11 +18,13 @@ import {
 	RoleIdSchema,
 	RoleSchema,
 	SetRolePermissionsRequestSchema,
+	SetUserScopesRequestSchema,
 	SetUserStatusRequestSchema,
 	UpdateRoleRequestSchema,
 	UpdateUserRequestSchema,
 	UserIdParamSchema,
 	UserRoleMutationResponseSchema,
+	UserScopesSchema,
 	UserWithRolesSchema,
 } from "./rbac.schema.js"
 
@@ -176,6 +178,30 @@ export const rbacContract = {
 			})
 			.input(AssignRoleRequestSchema)
 			.output(UserRoleMutationResponseSchema),
+
+		getScopes: oc
+			.route({
+				method: "GET",
+				path: "/rbac/users/{userId}/scopes",
+				summary: "Get user scope",
+				description:
+					"The Service Categories and Locations a staff user may act on (ADM-2). Needs users.scopes:manage.",
+				tags: ["RBAC"],
+			})
+			.input(UserIdParamSchema)
+			.output(UserScopesSchema),
+
+		setScopes: oc
+			.route({
+				method: "PUT",
+				path: "/rbac/users/{userId}/scopes",
+				summary: "Set user scope",
+				description:
+					"Replace a staff user's Service Categories and Locations (ADM-2). Needs users.scopes:manage; a scoped caller may give only scopes inside their own.",
+				tags: ["RBAC"],
+			})
+			.input(SetUserScopesRequestSchema)
+			.output(UserScopesSchema),
 
 		removeRole: oc
 			.route({

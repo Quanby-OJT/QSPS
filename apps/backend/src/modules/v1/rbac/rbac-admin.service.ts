@@ -22,19 +22,24 @@ import {
 	type PermissionName,
 	type RemoveRoleRequest,
 	type Role,
+	type ScopeEntryInput,
 	type SetRolePermissionsRequest,
+	type SetUserScopesRequest,
 	type SetUserStatusRequest,
 	type UpdateRoleRequest,
 	type UpdateUserRequest,
 	type UserAccountStatus,
 	type UserAccountType,
 	type UserFilterQuerySchema,
+	type UserScopes,
 	type UserWithRoles,
 } from "@repo/contracts"
 import {
+	locations,
 	permissions,
 	rolePermissions,
 	roles,
+	serviceCategories,
 	sessions,
 	userRoles,
 	users,
@@ -47,7 +52,12 @@ import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
 import { PrivilegeGuardError, RbacService, type TransactionLike } from "@/common/rbac/rbac.service"
 import { denyOutsideScope } from "@/common/scope/scope-denial"
-import { NATIONWIDE_SCOPE, userWithinScope, type ResolvedScope } from "@/common/scope/scope-match"
+import {
+	NATIONWIDE_SCOPE,
+	scopeContains,
+	userWithinScope,
+	type ResolvedScope,
+} from "@/common/scope/scope-match"
 
 const PERMISSION_CATALOG = new Set<string>(PERMISSION_NAMES)
 
@@ -389,9 +399,22 @@ export class RbacAdminService {
 		}
 	}
 
-	async createUser(payload: CreateStaffUserInput, actorId: string | null): Promise<UserWithRoles> {
+	async createUser(
+		payload: CreateStaffUserInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<UserWithRoles> {
 		const normalizedEmail = payload.email.trim().toLowerCase()
 		const uniqueRoleNames = Array.from(new Set(payload.roles))
+		const newScopes = uniqueScopes(payload.scopes ?? [])
+
+		// ADM-2: a scoped admin's new staff must land inside their own Scope, or
+		// the admin could not see or manage the account they just made.
+		if (!scope.nationwide && newScopes.length === 0) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Choose at least one service category and location for this account",
+			})
+		}
 
 		const createdUser = await this.runUserGuarded(
 			{
@@ -433,6 +456,8 @@ export class RbacAdminService {
 					)
 				}
 
+				await this.assertScopesAllowed(tx, scope, newScopes)
+
 				const [existing] = await tx
 					.select({ id: users.id })
 					.from(users)
@@ -472,6 +497,12 @@ export class RbacAdminService {
 					}))
 				)
 
+				if (newScopes.length > 0) {
+					await tx
+						.insert(userScopes)
+						.values(newScopes.map(entry => ({ userId: inserted.id, ...entry })))
+				}
+
 				// Rule 5: Never record personal data (name, email, mobile, birthDate) in audit values.
 				await this.auditService.record(
 					{
@@ -485,6 +516,7 @@ export class RbacAdminService {
 							accountType: "staff",
 							mustResetPassword: true,
 							roles: uniqueRoleNames.slice().sort(),
+							...(newScopes.length > 0 ? { scopes: newScopes } : {}),
 						},
 					},
 					tx
@@ -728,6 +760,87 @@ export class RbacAdminService {
 		return { success: true, userId: payload.userId, roleName: payload.roleName }
 	}
 
+	// --------------------------------------------------------------- scopes
+	/** ADM-2: a user's Scope rows. A user outside the caller's Scope answers 404. */
+	async getUserScopes(
+		userId: string,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<UserScopes> {
+		return db.transaction(async tx => {
+			const [current] = await tx
+				.select({ id: users.id })
+				.from(users)
+				.where(and(eq(users.id, userId), isNull(users.deletedAt)))
+			if (!current) {
+				throw new ORPCError("NOT_FOUND", { message: `User "${userId}" was not found` })
+			}
+			await this.requireUserInScope(tx, scope, actorId, current.id)
+			return { userId: current.id, scopes: await this.scopesOf(tx, current.id) }
+		})
+	}
+
+	/**
+	 * ADM-2: replace a staff user's Scope. The old and new rows are audited in
+	 * the same transaction, and the user's cached permissions are dropped so
+	 * the new Scope applies on their next request.
+	 */
+	async setUserScopes(
+		payload: SetUserScopesRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<UserScopes> {
+		const nextScopes = uniqueScopes(payload.scopes)
+
+		const saved = await this.runUserGuarded(
+			{
+				action: "user.scopes.set",
+				actorId,
+				targetId: payload.userId,
+				attempted: { scopes: nextScopes },
+			},
+			async tx => {
+				const [current] = await tx
+					.select({ id: users.id, accountType: users.accountType })
+					.from(users)
+					.where(and(eq(users.id, payload.userId), isNull(users.deletedAt)))
+				if (!current) {
+					throw new ORPCError("NOT_FOUND", { message: `User "${payload.userId}" was not found` })
+				}
+				await this.requireUserInScope(tx, scope, actorId, current.id)
+				if (current.accountType !== "staff") {
+					throw new ORPCError("BAD_REQUEST", { message: "Only staff accounts have a scope" })
+				}
+				await this.assertScopesAllowed(tx, scope, nextScopes)
+
+				const previous = await this.scopesOf(tx, current.id)
+				await tx.delete(userScopes).where(eq(userScopes.userId, current.id))
+				if (nextScopes.length > 0) {
+					await tx
+						.insert(userScopes)
+						.values(nextScopes.map(entry => ({ userId: current.id, ...entry })))
+				}
+
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_RBAC,
+						action: "user.scopes.set",
+						actorId,
+						targetType: "user",
+						targetId: current.id,
+						oldValue: { scopes: previous },
+						newValue: { scopes: nextScopes },
+					},
+					tx
+				)
+				return { userId: current.id, scopes: nextScopes }
+			}
+		)
+
+		await this.cacheService.invalidate(payload.userId)
+		return saved
+	}
+
 	async removeUserRole(payload: RemoveRoleRequest, actorId: string | null) {
 		await this.rbacService.removeRole(payload.userId, payload.roleName, actorId)
 		return { success: true, userId: payload.userId, roleName: payload.roleName }
@@ -831,6 +944,59 @@ export class RbacAdminService {
 		}
 
 		return { items }
+	}
+
+	private async scopesOf(tx: TransactionLike, userId: string): Promise<ScopeEntryInput[]> {
+		const rows = await tx
+			.select({
+				serviceCategoryId: userScopes.serviceCategoryId,
+				locationId: userScopes.locationId,
+			})
+			.from(userScopes)
+			.where(eq(userScopes.userId, userId))
+		return rows
+	}
+
+	/**
+	 * ADM-2: every category and location named must exist, and a scoped admin
+	 * may give only scopes inside their own (refused as a 403 and audited).
+	 */
+	private async assertScopesAllowed(
+		tx: TransactionLike,
+		scope: ResolvedScope,
+		entries: ScopeEntryInput[]
+	): Promise<void> {
+		if (entries.length === 0) return
+
+		const categoryIds = [...new Set(entries.flatMap(entry => entry.serviceCategoryId ?? []))]
+		if (categoryIds.length > 0) {
+			const found = await tx
+				.select({ id: serviceCategories.id })
+				.from(serviceCategories)
+				.where(inArray(serviceCategories.id, categoryIds))
+			if (found.length !== categoryIds.length) {
+				throw new ORPCError("BAD_REQUEST", { message: "A chosen service category does not exist" })
+			}
+		}
+
+		const locationIds = [...new Set(entries.flatMap(entry => entry.locationId ?? []))]
+		if (locationIds.length > 0) {
+			const found = await tx
+				.select({ id: locations.id })
+				.from(locations)
+				.where(inArray(locations.id, locationIds))
+			if (found.length !== locationIds.length) {
+				throw new ORPCError("BAD_REQUEST", { message: "A chosen location does not exist" })
+			}
+		}
+
+		if (!scopeContains(scope, entries)) {
+			throw new PrivilegeGuardError(
+				"FORBIDDEN",
+				"You can only give service categories and locations inside your own scope",
+				"scope outside the caller's scope"
+			)
+		}
 	}
 
 	/** Super Admin or System Admin: may give any role. */
@@ -990,4 +1156,17 @@ export class RbacAdminService {
 		const held = new Set(names)
 		return PERMISSION_NAMES.filter(name => held.has(name))
 	}
+}
+
+/** The same Scope row given twice is stored once. */
+function uniqueScopes(entries: readonly ScopeEntryInput[]): ScopeEntryInput[] {
+	const seen = new Set<string>()
+	const unique: ScopeEntryInput[] = []
+	for (const entry of entries) {
+		const key = `${entry.serviceCategoryId ?? "*"}:${entry.locationId ?? "*"}`
+		if (seen.has(key)) continue
+		seen.add(key)
+		unique.push({ serviceCategoryId: entry.serviceCategoryId, locationId: entry.locationId })
+	}
+	return unique
 }

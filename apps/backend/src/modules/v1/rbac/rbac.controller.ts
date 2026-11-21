@@ -125,7 +125,7 @@ export class RbacController {
 	@Implement(v1.rbac.users.create)
 	async createUser(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.create).handler(async ({ input }) => {
-			return this.rbacAdminService.createUser(input, actorId(session))
+			return this.rbacAdminService.createUser(input, actorId(session), await this.scopeOf(session))
 		})
 	}
 
@@ -174,6 +174,33 @@ export class RbacController {
 	async assignRole(@Session() session?: UserSession) {
 		return implement(v1.rbac.users.assignRole).handler(async ({ input }) => {
 			return this.rbacAdminService.assignUserRole(input, actorId(session))
+		})
+	}
+
+	// ADM-2: RbacGuard answers 403 and audits the denial without users.scopes:manage.
+	@RequirePermissions("users.scopes:manage")
+	@Implement(v1.rbac.users.getScopes)
+	async getUserScopes(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.getScopes).handler(async ({ input }) => {
+			return this.rbacAdminService.getUserScopes(
+				input.userId,
+				actorId(session),
+				await this.scopeOf(session)
+			)
+		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("users.scopes:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.rbac.users.setScopes)
+	async setUserScopes(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.setScopes).handler(async ({ input }) => {
+			return this.rbacAdminService.setUserScopes(
+				input,
+				actorId(session),
+				await this.scopeOf(session)
+			)
 		})
 	}
 

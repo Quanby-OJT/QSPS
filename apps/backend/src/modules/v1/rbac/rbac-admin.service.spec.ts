@@ -378,6 +378,59 @@ describe("RbacAdminService", () => {
 		expect(listed.items.map(user => user.id)).toEqual(["cebu"])
 	})
 
+	it("ADM-2: a scoped admin must give a new staff account at least one scope", async () => {
+		await expect(
+			service.createUser(
+				{ name: "Jose Rizal", email: "jose@boq.gov.ph", roles: ["Cashier"] },
+				"module-admin-1",
+				{ nationwide: false, entries: [{ serviceCategoryId: null, locationId: 10 }] }
+			)
+		).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		expect(db.transaction).not.toHaveBeenCalled()
+	})
+
+	it("ADM-2: refuses scopes outside the caller's own, audits it, and changes nothing", async () => {
+		// Each select resolves to the next result, in the order the service asks.
+		const results: unknown[][] = [
+			[{ id: "u-9", accountType: "staff" }], // the target user
+			[{ name: "Processing Officer" }], // the target's roles
+			[{ serviceCategoryId: 1, locationId: 10 }], // the target's scope: inside the caller's
+			[{ id: 1 }], // the requested category exists
+			[{ id: 20 }], // the requested location exists
+		]
+		const next = () => Promise.resolve(results.shift() ?? [])
+		const remove = jest.fn()
+		const insert = jest.fn()
+		mockTransaction({
+			select: jest.fn().mockImplementation(() => ({
+				from: () => ({ where: next, innerJoin: () => ({ where: next }) }),
+			})),
+			delete: remove,
+			insert,
+		})
+
+		await expect(
+			service.setUserScopes(
+				{ userId: "u-9", scopes: [{ serviceCategoryId: 1, locationId: 20 }] },
+				"module-admin-1",
+				{ nationwide: false, entries: [{ serviceCategoryId: null, locationId: 10 }] }
+			)
+		).rejects.toMatchObject({ code: "FORBIDDEN" })
+
+		expect(remove).not.toHaveBeenCalled()
+		expect(insert).not.toHaveBeenCalled()
+		expect(cacheService.invalidate).not.toHaveBeenCalled()
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "user.scopes.set",
+				outcome: "denied",
+				actorId: "module-admin-1",
+				targetId: "u-9",
+				reason: "scope outside the caller's scope",
+			})
+		)
+	})
+
 	it("AC4: refuses with 403 and audits denial when attempting to disable or delete the last Super Admin", async () => {
 		const now = new Date("2026-11-19T00:00:00.000Z")
 		const superAdmin = {

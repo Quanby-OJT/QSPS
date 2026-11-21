@@ -110,10 +110,23 @@ export const ExportUsersResponseSchema = z.object({
 	contentBase64: z.string(),
 })
 
+/**
+ * One Scope row (ADM-2): a Service Category and a Location the staff user may
+ * act on. `null` means "all" on that dimension (DOMAIN-MODEL `user_scopes`).
+ */
+export const ScopeEntrySchema = z.object({
+	serviceCategoryId: z.number().int().positive().nullable(),
+	locationId: z.number().int().positive().nullable(),
+})
+
+const ScopeListSchema = z.array(ScopeEntrySchema).max(50, "Too many scopes")
+
 export const CreateStaffUserSchema = z.object({
 	name: z.string().trim().min(1, "Name is required").max(150, "Name too long"),
 	email: z.string().trim().email("Valid email address is required").max(255),
 	roles: z.array(z.string().min(1)).min(1, "At least one role is required"),
+	/** ADM-2: the new account's Scope. A Module Admin must give at least one, inside their own. */
+	scopes: ScopeListSchema.optional(),
 })
 
 export const UserIdParamSchema = z.object({
@@ -125,6 +138,17 @@ export const UpdateUserRequestSchema = UserIdParamSchema.extend({
 	email: z.string().trim().email("Valid email address is required").max(255).optional(),
 }).refine(({ name, email }) => name !== undefined || email !== undefined, {
 	message: "At least one field must be provided",
+})
+
+/** ADM-2: a user's Scope rows. */
+export const UserScopesSchema = z.object({
+	userId: z.string(),
+	scopes: z.array(ScopeEntrySchema),
+})
+
+/** ADM-2: replace a user's Scope. userId from the path, scopes from the body. */
+export const SetUserScopesRequestSchema = UserIdParamSchema.extend({
+	scopes: ScopeListSchema,
 })
 
 export const SetUserStatusRequestSchema = UserIdParamSchema.extend({
@@ -208,6 +232,9 @@ export type ExportUsersResponse = z.infer<typeof ExportUsersResponseSchema>
 export type CreateStaffUserInput = z.infer<typeof CreateStaffUserSchema>
 export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>
 export type SetUserStatusRequest = z.infer<typeof SetUserStatusRequestSchema>
+export type ScopeEntryInput = z.infer<typeof ScopeEntrySchema>
+export type UserScopes = z.infer<typeof UserScopesSchema>
+export type SetUserScopesRequest = z.infer<typeof SetUserScopesRequestSchema>
 export type DeleteUserResponse = z.infer<typeof DeleteUserResponseSchema>
 export type AssignRoleRequest = z.infer<typeof AssignRoleRequestSchema>
 export type RemoveRoleRequest = z.infer<typeof RemoveRoleRequestSchema>
