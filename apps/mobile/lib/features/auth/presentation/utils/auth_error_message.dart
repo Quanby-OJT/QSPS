@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 ///
 /// Errors used to be rendered with `error.toString()`, and the Dio branch fell
 /// back to `error.message`, which embeds the host and port it tried to reach.
-/// That put internal infrastructure on a user's screen — and into any
+/// That put internal infrastructure on a user's screen â€” and into any
 /// screenshot they send to support.
 ///
 /// Every branch below returns a fixed string. Nothing derived from the
@@ -25,11 +25,26 @@ String authErrorMessage(Object? error) {
         return 'The request was cancelled.';
       case DioExceptionType.badResponse:
       case DioExceptionType.unknown:
-        return _fromStatus(error.response?.statusCode);
+        return _fromCode(error.response?.data) ??
+            _fromStatus(error.response?.statusCode);
     }
   }
 
   return 'Something went wrong. Please try again.';
+}
+
+/// AUTH-3 refusals the user can act on, matched by the server's error code.
+/// The text is fixed here; the server's own message is never shown.
+String? _fromCode(Object? body) {
+  if (body is! Map) return null;
+  switch (body['code']) {
+    case 'CAPTCHA_FAILED':
+      return 'Please complete the security check and try again.';
+    case 'ACCOUNT_LOCKED':
+      return 'Too many failed sign-ins. This account is locked for a while. '
+          'Please try again later.';
+  }
+  return null;
 }
 
 /// Status-based text. Deliberately coarse: the distinctions a user can act on

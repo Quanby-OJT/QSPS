@@ -19,8 +19,8 @@ typedef CrashReportingIdentitySink = void Function(String? userId);
 /// [SentryConstants.isEnabled] is a compile-time constant that is `false` under
 /// `flutter test` (the defines are only passed to release builds), so calling
 /// `Sentry.configureScope` straight from the notifier would leave the
-/// privacy-critical half of this feature — set on authentication, *cleared* on
-/// sign-out — with nothing a test could observe. Tests swap [apply] and restore
+/// privacy-critical half of this feature â€” set on authentication, *cleared* on
+/// sign-out â€” with nothing a test could observe. Tests swap [apply] and restore
 /// it with [reset].
 class CrashReportingIdentity {
   CrashReportingIdentity._();
@@ -30,7 +30,7 @@ class CrashReportingIdentity {
 
   /// Attaches the signed-in user's id to crash reports, or clears it.
   ///
-  /// The id and nothing else. Email and username are never set — an id is a
+  /// The id and nothing else. Email and username are never set â€” an id is a
   /// correlation key, an email is PII (and is on the shared redaction list).
   static void sentrySink(String? userId) {
     if (!SentryConstants.isEnabled) return;
@@ -87,8 +87,8 @@ class AuthState extends _$AuthState {
   @override
   Future<SessionModel?> build() async {
     // A restored session is an authenticated state like any other. Syncing only
-    // after signIn() left every already-signed-in user — the common case on a
-    // warm launch — reporting crashes anonymously.
+    // after signIn() left every already-signed-in user â€” the common case on a
+    // warm launch â€” reporting crashes anonymously.
     try {
       final session = await ref.read(authRepositoryProvider).getSession();
       _syncIdentity(session);
@@ -99,12 +99,16 @@ class AuthState extends _$AuthState {
     }
   }
 
-  Future<void> signIn({required String email, required String password}) async {
+  Future<void> signIn({
+    required String email,
+    required String password,
+    String? captchaToken,
+  }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
       () => ref
           .read(authRepositoryProvider)
-          .signIn(email: email, password: password),
+          .signIn(email: email, password: password, captchaToken: captchaToken),
     );
 
     _syncIdentity(state.hasValue ? state.value : null);
@@ -114,12 +118,18 @@ class AuthState extends _$AuthState {
     required String email,
     required String password,
     required String name,
+    String? captchaToken,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
       () => ref
           .read(authRepositoryProvider)
-          .signUp(email: email, password: password, name: name),
+          .signUp(
+            email: email,
+            password: password,
+            name: name,
+            captchaToken: captchaToken,
+          ),
     );
 
     // Sign-up returns the same authenticated SessionModel as sign-in, so it is
@@ -150,8 +160,8 @@ class AuthState extends _$AuthState {
   /// Mirrors the current authenticated state into the crash reporter and
   /// into analytics.
   ///
-  /// Every transition routes through here — restore, sign-in, sign-up, sign-out
-  /// and the failure paths of each — so an unauthenticated outcome clears the
+  /// Every transition routes through here â€” restore, sign-in, sign-up, sign-out
+  /// and the failure paths of each â€” so an unauthenticated outcome clears the
   /// identity rather than leaving the previous user's id attached.
   void _syncIdentity(SessionModel? session) {
     final userId = session?.user.id;

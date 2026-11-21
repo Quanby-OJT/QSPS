@@ -31,12 +31,14 @@ class _FakeAuthRepository implements AuthRepository {
 
   @override
   Future<SessionModel?> signIn({
+    String? captchaToken,
     required String email,
     required String password,
   }) async => session;
 
   @override
   Future<SessionModel?> signUp({
+    String? captchaToken,
     required String email,
     required String password,
     required String name,

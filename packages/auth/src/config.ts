@@ -22,17 +22,18 @@ import {
 
 import { isApiDocsEnabled } from "./api-docs.js"
 import { emitAuthEvent, type MfaMethod } from "./auth-events.js"
+import { authLogger } from "./auth-logger.js"
+import { buildAuthPlugins, MFA_EMAIL_CODE_MINUTES } from "./auth-plugins.js"
 import {
 	isPasswordExpired,
 	PASSWORD_HISTORY_DEPTH,
 	readAuthPolicies,
 	type AuthPolicies,
 } from "./auth-policies.js"
-import { authLogger } from "./auth-logger.js"
-import { buildAuthPlugins, MFA_EMAIL_CODE_MINUTES } from "./auth-plugins.js"
 import { CAPTCHA_HEADER, CAPTCHA_PATHS, resolveCaptchaVerifier } from "./captcha.js"
 import { AUTH_CLIENT_ADDRESS_HEADER } from "./client-address.js"
 import { cookieDomainSchema } from "./cookie-domain-schema.js"
+import { lockoutKey, lockoutStore } from "./lockout-store.js"
 import { booleanFromEnv } from "./mailer/bool-schema.js"
 import { sendMail } from "./mailer/send-mail.js"
 import { buildAccountLockedEmail } from "./mailer/templates/account-locked-email.js"
@@ -40,7 +41,6 @@ import { buildResetPasswordEmail } from "./mailer/templates/reset-password-email
 import { buildTwoFactorCodeEmail } from "./mailer/templates/two-factor-code-email.js"
 import { buildVerificationEmail } from "./mailer/templates/verification-email.js"
 import { createTransport } from "./mailer/transport-factory.js"
-import { lockoutKey, lockoutStore } from "./lockout-store.js"
 import { parseOriginList } from "./origin-list.js"
 import { rateLimitStorage } from "./rate-limit-storage.js"
 import { withSafeDatabaseErrors } from "./safe-database-errors.js"
@@ -210,6 +210,24 @@ async function recentPasswordHashes(db: Database, userId: string): Promise<strin
 	const current = await credentialHash(db, userId)
 	const hashes = [...(current ? [current] : []), ...history.map(row => row.hash)]
 	return [...new Set(hashes)].slice(0, PASSWORD_HISTORY_DEPTH)
+}
+
+/**
+ * AUTH-3: keep the password about to be replaced in the history. A password
+ * set before AUTH-3 (or a temporary one from an admin) was never recorded, so
+ * without this it could be reused right after the change.
+ */
+async function rememberCurrentPassword(db: Database, userId: string): Promise<void> {
+	const current = await credentialHash(db, userId)
+	if (!current) return
+	const [newest] = await db
+		.select({ hash: passwordHistory.passwordHash })
+		.from(passwordHistory)
+		.where(eq(passwordHistory.userId, userId))
+		.orderBy(desc(passwordHistory.createdAt), desc(passwordHistory.id))
+		.limit(1)
+	if (newest?.hash === current) return
+	await db.insert(passwordHistory).values({ userId, passwordHash: current })
 }
 
 /**
@@ -608,6 +626,7 @@ export function createAuth() {
 							})
 						}
 					}
+					await rememberCurrentPassword(db, userId)
 					return
 				}
 

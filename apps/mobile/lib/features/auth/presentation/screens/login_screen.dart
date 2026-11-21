@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile/core/navigation/app_router.dart';
 import 'package:mobile/features/auth/presentation/providers/auth_provider.dart';
+import 'package:mobile/features/auth/presentation/widgets/turnstile_captcha.dart';
+import 'package:mobile/core/constants/captcha_constants.dart';
 import 'package:mobile/shared/widgets/app_text_field.dart';
 import 'package:mobile/shared/widgets/app_button.dart';
 
@@ -22,6 +24,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
+  /// AUTH-3: the current CAPTCHA token, and a key that is bumped to load a
+  /// fresh challenge after every attempt (a token works once).
+  String? _captchaToken;
+  int _captchaKey = 0;
+
+  bool get _captchaReady =>
+      !CaptchaConstants.isEnabled || _captchaToken != null;
+
+  void _resetCaptcha() {
+    if (!CaptchaConstants.isEnabled) return;
+    setState(() {
+      _captchaToken = null;
+      _captchaKey++;
+    });
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -31,22 +49,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _handleSignIn() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_captchaReady) return;
 
     await ref
         .read(authStateProvider.notifier)
         .signIn(
           email: _emailController.text.trim(),
           password: _passwordController.text,
+          captchaToken: _captchaToken,
         );
 
     if (!mounted) return;
+    _resetCaptcha();
 
     final authState = ref.read(authStateProvider);
     if (authState.hasError) {
       if (!context.mounted) return;
 
       // Show a fixed, mapped string. Never `toString()`, and never
-      // the server's own text — `error.message` embeds the host and port it
+      // the server's own text â€” `error.message` embeds the host and port it
       // tried to reach, which then lands in a user's screenshot.
       final message = authErrorMessage(authState.error);
 
@@ -173,9 +194,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     },
                     onFieldSubmitted: (_) => _handleSignIn(),
                   ),
+                  if (CaptchaConstants.isEnabled) ...[
+                    const SizedBox(height: 16),
+                    TurnstileCaptcha(
+                      key: ValueKey(_captchaKey),
+                      onToken: (token) => setState(() => _captchaToken = token),
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   AppButton(
-                    onPressed: isLoading ? null : _handleSignIn,
+                    onPressed: isLoading || !_captchaReady
+                        ? null
+                        : _handleSignIn,
                     isLoading: isLoading,
                     child: const Text('Sign In'),
                   ),
