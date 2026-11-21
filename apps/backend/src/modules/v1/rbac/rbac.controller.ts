@@ -225,20 +225,22 @@ export class RbacController {
 		})
 	}
 
-	@RequirePermissions("audit.logs:read")
-	@Implement(v1.rbac.audit.get)
-	async getAuditEntry() {
-		return implement(v1.rbac.audit.get).handler(async ({ input }) => {
-			return this.rbacAdminService.getAuditEntry(input.id)
-		})
-	}
-
+	// Must stay above getAuditEntry: Nest matches routes in the order they are
+	// declared, so "/audit-log/{id}" would otherwise take "/audit-log/export".
 	@StrictThrottle()
 	@RequirePermissions("audit.logs:export")
 	@Implement(v1.rbac.audit.export)
 	async exportAuditLog(@Session() session?: UserSession) {
 		return implement(v1.rbac.audit.export).handler(async ({ input }) => {
 			return this.rbacAdminService.exportAuditLog(input, actorId(session))
+		})
+	}
+
+	@RequirePermissions("audit.logs:read")
+	@Implement(v1.rbac.audit.get)
+	async getAuditEntry() {
+		return implement(v1.rbac.audit.get).handler(async ({ input }) => {
+			return this.rbacAdminService.getAuditEntry(input.id)
 		})
 	}
 }

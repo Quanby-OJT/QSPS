@@ -81,6 +81,13 @@ const SEEDED_ROLES = new Set<string>(ROLE_NAMES)
 /** ADM-3: the most entries one audit export holds. Narrow the filters for more. */
 const AUDIT_EXPORT_MAX_ROWS = 5000
 
+/** Export times in Manila, the business timezone: "2026-11-21 16:08:35". */
+const MANILA_TIME = new Intl.DateTimeFormat("sv-SE", {
+	timeZone: "Asia/Manila",
+	dateStyle: "short",
+	timeStyle: "medium",
+})
+
 type UserFilterInput = z.infer<typeof UserFilterQuerySchema>
 
 @Injectable()
@@ -1000,7 +1007,7 @@ export class RbacAdminService {
 
 		const rows = entries.map(entry => ({
 			id: entry.id,
-			createdAt: entry.createdAt.toISOString(),
+			createdAt: MANILA_TIME.format(entry.createdAt),
 			actor: entry.actorEmail ?? entry.actorId ?? "System",
 			actorRole: entry.actorRole ?? "",
 			domain: entry.domain,
@@ -1019,7 +1026,7 @@ export class RbacAdminService {
 		type Row = (typeof rows)[number]
 		const csvColumns: { key: keyof Row & string; header: string }[] = [
 			{ key: "id", header: "ID" },
-			{ key: "createdAt", header: "When (UTC)" },
+			{ key: "createdAt", header: "When (Manila)" },
 			{ key: "actor", header: "Actor" },
 			{ key: "actorRole", header: "Actor role" },
 			{ key: "domain", header: "Domain" },
