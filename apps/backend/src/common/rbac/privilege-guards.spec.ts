@@ -14,7 +14,7 @@
  * still runs.
  */
 
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, gt } from "drizzle-orm"
 
 import { auditLog, roles, userRoles, users } from "@repo/db/schema"
 
@@ -45,10 +45,15 @@ jest.mock("@orpc/server", () => ({
 	},
 }))
 
-const MANAGER = "az2-manager" // holds users.roles:manage, NOT Super Admin
-const ADMIN_A = "az2-admin-a"
-const ADMIN_B = "az2-admin-b"
-const SUBJECT = "az2-subject"
+// audit_log is append-only (FND-3), so these fixtures cannot be wiped between
+// runs: each run uses its own ids, and audit reads only look at rows written
+// after the current test started (`since`). The users stay in the local
+// database, because a user with audit entries cannot be deleted, by design.
+const RUN = Date.now().toString(36)
+const MANAGER = `az2-manager-${RUN}` // holds users.roles:manage, NOT Super Admin
+const ADMIN_A = `az2-admin-a-${RUN}`
+const ADMIN_B = `az2-admin-b-${RUN}`
+const SUBJECT = `az2-subject-${RUN}`
 const ALL_USERS = [MANAGER, ADMIN_A, ADMIN_B, SUBJECT]
 
 const dbTests = bindDbBackedTests({
@@ -66,16 +71,24 @@ let adminRoleId: number
 /** Real Admin memberships, set aside for the duration of this suite. */
 let preexistingAdmins: { userId: string; roleId: number }[] = []
 
+/** Removes the fixtures' role memberships. Audit rows, and the users they name, stay. */
 async function cleanup() {
 	for (const id of ALL_USERS) {
-		await db.delete(auditLog).where(eq(auditLog.actorId, id))
-		await db.delete(auditLog).where(eq(auditLog.targetId, id))
 		await db.delete(userRoles).where(eq(userRoles.userId, id))
 	}
-	for (const id of ALL_USERS) {
-		await db.delete(users).where(eq(users.id, id))
-	}
 }
+
+/** Highest audit id so far; a test reads only rows above the value it took at its start. */
+async function latestAuditId(): Promise<number> {
+	const [row] = await db
+		.select({ id: auditLog.id })
+		.from(auditLog)
+		.orderBy(desc(auditLog.id))
+		.limit(1)
+	return row?.id ?? 0
+}
+
+let since = 0
 
 /** Reset Admin membership to exactly the given users. */
 async function setAdmins(ids: string[]) {
@@ -99,8 +112,13 @@ function makeService() {
 	return new RbacService(new RbacCacheService(null), new AuditService())
 }
 
+/** Denials by `actorId` written during the current test. */
 async function denialsFor(actorId: string) {
-	const rows = await db.select().from(auditLog).where(eq(auditLog.actorId, actorId))
+	const rows = await db
+		.select()
+		.from(auditLog)
+		.where(and(eq(auditLog.actorId, actorId), gt(auditLog.id, since)))
+		.orderBy(auditLog.id)
 	return rows.filter(r => r.outcome === "denied")
 }
 
@@ -137,6 +155,10 @@ beforeAll(async () => {
 	await db.delete(userRoles).where(eq(userRoles.roleId, adminRoleId))
 })
 
+beforeEach(async () => {
+	if (dbTests.ready && !adminSeed.missing) since = await latestAuditId()
+})
+
 afterAll(async () => {
 	if (!dbTests.connected) return
 	if (!dbTests.ready || adminSeed.missing) {
@@ -147,21 +169,22 @@ afterAll(async () => {
 		return
 	}
 
-	await cleanup()
-
-	// Restore what was here before, exactly.
-	await db.delete(userRoles).where(eq(userRoles.roleId, adminRoleId))
-	if (preexistingAdmins.length) {
-		await db.insert(userRoles).values(preexistingAdmins).onConflictDoNothing()
+	try {
+		await cleanup()
+	} finally {
+		// Restore what was here before, exactly — even if cleanup failed.
+		// A crash here once left the seeded admin without Super Admin.
+		await db.delete(userRoles).where(eq(userRoles.roleId, adminRoleId))
+		if (preexistingAdmins.length) {
+			await db.insert(userRoles).values(preexistingAdmins).onConflictDoNothing()
+		}
+		await db.$client.end()
 	}
-
-	await db.$client.end()
 })
 
 describe("Admin grants require Admin", () => {
 	beforeEach(async () => {
 		if (!dbTests.ready || adminSeed.missing) return
-		await db.delete(auditLog).where(eq(auditLog.actorId, MANAGER))
 		await setAdmins([ADMIN_A])
 	})
 
@@ -213,7 +236,10 @@ describe("Admin grants require Admin", () => {
 			.where(and(eq(userRoles.userId, SUBJECT), eq(userRoles.roleId, adminRoleId)))
 		expect(held).toHaveLength(1)
 
-		const [entry] = await db.select().from(auditLog).where(eq(auditLog.targetId, SUBJECT))
+		const [entry] = await db
+			.select()
+			.from(auditLog)
+			.where(and(eq(auditLog.targetId, SUBJECT), gt(auditLog.id, since)))
 		expect(entry!.outcome).toBe("success")
 		expect(entry!.actorId).toBe(ADMIN_A)
 	})
@@ -226,11 +252,6 @@ describe("Admin grants require Admin", () => {
 })
 
 describe("last Admin cannot be removed", () => {
-	beforeEach(async () => {
-		if (!dbTests.ready || adminSeed.missing) return
-		await db.delete(auditLog).where(eq(auditLog.actorId, ADMIN_A))
-	})
-
 	itDb("refuses the removal that would leave zero Admins, with 409 semantics", async () => {
 		await setAdmins([ADMIN_A])
 

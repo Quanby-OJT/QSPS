@@ -6,6 +6,7 @@ import { Logger } from "nestjs-pino"
 import pinoHttp from "pino-http"
 
 import { AppModule } from "@/app.module"
+import { requestContextMiddleware } from "@/common/request-context/request-context"
 import { configureApp, configureCors } from "@/config/app.config"
 import { setupBetterAuth } from "@/config/auth.config"
 import { env, isApiDocsEnabled } from "@/config/env.config"
@@ -54,6 +55,10 @@ export async function createApplication(options?: {
 	const expressApp = httpAdapter.getInstance() as Application
 	expressApp.set("trust proxy", env.TRUST_PROXY)
 
+	// FND-3: remember each request's client address and user agent for the
+	// audit trail. After `trust proxy`, so req.ips is already resolved.
+	expressApp.use(requestContextMiddleware)
+
 	// Resolved before helmet so the docs page can take its own policy. The
 	// default is the shared docs rule. Callers (the e2e suite) may pass the
 	// flag when they need a specific branch after env has already been read.
@@ -97,6 +102,9 @@ export async function createApplication(options?: {
 	// an empty body → sign-in/sign-up return null.
 	setupBetterAuth(app, apiDocsEnabled)
 	configureApp(app)
+	// Again after the body parser: it calls next() from a stream callback,
+	// which drops the context set above for Nest routes.
+	expressApp.use(requestContextMiddleware)
 	setupVersioning(app, logger)
 
 	if (apiDocsEnabled) {

@@ -32,7 +32,8 @@
 		"test:e2e:web": "turbo run test:e2e --filter=@repo/e2e-web",
 		"show-report:e2e:web": "pnpm --filter @repo/e2e-web run show-report",
 		"typecheck": "turbo run typecheck",
-		"prepare": "husky"
+		"prepare": "husky",
+		"audit:verify": "pnpm -F @repo/backend audit:verify"
 	},
 	"devDependencies": {
 		"@repo/prettier-config": "workspace:*",
