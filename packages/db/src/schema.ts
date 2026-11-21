@@ -266,6 +266,13 @@ export const auditLog = createTable(
 		// The read endpoint is strictly reverse-chronological.
 		index("audit_log_created_at_idx").on(t.createdAt),
 		index("audit_log_actor_id_idx").on(t.actorId),
+		// ADM-3 filters. Each ends in id so "newest first" reads the index in order.
+		index("audit_log_domain_action_idx").on(t.domain, t.action, t.id),
+		index("audit_log_target_idx").on(t.targetType, t.targetId, t.id),
+		// Denials are few and often searched for; successes are not indexed.
+		index("audit_log_denied_idx")
+			.on(t.id)
+			.where(sql`${t.outcome} = 'denied'`),
 	]
 )
 

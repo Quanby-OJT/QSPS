@@ -186,6 +186,10 @@ export const UserRoleMutationResponseSchema = z.object({
 
 export const AuditOutcomeSchema = z.enum(["success", "denied"])
 
+/** ADM-3: export formats for the audit log. */
+export const AuditExportFormatSchema = z.enum(["csv", "pdf"])
+
+/** One Audit Entry as listed (DOMAIN-MODEL `audit_log`). */
 export const AuditLogEntrySchema = z.object({
 	id: z.number().int(),
 	domain: z.string(),
@@ -193,15 +197,53 @@ export const AuditLogEntrySchema = z.object({
 	outcome: AuditOutcomeSchema,
 	actorId: z.string().nullable(),
 	actorEmail: z.string().nullable(),
+	/** The actor's role names when they acted. Null for System. */
+	actorRole: z.string().nullable(),
 	targetType: z.string().nullable(),
 	targetId: z.string().nullable(),
 	oldValue: z.unknown().nullable(),
 	newValue: z.unknown().nullable(),
 	reason: z.string().nullable(),
+	/** Null for System actions. */
+	ipAddress: z.string().nullable(),
+	/** The device (User-Agent). Null for System actions. */
+	userAgent: z.string().nullable(),
 	createdAt: z.date(),
 })
 
-export const ListAuditLogRequestSchema = z.object({
+/** ADM-3: one entry opened, with its place in the hash chain. */
+export const AuditLogEntryDetailSchema = AuditLogEntrySchema.extend({
+	prevHash: z.string().nullable(),
+	entryHash: z.string().nullable(),
+})
+
+/** A business date, YYYY-MM-DD, read in Asia/Manila. */
+const AuditDateSchema = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD")
+
+const optionalText = (max: number) => z.string().trim().min(1).max(max).optional()
+
+/**
+ * ADM-3: the audit log filters. Every one is optional and they combine with AND.
+ * `from` and `to` are Manila dates, both included.
+ */
+export const AuditLogFilterSchema = z.object({
+	from: AuditDateSchema.optional(),
+	to: AuditDateSchema.optional(),
+	/** An email (or part of one), a user id, or "system" for System actions. */
+	actor: optionalText(255),
+	/** A role name, matched against the role the actor held at the time. */
+	role: optionalText(100),
+	domain: optionalText(100),
+	/** Matches from the start, so "role." finds every role action. */
+	action: optionalText(100),
+	outcome: AuditOutcomeSchema.optional(),
+	targetType: optionalText(100),
+	targetId: optionalText(255),
+})
+
+export const ListAuditLogRequestSchema = AuditLogFilterSchema.extend({
 	limit: z.coerce.number().int().min(1).max(200).optional().default(50),
 	before: z.coerce.number().int().positive().optional(),
 })
@@ -211,6 +253,23 @@ export const ListAuditLogResponseSchema = z.object({
 	nextCursor: z.number().int().nullable(),
 })
 
+export const AuditLogIdParamSchema = z.object({
+	id: z.coerce.number().int().positive(),
+})
+
+export const ExportAuditLogRequestSchema = AuditLogFilterSchema.extend({
+	format: AuditExportFormatSchema,
+})
+
+export const ExportAuditLogResponseSchema = z.object({
+	fileName: z.string(),
+	mimeType: z.string(),
+	contentBase64: z.string(),
+	rowCount: z.number().int().nonnegative(),
+	/** True when more entries matched than one export holds. */
+	truncated: z.boolean(),
+})
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -218,6 +277,11 @@ export type AuditOutcome = z.infer<typeof AuditOutcomeSchema>
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>
 export type ListAuditLogRequest = z.infer<typeof ListAuditLogRequestSchema>
 export type ListAuditLogResponse = z.infer<typeof ListAuditLogResponseSchema>
+export type AuditLogEntryDetail = z.infer<typeof AuditLogEntryDetailSchema>
+export type AuditLogFilter = z.infer<typeof AuditLogFilterSchema>
+export type AuditExportFormat = z.infer<typeof AuditExportFormatSchema>
+export type ExportAuditLogRequest = z.infer<typeof ExportAuditLogRequestSchema>
+export type ExportAuditLogResponse = z.infer<typeof ExportAuditLogResponseSchema>
 export type Role = z.infer<typeof RoleSchema>
 export type CreateRoleInput = z.infer<typeof CreateRoleSchema>
 export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequestSchema>

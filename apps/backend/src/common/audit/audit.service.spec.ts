@@ -351,8 +351,144 @@ describe("audit log reads", () => {
 
 	itDb("exposes no update or delete method", () => {
 		// The append-only rule is enforced by there being no other way in.
+		// ADM-3 added `get`, which only reads one entry.
 		const surface = Object.getOwnPropertyNames(AuditService.prototype)
-		expect(surface.sort()).toEqual(["constructor", "list", "record"])
+		expect(surface.sort()).toEqual(["constructor", "get", "list", "record"])
+	})
+})
+
+describe("audit log filters (ADM-3)", () => {
+	beforeEach(async () => {
+		if (!dbTests.ready) return
+		await db.delete(userRoles).where(eq(userRoles.userId, TEST_USER))
+	})
+
+	/** A Manila business date, YYYY-MM-DD, `offsetDays` from today. */
+	function manilaDate(offsetDays = 0): string {
+		const at = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000)
+		return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(at)
+	}
+
+	itDb("filters by action prefix and target", async () => {
+		const service = makeRbacService()
+		await service.assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		await service.removeRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+
+		// Earlier tests in this run wrote rows about TEST_USER too; count only this test's.
+		const fresh = (entries: { id: number; action: string }[]) =>
+			entries.filter(e => e.id > since).map(e => e.action)
+
+		const audit = new AuditService()
+		const removes = await audit.list({
+			limit: 50,
+			action: "role.remove",
+			targetType: "user",
+			targetId: TEST_USER,
+		})
+		expect(fresh(removes.entries)).toEqual(["role.remove"])
+		expect(removes.entries.every(e => e.action === "role.remove")).toBe(true)
+
+		const both = await audit.list({ limit: 50, action: "role.", targetId: TEST_USER })
+		expect(fresh(both.entries)).toEqual(["role.remove", "role.assign"])
+	})
+
+	itDb("filters by actor email, domain and outcome", async () => {
+		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+
+		const audit = new AuditService()
+		const mine = await audit.list({
+			limit: 50,
+			actor: `az4-actor-${RUN}`,
+			domain: AUDIT_DOMAIN_RBAC,
+			outcome: "success",
+			targetId: TEST_USER,
+		})
+		expect(mine.entries.length).toBeGreaterThan(0)
+		expect(mine.entries.every(e => e.actorId === TEST_ACTOR)).toBe(true)
+
+		const denied = await audit.list({ limit: 50, outcome: "denied", targetId: TEST_USER })
+		expect(denied.entries).toHaveLength(0)
+	})
+
+	itDb("filters by the role the actor held at the time", async () => {
+		const [role] = await db.select().from(roles).where(eq(roles.name, TEST_ROLE))
+		await db.insert(userRoles).values({ userId: TEST_ACTOR, roleId: role!.id })
+		try {
+			await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		} finally {
+			await db.delete(userRoles).where(eq(userRoles.userId, TEST_ACTOR))
+		}
+
+		const { entries } = await new AuditService().list({
+			limit: 50,
+			role: TEST_ROLE,
+			targetId: TEST_USER,
+		})
+		expect(entries.map(e => e.action)).toContain("role.assign")
+	})
+
+	itDb("filters by Manila date range, both days included", async () => {
+		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		const audit = new AuditService()
+
+		const today = await audit.list({
+			limit: 50,
+			from: manilaDate(),
+			to: manilaDate(),
+			targetId: TEST_USER,
+		})
+		expect(today.entries.length).toBeGreaterThan(0)
+
+		const beforeToday = await audit.list({ limit: 50, to: manilaDate(-1), targetId: TEST_USER })
+		expect(beforeToday.entries).toHaveLength(0)
+
+		const afterToday = await audit.list({ limit: 50, from: manilaDate(1), targetId: TEST_USER })
+		expect(afterToday.entries).toHaveLength(0)
+	})
+
+	itDb('finds System actions with actor "system"', async () => {
+		const target = `adm3-system-${RUN}`
+		await new AuditService().record({
+			domain: "booking.hold-expiry",
+			action: "booking.cancel",
+			actorId: null,
+			targetType: "booking",
+			targetId: target,
+		})
+
+		const { entries } = await new AuditService().list({
+			limit: 50,
+			actor: "system",
+			targetId: target,
+		})
+		expect(entries).toHaveLength(1)
+		expect(entries[0]!.actorId).toBeNull()
+	})
+
+	itDb("treats % and _ in the actor filter as plain text", async () => {
+		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+
+		const { entries } = await new AuditService().list({ limit: 50, actor: "%", targetId: TEST_USER })
+		expect(entries).toHaveLength(0)
+	})
+
+	itDb("opens one entry with IP address, device and hash", async () => {
+		await runWithRequestContext({ ipAddress: "198.51.100.4", userAgent: "adm3-test-agent" }, () =>
+			makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
+		)
+		const [stored] = await entriesFor(TEST_USER)
+
+		const entry = await new AuditService().get(stored!.id)
+		expect(entry).not.toBeNull()
+		expect(entry!.ipAddress).toBe("198.51.100.4")
+		expect(entry!.userAgent).toBe("adm3-test-agent")
+		expect(entry!.actorEmail).toBe(`az4-actor-${RUN}@test.local`)
+		expect(entry!.newValue).toEqual({ roleHeld: true, roleName: TEST_ROLE })
+		expect(entry!.entryHash).toBe(stored!.entryHash)
+	})
+
+	itDb("answers null for an entry that does not exist", async () => {
+		expect(await new AuditService().get(2_147_483_647)).toBeNull()
 	})
 })
 
