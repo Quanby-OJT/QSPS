@@ -59,7 +59,12 @@ import {
 import { db } from "@/common/database/database.client"
 import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
-import { PrivilegeGuardError, RbacService, type TransactionLike } from "@/common/rbac/rbac.service"
+import {
+	PrivilegeGuardError,
+	RbacService,
+	revokeSessionsAfterPrivilegeChange,
+	type TransactionLike,
+} from "@/common/rbac/rbac.service"
 import { denyOutsideScope } from "@/common/scope/scope-denial"
 import {
 	NATIONWIDE_SCOPE,
@@ -944,6 +949,8 @@ export class RbacAdminService {
 						.insert(userScopes)
 						.values(nextScopes.map(entry => ({ userId: current.id, ...entry })))
 				}
+				// AUTH-3: their access changed, so their sessions end.
+				await revokeSessionsAfterPrivilegeChange(tx, current.id, actorId)
 
 				await this.auditService.record(
 					{

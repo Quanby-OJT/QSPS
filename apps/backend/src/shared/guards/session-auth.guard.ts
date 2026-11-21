@@ -11,6 +11,7 @@ import { fromNodeHeaders } from "better-auth/node"
 import { getAuth } from "@repo/auth"
 
 import { ALLOW_WITHOUT_MFA_KEY } from "./allow-without-mfa"
+import { ALLOW_WITHOUT_PASSWORD_CHANGE_KEY } from "./allow-without-password-change"
 import {
 	resolveRequestSession,
 	type RequestSession,
@@ -71,6 +72,18 @@ const mfaEnrolmentRequired = () =>
 		message: "Set up two-factor authentication to continue.",
 	})
 
+/**
+ * AUTH-3: the account must set a new password first (staff password older than
+ * the rotation Policy). The web app reads `code` and opens the change screen.
+ */
+export const PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED"
+
+const passwordChangeRequired = () =>
+	new ForbiddenException({
+		code: PASSWORD_CHANGE_REQUIRED,
+		message: "Set a new password to continue.",
+	})
+
 const forbidden = () =>
 	new ForbiddenException({
 		code: "FORBIDDEN",
@@ -84,8 +97,10 @@ const forbidden = () =>
  * HTTP behavior matches that guard: the session and user are stored on the
  * request, then `@AllowAnonymous` / `@Public`, `@OptionalAuth`, `@Roles`,
  * `@OrgRoles`, `@UserHasPermission` and `@MemberHasPermission` are applied in
- * that order. Before the role checks, a staff account without two-factor
- * authentication is refused (AUTH-2) unless the route is `@AllowWithoutMfa`. Non-HTTP contexts deliberately fail closed with the HTTP 401
+ * that order. Before the role checks, an account that must set a new password
+ * is refused (AUTH-3) unless the route is `@AllowWithoutPasswordChange`, and a
+ * staff account without two-factor authentication is refused (AUTH-2) unless
+ * the route is `@AllowWithoutMfa`. Non-HTTP contexts deliberately fail closed with the HTTP 401
  * object. This API has no GraphQL, WebSocket or microservice entry points
  * today; adding one needs its own context handling in this guard.
  */
@@ -115,6 +130,15 @@ export class SessionAuthGuard implements CanActivate {
 		}
 		if (!session) {
 			throw unauthorized()
+		}
+
+		// AUTH-3: an account that must set a new password does that first. The
+		// change itself is a Better Auth route, which never reaches this guard.
+		if (
+			(session.user as { mustResetPassword?: unknown } | undefined)?.mustResetPassword === true &&
+			!this.reflector.getAllAndOverride<boolean>(ALLOW_WITHOUT_PASSWORD_CHANGE_KEY, handler)
+		) {
+			throw passwordChangeRequired()
 		}
 
 		// AUTH-2: MFA is mandatory for staff. Until it is set up, every route

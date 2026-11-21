@@ -3,7 +3,15 @@ import { ORPCError } from "@orpc/server"
 import { and, eq, isNull } from "drizzle-orm"
 
 import { ADMIN_ROLE, PERMISSION_NAMES, type MePermissions } from "@repo/contracts"
-import { permissions, rolePermissions, roles, userRoles, users, userScopes } from "@repo/db/schema"
+import {
+	permissions,
+	rolePermissions,
+	roles,
+	sessions,
+	userRoles,
+	users,
+	userScopes,
+} from "@repo/db/schema"
 
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -16,6 +24,20 @@ export type TransactionLike = Parameters<Parameters<typeof db.transaction>[0]>[0
 /**
  * A privileged change refused by a guard inside the transaction.
  */
+/**
+ * AUTH-3 session hardening: when someone else changes a user's privileges, the
+ * user's sessions end and they sign in again with the new access. Not when the
+ * user changes their own, which would sign the admin out mid-task.
+ */
+export async function revokeSessionsAfterPrivilegeChange(
+	tx: TransactionLike,
+	userId: string,
+	actorId: string | null
+): Promise<void> {
+	if (actorId === userId) return
+	await tx.delete(sessions).where(eq(sessions.userId, userId))
+}
+
 export class PrivilegeGuardError extends Error {
 	constructor(
 		readonly kind: "FORBIDDEN" | "CONFLICT",
@@ -247,6 +269,7 @@ export class RbacService {
 					.where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, role.id)))
 
 				await tx.insert(userRoles).values({ userId, roleId: role.id }).onConflictDoNothing()
+				if (!existing) await revokeSessionsAfterPrivilegeChange(tx, userId, actorId)
 
 				await this.auditService.record(
 					{
@@ -317,6 +340,7 @@ export class RbacService {
 					.delete(userRoles)
 					.where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, role.id)))
 					.returning()
+				if (removed.length > 0) await revokeSessionsAfterPrivilegeChange(tx, userId, actorId)
 
 				await this.auditService.record(
 					{

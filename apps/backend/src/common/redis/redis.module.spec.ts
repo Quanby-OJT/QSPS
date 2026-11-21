@@ -1,3 +1,4 @@
+import { setLockoutStore } from "@repo/auth/lockout-store"
 import { setAuthRateLimitStorage } from "@repo/auth/rate-limit-storage"
 
 import { RedisModule } from "@/common/redis/redis.module"
@@ -8,14 +9,23 @@ jest.mock("@repo/auth/rate-limit-storage", () => ({
 	setAuthRateLimitStorage: jest.fn(),
 }))
 
+jest.mock("@repo/auth/lockout-store", () => ({
+	...jest.requireActual("@repo/auth/lockout-store"),
+	setLockoutStore: jest.fn(),
+}))
+
 const register = setAuthRateLimitStorage as jest.MockedFunction<typeof setAuthRateLimitStorage>
+const registerLockout = setLockoutStore as jest.MockedFunction<typeof setLockoutStore>
 
 /**
  * RedisModule hands Better Auth's limiter the shared store, and takes it back
  * before the connection closes.
  */
 describe("RedisModule auth rate-limit registration", () => {
-	beforeEach(() => register.mockClear())
+	beforeEach(() => {
+		register.mockClear()
+		registerLockout.mockClear()
+	})
 
 	it("registers the auth storage when a client exists", async () => {
 		const client = { status: "ready" } as unknown as RedisClient
@@ -51,5 +61,24 @@ describe("RedisModule auth rate-limit registration", () => {
 
 		expect(register).toHaveBeenCalledWith(null)
 		expect(client.quit).toHaveBeenCalled()
+	})
+
+	it("registers the sign-in lockout store too (AUTH-3), and takes it back on shutdown", async () => {
+		const client = { status: "ready", quit: jest.fn().mockResolvedValue("OK") }
+		const module = new RedisModule(client as unknown as RedisClient)
+
+		await module.onModuleInit()
+		expect(registerLockout).toHaveBeenCalledWith(
+			expect.objectContaining({ lockedFor: expect.any(Function) })
+		)
+
+		await module.onApplicationShutdown()
+		expect(registerLockout).toHaveBeenLastCalledWith(null)
+	})
+
+	it("leaves the lockout store in memory without a client", async () => {
+		await new RedisModule(null).onModuleInit()
+
+		expect(registerLockout).not.toHaveBeenCalled()
 	})
 })
