@@ -79,10 +79,22 @@ export const rbacKeys = {
 }
 
 // ---------------------------------------------------------------- queries
-export function useRolesQuery() {
+/** A refused request (403) will not succeed on a retry. */
+function retryUnlessForbidden(failureCount: number, error: unknown): boolean {
+	if (error instanceof ApiError && error.status === 403) return false
+	return failureCount < 3
+}
+
+/**
+ * Needs users.roles:manage. Pass `enabled: false` when the caller lacks it,
+ * so no request (and no denied audit entry) is made at all.
+ */
+export function useRolesQuery(enabled = true) {
 	return useQuery({
 		queryKey: rbacKeys.roles,
 		queryFn: () => apiFetch<Role[]>("/rbac/roles"),
+		enabled,
+		retry: retryUnlessForbidden,
 	})
 }
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 
-import type { Role, ScopeEntryInput, UserWithRoles } from "@repo/contracts"
+import type { ScopeEntryInput, UserWithRoles } from "@repo/contracts"
 
 import { Button } from "@/core/components/ui/button"
 import { Checkbox } from "@/core/components/ui/checkbox"
@@ -31,18 +31,19 @@ import { ScopeEditor } from "@/features/user-management/components/scope-editor"
 interface StaffUserDialogProps {
 	open: boolean
 	onOpenChange: (open: boolean) => void
-	roles: Role[]
+	/** Role names the caller may give (ADM-2: a Module Admin gets only those below Module Admin). */
+	roleNames: string[]
 	user?: UserWithRoles
 }
 
-export function StaffUserDialog({ open, onOpenChange, roles, user }: StaffUserDialogProps) {
+export function StaffUserDialog({ open, onOpenChange, roleNames, user }: StaffUserDialogProps) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
 				{open ? (
 					<StaffUserForm
 						key={user?.id ?? "new-staff"}
-						roles={roles}
+						roleNames={roleNames}
 						user={user}
 						onClose={() => onOpenChange(false)}
 					/>
@@ -53,11 +54,11 @@ export function StaffUserDialog({ open, onOpenChange, roles, user }: StaffUserDi
 }
 
 function StaffUserForm({
-	roles,
+	roleNames,
 	user,
 	onClose,
 }: {
-	roles: Role[]
+	roleNames: string[]
 	user?: UserWithRoles
 	onClose: () => void
 }) {
@@ -142,7 +143,7 @@ function StaffUserForm({
 		}
 	}
 
-	const assignableRoles = roles.filter(r => r.name !== "Client")
+	const assignableRoles = roleNames.filter(name => name !== "Client")
 
 	return (
 		<>
@@ -183,16 +184,16 @@ function StaffUserForm({
 					<Field>
 						<FieldLabel>Roles</FieldLabel>
 						<div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
-							{assignableRoles.map(role => (
-								<Field key={role.id} orientation="horizontal">
+							{assignableRoles.map((roleName, index) => (
+								<Field key={roleName} orientation="horizontal">
 									<Checkbox
-										id={`staff-role-${role.id}`}
-										checked={selectedRoles.includes(role.name)}
-										onCheckedChange={checked => toggleRole(role.name, checked === true)}
+										id={`staff-role-${index}`}
+										checked={selectedRoles.includes(roleName)}
+										onCheckedChange={checked => toggleRole(roleName, checked === true)}
 										disabled={isPending}
 									/>
-									<FieldLabel htmlFor={`staff-role-${role.id}`} className="font-normal">
-										{role.name}
+									<FieldLabel htmlFor={`staff-role-${index}`} className="font-normal">
+										{roleName}
 									</FieldLabel>
 								</Field>
 							))}

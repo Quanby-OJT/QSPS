@@ -8,7 +8,14 @@ import { AuditLogPanel } from "@/features/user-management/components/audit-log-p
 import { RolesPanel } from "@/features/user-management/components/roles-panel"
 import { UsersPanel } from "@/features/user-management/components/users-panel"
 
-export function UserManagementView() {
+interface UserManagementViewProps {
+	/** users.roles:manage: the Roles tab, and adding or removing a user's roles. */
+	canManageRoles: boolean
+	/** audit.logs:read: the Audit log tab. */
+	canReadAudit: boolean
+}
+
+export function UserManagementView({ canManageRoles, canReadAudit }: UserManagementViewProps) {
 	return (
 		<section className="flex w-full flex-col gap-6">
 			<PageHeader
@@ -17,21 +24,25 @@ export function UserManagementView() {
 				description="Manage roles, permissions, and user assignments."
 			/>
 
-			<Tabs defaultValue="roles">
+			<Tabs defaultValue={canManageRoles ? "roles" : "users"}>
 				<TabsList>
-					<TabsTrigger value="roles">Roles</TabsTrigger>
+					{canManageRoles ? <TabsTrigger value="roles">Roles</TabsTrigger> : null}
 					<TabsTrigger value="users">Users</TabsTrigger>
-					<TabsTrigger value="audit">Audit log</TabsTrigger>
+					{canReadAudit ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
 				</TabsList>
-				<TabsContent value="roles" className="pt-4">
-					<RolesPanel />
-				</TabsContent>
+				{canManageRoles ? (
+					<TabsContent value="roles" className="pt-4">
+						<RolesPanel />
+					</TabsContent>
+				) : null}
 				<TabsContent value="users" className="pt-4">
-					<UsersPanel />
+					<UsersPanel canManageRoles={canManageRoles} />
 				</TabsContent>
-				<TabsContent value="audit" className="pt-4">
-					<AuditLogPanel />
-				</TabsContent>
+				{canReadAudit ? (
+					<TabsContent value="audit" className="pt-4">
+						<AuditLogPanel />
+					</TabsContent>
+				) : null}
 			</Tabs>
 		</section>
 	)
