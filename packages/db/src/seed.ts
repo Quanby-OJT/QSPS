@@ -94,6 +94,9 @@ async function seedDatabase() {
 			name: "Admin User",
 			email: "admin@qsps.local",
 			emailVerified: true,
+			// ADM-1: the seeded Super Admin is BOQ staff, so staff-only rules
+			// (AUTH-2 mandatory MFA) apply to it.
+			accountType: "staff",
 			image: null,
 			createdAt: now,
 			updatedAt: now,
@@ -226,6 +229,7 @@ async function seedDatabase() {
 							name: user.name,
 							email: user.email,
 							emailVerified: user.emailVerified,
+							accountType: user.accountType ?? "client",
 							image: user.image,
 							updatedAt: now,
 						},
