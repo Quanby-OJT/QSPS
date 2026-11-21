@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto"
 import { Injectable } from "@nestjs/common"
+import { randomUUID } from "node:crypto"
 import { ORPCError } from "@orpc/server"
 import { and, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm"
-
+import type { z } from "zod"
 
 import {
 	ADMIN_ROLE,
@@ -31,7 +31,6 @@ import {
 	type UserWithRoles,
 } from "@repo/contracts"
 import { permissions, rolePermissions, roles, sessions, userRoles, users } from "@repo/db/schema"
-import type { z } from "zod"
 
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -287,10 +286,7 @@ export class RbacAdminService {
 	}
 
 	// ---------------------------------------------------------------- users
-	async listUsers(
-		query: ListUsersRequest,
-		includeDirectory: boolean
-	): Promise<ListUsersResponse> {
+	async listUsers(query: ListUsersRequest, includeDirectory: boolean): Promise<ListUsersResponse> {
 		const { items } = await this.queryFilteredUsers(query, includeDirectory)
 		const total = items.length
 		const pageSize = query.pageSize ?? 20
@@ -307,9 +303,17 @@ export class RbacAdminService {
 		}
 	}
 
+	/**
+	 * Export the filtered user list as CSV, XLSX or PDF.
+	 *
+	 * A bulk export of personal data, so every export is audited (who, which
+	 * format and filters, how many rows) — never the names or emails exported,
+	 * and never the search text, which is often a person's name.
+	 */
 	async exportUsers(
 		query: ExportUsersRequest,
-		includeDirectory: boolean
+		includeDirectory: boolean,
+		actorId: string | null
 	): Promise<ExportUsersResponse> {
 		const { items } = await this.queryFilteredUsers(query, includeDirectory)
 		const rows = items.map(user => ({
@@ -337,6 +341,26 @@ export class RbacAdminService {
 			rows,
 		})
 
+		// Nothing to roll back: the export only reads, so the entry stands alone.
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_RBAC,
+			action: "user.export",
+			actorId,
+			targetType: "user",
+			targetId: null,
+			newValue: {
+				format: query.format,
+				filters: {
+					status: query.status ?? null,
+					accountType: query.accountType ?? null,
+					role: query.role ?? null,
+					search: Boolean(query.search),
+				},
+				includesEmails: includeDirectory,
+				rowCount: rows.length,
+			},
+		})
+
 		return {
 			fileName: exported.fileName,
 			mimeType: exported.mimeType,
@@ -344,10 +368,7 @@ export class RbacAdminService {
 		}
 	}
 
-	async createUser(
-		payload: CreateStaffUserInput,
-		actorId: string | null
-	): Promise<UserWithRoles> {
+	async createUser(payload: CreateStaffUserInput, actorId: string | null): Promise<UserWithRoles> {
 		const normalizedEmail = payload.email.trim().toLowerCase()
 		const uniqueRoleNames = Array.from(new Set(payload.roles))
 
@@ -359,10 +380,7 @@ export class RbacAdminService {
 				attempted: { accountType: "staff", roles: uniqueRoleNames },
 			},
 			async tx => {
-				const roleRows = await tx
-					.select()
-					.from(roles)
-					.where(inArray(roles.name, uniqueRoleNames))
+				const roleRows = await tx.select().from(roles).where(inArray(roles.name, uniqueRoleNames))
 
 				const foundRoleNames = new Set(roleRows.map(r => r.name))
 				const missingRoles = uniqueRoleNames.filter(name => !foundRoleNames.has(name))
@@ -458,10 +476,7 @@ export class RbacAdminService {
 		return createdUser
 	}
 
-	async updateUser(
-		payload: UpdateUserRequest,
-		actorId: string | null
-	): Promise<UserWithRoles> {
+	async updateUser(payload: UpdateUserRequest, actorId: string | null): Promise<UserWithRoles> {
 		const updated = await db.transaction(async tx => {
 			const [current] = await tx
 				.select()
@@ -498,11 +513,7 @@ export class RbacAdminService {
 
 			const [saved] =
 				changedFields.length > 0
-					? await tx
-							.update(users)
-							.set(updates)
-							.where(eq(users.id, current.id))
-							.returning()
+					? await tx.update(users).set(updates).where(eq(users.id, current.id)).returning()
 					: [current]
 
 			if (!saved) {

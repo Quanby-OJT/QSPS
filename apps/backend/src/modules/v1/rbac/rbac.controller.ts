@@ -103,7 +103,7 @@ export class RbacController {
 				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
 				: false
 
-			return this.rbacAdminService.exportUsers(input, includeDirectory)
+			return this.rbacAdminService.exportUsers(input, includeDirectory, actorId(session))
 		})
 	}
 

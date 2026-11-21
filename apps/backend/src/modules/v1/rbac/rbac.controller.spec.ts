@@ -1,6 +1,5 @@
-import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
-
 import type { RbacService } from "@/common/rbac/rbac.service"
+import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
 import type { RbacAdminService } from "./rbac-admin.service"
 import { RbacController } from "./rbac.controller"
@@ -90,12 +89,9 @@ describe("RbacController", () => {
 		)
 	})
 
-	it.each(["listUsers", "exportUsers"] as const)(
-		"requires users.accounts:read on %s",
-		handler => {
-			expect(requiredPermissions(handler)).toEqual(["users.accounts:read"])
-		}
-	)
+	it.each(["listUsers", "exportUsers"] as const)("requires users.accounts:read on %s", handler => {
+		expect(requiredPermissions(handler)).toEqual(["users.accounts:read"])
+	})
 
 	it.each(["createUser", "updateUser", "setUserStatus", "deleteUser"] as const)(
 		"requires users.accounts:manage on %s",
@@ -104,12 +100,9 @@ describe("RbacController", () => {
 		}
 	)
 
-	it.each(["assignRole", "removeRole"] as const)(
-		"requires users.roles:manage on %s",
-		handler => {
-			expect(requiredPermissions(handler)).toEqual(["users.roles:manage"])
-		}
-	)
+	it.each(["assignRole", "removeRole"] as const)("requires users.roles:manage on %s", handler => {
+		expect(requiredPermissions(handler)).toEqual(["users.roles:manage"])
+	})
 
 	it("requires audit.logs:read on listAuditLog", () => {
 		expect(requiredPermissions("listAuditLog")).toEqual(["audit.logs:read"])
@@ -123,7 +116,7 @@ describe("RbacController", () => {
 
 		handlerInput = { format: "csv" }
 		await controller.exportUsers({ user: { id: "auditor-1" } } as never)
-		expect(adminService.exportUsers).toHaveBeenCalledWith(handlerInput, false)
+		expect(adminService.exportUsers).toHaveBeenCalledWith(handlerInput, false, "auditor-1")
 	})
 
 	it("attributes staff user creation, updates, status changes, and soft-deletes to the actor", async () => {

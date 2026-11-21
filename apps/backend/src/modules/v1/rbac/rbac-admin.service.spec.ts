@@ -215,9 +215,20 @@ describe("RbacAdminService", () => {
 		expect(paged.total).toBe(1)
 		expect(paged.items[0]?.id).toBe("u-1")
 
-		const exported = await service.exportUsers({ format: "csv", role: "Cashier" }, true)
+		const exported = await service.exportUsers({ format: "csv", role: "Cashier" }, true, "admin-1")
 		expect(exported.fileName).toMatch(/^qsps-users-.*\.csv$/)
 		expect(Buffer.from(exported.contentBase64, "base64").toString("utf8")).toContain(
+			"clara@boq.gov.ph"
+		)
+
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "user.export",
+				actorId: "admin-1",
+				newValue: expect.objectContaining({ format: "csv", rowCount: 1 }),
+			})
+		)
+		expect(JSON.stringify(auditService.record.mock.calls.at(-1)?.[0])).not.toContain(
 			"clara@boq.gov.ph"
 		)
 	})
