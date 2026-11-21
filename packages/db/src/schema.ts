@@ -28,6 +28,10 @@ export const users = createTable("users", t => ({
 	/** Data Privacy Act consent: which notice version was accepted, and when. */
 	privacyNoticeVersion: t.text("privacy_notice_version"),
 	privacyAcceptedAt: t.timestamp("privacy_accepted_at"),
+	// QSPS (ADM-1). Staff invitation & lifecycle columns.
+	mustResetPassword: t.boolean("must_reset_password").notNull().default(false),
+	disabledAt: t.timestamp("disabled_at"),
+	deletedAt: t.timestamp("deleted_at"),
 }))
 
 export const sessions = createTable("sessions", t => ({

@@ -27,6 +27,7 @@ import { RbacService } from "@/common/rbac/rbac.service"
 import { runWithRequestContext } from "@/common/request-context/request-context"
 import { RbacAdminService } from "@/modules/v1/rbac/rbac-admin.service"
 import { bindDbBackedTests, bindSeededCases } from "@/testing/db-ready"
+import { ExportService } from "@/common/export/export.service"
 
 // The database, the schema and the transaction are all real — that is the
 // point. Only `@repo/contracts` is stubbed, matching the convention in the
@@ -138,7 +139,7 @@ function makeRbacService() {
 function makeAdminService() {
 	const cache = new RbacCacheService(null)
 	const audit = new AuditService()
-	return new RbacAdminService(new RbacService(cache, audit), cache, audit)
+	return new RbacAdminService(new RbacService(cache, audit), cache, audit, new ExportService())
 }
 
 /** Entries about `targetId` written during the current test, oldest first. */

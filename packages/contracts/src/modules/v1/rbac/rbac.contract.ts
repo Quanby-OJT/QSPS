@@ -4,25 +4,30 @@ import { z } from "zod"
 import {
 	AssignRoleRequestSchema,
 	CreateRoleSchema,
+	CreateStaffUserSchema,
 	DeleteRoleResponseSchema,
+	DeleteUserResponseSchema,
+	ExportUsersRequestSchema,
+	ExportUsersResponseSchema,
 	ListAuditLogRequestSchema,
 	ListAuditLogResponseSchema,
+	ListUsersRequestSchema,
+	ListUsersResponseSchema,
 	PermissionSchema,
 	RemoveRoleRequestSchema,
 	RoleIdSchema,
 	RoleSchema,
 	SetRolePermissionsRequestSchema,
+	SetUserStatusRequestSchema,
 	UpdateRoleRequestSchema,
+	UpdateUserRequestSchema,
+	UserIdParamSchema,
 	UserRoleMutationResponseSchema,
 	UserWithRolesSchema,
 } from "./rbac.schema.js"
 
 /**
- * RBAC administration contract.
- *
- * Reads require `audit.logs:read`, writes require `users.accounts:read` (enforced by the
- * backend RbacGuard). Permissions are a fixed catalog; this surface assigns
- * existing catalog permissions to roles, it does not mint new permissions.
+ * RBAC and User Management administration contract.
  */
 export const rbacContract = {
 	roles: {
@@ -99,10 +104,67 @@ export const rbacContract = {
 				method: "GET",
 				path: "/rbac/users",
 				summary: "List users",
-				description: "List all users with their assigned role names.",
+				description: "List users with search, filters, and paging.",
 				tags: ["RBAC"],
 			})
-			.output(z.array(UserWithRolesSchema)),
+			.input(ListUsersRequestSchema)
+			.output(ListUsersResponseSchema),
+
+		export: oc
+			.route({
+				method: "GET",
+				path: "/rbac/users/export",
+				summary: "Export user list",
+				description: "Export filtered users to CSV, XLSX, or PDF.",
+				tags: ["RBAC"],
+			})
+			.input(ExportUsersRequestSchema)
+			.output(ExportUsersResponseSchema),
+
+		create: oc
+			.route({
+				method: "POST",
+				path: "/rbac/users",
+				summary: "Create staff user",
+				description: "Create a staff account with assigned roles and trigger an invitation email.",
+				tags: ["RBAC"],
+			})
+			.input(CreateStaffUserSchema)
+			.output(UserWithRolesSchema),
+
+		update: oc
+			.route({
+				method: "PUT",
+				path: "/rbac/users/{userId}",
+				summary: "Update user",
+				description: "Update a user's profile details.",
+				tags: ["RBAC"],
+			})
+			.input(UpdateUserRequestSchema)
+			.output(UserWithRolesSchema),
+
+		setStatus: oc
+			.route({
+				method: "PUT",
+				path: "/rbac/users/{userId}/status",
+				summary: "Enable or disable user",
+				description: "Enable or disable a user account and revoke active sessions when disabled.",
+				tags: ["RBAC"],
+			})
+			.input(SetUserStatusRequestSchema)
+			.output(UserWithRolesSchema),
+
+		delete: oc
+			.route({
+				method: "DELETE",
+				path: "/rbac/users/{userId}",
+				summary: "Soft-delete user",
+				description:
+					"Soft-delete a user account, revoking sessions while retaining history and audit entries.",
+				tags: ["RBAC"],
+			})
+			.input(UserIdParamSchema)
+			.output(DeleteUserResponseSchema),
 
 		assignRole: oc
 			.route({
@@ -127,19 +189,13 @@ export const rbacContract = {
 			.output(UserRoleMutationResponseSchema),
 	},
 
-	/**
-	 * Append-only audit trail. Read-only by design: there is no
-	 * update or delete route here, and none may be added — a log the
-	 * application can rewrite is not evidence.
-	 */
 	audit: {
 		list: oc
 			.route({
 				method: "GET",
 				path: "/rbac/audit-log",
 				summary: "List audit log entries",
-				description:
-					"List privileged-mutation audit entries, newest first. Requires `users.roles:manage`.",
+				description: "List privileged-mutation audit entries, newest first.",
 				tags: ["RBAC"],
 			})
 			.input(ListAuditLogRequestSchema)

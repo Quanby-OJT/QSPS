@@ -4,11 +4,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
 	CreateRoleInput,
+	CreateStaffUserInput,
+	DeleteUserResponse,
+	ExportUsersRequest,
+	ExportUsersResponse,
 	ListAuditLogResponse,
+	ListUsersRequest,
+	ListUsersResponse,
 	PermissionCatalogEntry,
 	PermissionName,
 	Role,
+	SetUserStatusRequest,
 	UpdateRoleRequest,
+	UpdateUserRequest,
 	UserWithRoles,
 } from "@repo/contracts"
 
@@ -35,8 +43,6 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 		} catch {
 			// ignore non-JSON error bodies
 		}
-		// Throw a status-carrying ApiError (matching the todo mutations) so the
-		// shared 429 detection can classify rate limits and read Retry-After.
 		const retryAfterHeader =
 			response.headers.get("retry-after") ?? response.headers.get("x-retry-after")
 		const parsedRetryAfter = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : NaN
@@ -51,10 +57,22 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await response.json()) as T
 }
 
+function buildUserQueryString(params: Record<string, string | number | undefined>): string {
+	const searchParams = new URLSearchParams()
+	for (const [key, value] of Object.entries(params)) {
+		if (value !== undefined && value !== "") {
+			searchParams.set(key, String(value))
+		}
+	}
+	const qs = searchParams.toString()
+	return qs ? `?${qs}` : ""
+}
+
 export const rbacKeys = {
 	roles: ["rbac", "roles"] as const,
 	permissions: ["rbac", "permissions"] as const,
 	users: ["rbac", "users"] as const,
+	usersFiltered: (filters: Partial<ListUsersRequest>) => ["rbac", "users", filters] as const,
 	auditLog: ["rbac", "audit-log"] as const,
 }
 
@@ -74,20 +92,13 @@ export function usePermissionsQuery() {
 	})
 }
 
-export function useUsersQuery() {
+export function useUsersQuery(filters: Partial<ListUsersRequest> = {}) {
 	return useQuery({
-		queryKey: rbacKeys.users,
-		queryFn: () => apiFetch<UserWithRoles[]>("/rbac/users"),
+		queryKey: rbacKeys.usersFiltered(filters),
+		queryFn: () => apiFetch<ListUsersResponse>(`/rbac/users${buildUserQueryString(filters)}`),
 	})
 }
 
-/**
- * Privileged-mutation audit trail. Read-only: there is no
- * corresponding mutation hook, and none should be added.
- *
- * Note the `rbac` key root — the persistence allowlist already excludes it,
- * so these entries (which name actors and targets) never reach IndexedDB.
- */
 export function useAuditLogQuery(limit = 50) {
 	return useQuery({
 		queryKey: [...rbacKeys.auditLog, limit],
@@ -135,11 +146,93 @@ export function useDeleteRoleMutation() {
 	})
 }
 
+export function useCreateStaffUserMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: (payload: CreateStaffUserInput) =>
+			apiFetch<UserWithRoles>("/rbac/users", {
+				method: "POST",
+				body: JSON.stringify(payload),
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
+			queryClient.invalidateQueries({ queryKey: rbacKeys.roles })
+		},
+	})
+}
+
+export function useUpdateUserMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ userId, ...rest }: UpdateUserRequest) =>
+			apiFetch<UserWithRoles>(`/rbac/users/${encodeURIComponent(userId)}`, {
+				method: "PUT",
+				body: JSON.stringify(rest),
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
+		},
+	})
+}
+
+export function useSetUserStatusMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ userId, isActive }: SetUserStatusRequest) =>
+			apiFetch<UserWithRoles>(`/rbac/users/${encodeURIComponent(userId)}/status`, {
+				method: "PUT",
+				body: JSON.stringify({ isActive }),
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
+		},
+	})
+}
+
+export function useDeleteUserMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: (userId: string) =>
+			apiFetch<DeleteUserResponse>(`/rbac/users/${encodeURIComponent(userId)}`, {
+				method: "DELETE",
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
+			queryClient.invalidateQueries({ queryKey: rbacKeys.roles })
+		},
+	})
+}
+
+export function useExportUsersMutation() {
+	return useMutation({
+		mutationFn: async (params: ExportUsersRequest) => {
+			const res = await apiFetch<ExportUsersResponse>(
+				`/rbac/users/export${buildUserQueryString(params)}`
+			)
+			const binary = atob(res.contentBase64)
+			const bytes = new Uint8Array(binary.length)
+			for (let i = 0; i < binary.length; i++) {
+				bytes[i] = binary.charCodeAt(i)
+			}
+			const blob = new Blob([bytes], { type: res.mimeType })
+			const url = URL.createObjectURL(blob)
+			const link = document.createElement("a")
+			link.href = url
+			link.download = res.fileName
+			document.body.appendChild(link)
+			link.click()
+			link.remove()
+			URL.revokeObjectURL(url)
+			return res
+		},
+	})
+}
+
 export function useAssignRoleMutation() {
 	const queryClient = useQueryClient()
 	return useMutation({
 		mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
-			apiFetch(`/rbac/users/${userId}/roles`, {
+			apiFetch(`/rbac/users/${encodeURIComponent(userId)}/roles`, {
 				method: "POST",
 				body: JSON.stringify({ roleName }),
 			}),
@@ -154,7 +247,7 @@ export function useRemoveRoleMutation() {
 	const queryClient = useQueryClient()
 	return useMutation({
 		mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
-			apiFetch(`/rbac/users/${userId}/roles/${encodeURIComponent(roleName)}`, {
+			apiFetch(`/rbac/users/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleName)}`, {
 				method: "DELETE",
 			}),
 		onSuccess: () => {

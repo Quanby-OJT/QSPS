@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 
 import { ADMIN_ROLE, PERMISSION_NAMES, type MePermissions } from "@repo/contracts"
 import { permissions, rolePermissions, roles, userRoles, users } from "@repo/db/schema"
@@ -11,23 +11,15 @@ import { db } from "@/common/database/database.client"
 import { RbacCacheService, type ResolvedPermissionSet } from "./rbac-cache.service"
 
 /** The transaction handle Drizzle hands to `db.transaction`. */
-type TransactionLike = Parameters<Parameters<typeof db.transaction>[0]>[0]
+export type TransactionLike = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * A privileged change refused by a guard inside the transaction.
- *
- * Thrown from inside `db.transaction` so the refusal aborts the mutation, then
- * unwrapped outside it by {@link RbacService.runGuarded} — the denial entry has
- * to be written separately, because a row recorded inside the aborted
- * transaction would roll back with it and the refusal would leave no trace at
- * all.
  */
-class PrivilegeGuardError extends Error {
+export class PrivilegeGuardError extends Error {
 	constructor(
-		/** Which status the caller should see. */
 		readonly kind: "FORBIDDEN" | "CONFLICT",
 		message: string,
-		/** Recorded verbatim on the denial entry. */
 		readonly reason: string
 	) {
 		super(message)
@@ -112,12 +104,6 @@ export class RbacService {
 		return permissionsToCheck.filter(p => !this.matchPermission(set, p))
 	}
 
-	/**
-	 * Record a permission denial from `RbacGuard` (Flow A, step 3).
-	 *
-	 * Written on its own, not inside a transaction: a refused request has
-	 * nothing to roll back, and the entry is the evidence of who tried.
-	 */
 	async recordPermissionDenial(denial: {
 		actorId: string
 		route: string
@@ -148,16 +134,7 @@ export class RbacService {
 		}
 	}
 
-	/**
-	 * Whether a user holds the Admin role, read straight from the database.
-	 *
-	 * Deliberately not routed through {@link hasRole}: that consults the
-	 * in-process cache, and a privilege-tier decision must not be made from a
-	 * value that a stale or otherwise untrusted cache entry could supply. Reading inside
-	 * the caller's transaction also means the check sees the same snapshot as
-	 * the write it guards.
-	 */
-	private async holdsAdmin(tx: TransactionLike, candidateId: string): Promise<boolean> {
+	async holdsAdmin(tx: TransactionLike, candidateId: string): Promise<boolean> {
 		const [row] = await tx
 			.select({ userId: userRoles.userId })
 			.from(userRoles)
@@ -168,19 +145,56 @@ export class RbacService {
 	}
 
 	/**
-	 * Grant a role.
-	 *
-	 * The membership row and its audit entry are written in one
-	 * transaction, so a privileged grant can never commit unrecorded — if the
-	 * audit insert fails, the grant rolls back with it. The cache is
-	 * invalidated only after the commit, because invalidating earlier would let
-	 * a concurrent request repopulate it from a state that then rolled back.
-	 *
-	 * Granting Admin additionally requires the caller to hold
-	 * Admin. Without this, any `users.roles:manage` holder could grant themselves the
-	 * top tier — the permission that lets you manage users became the
-	 * permission that lets you become anyone.
+	 * Verifies that disabling or soft-deleting `targetUserId` neither allows a
+	 * non-Super Admin to deactivate a Super Admin nor leaves zero active Super
+	 * Admins in the system. Throws {@link PrivilegeGuardError} ("FORBIDDEN")
+	 * when violated so the outer guard records an audited denial and returns 403.
 	 */
+	async assertCanDeactivateUser(
+		tx: TransactionLike,
+		targetUserId: string,
+		actorId: string | null
+	): Promise<void> {
+		const [adminRole] = await tx.select().from(roles).where(eq(roles.name, ADMIN_ROLE))
+		if (!adminRole) return
+
+		const holders = await tx
+			.select({
+				userId: userRoles.userId,
+				disabledAt: users.disabledAt,
+				deletedAt: users.deletedAt,
+			})
+			.from(userRoles)
+			.innerJoin(users, eq(userRoles.userId, users.id))
+			.where(eq(userRoles.roleId, adminRole.id))
+			.for("update")
+
+		const targetIsAdmin = holders.some(h => h.userId === targetUserId)
+		if (!targetIsAdmin) return
+
+		const actorIsAdmin = actorId ? await this.holdsAdmin(tx, actorId) : false
+		if (!actorIsAdmin) {
+			throw new PrivilegeGuardError(
+				"FORBIDDEN",
+				"Only a Super Admin may disable or delete a Super Admin account",
+				"caller is not a Super Admin"
+			)
+		}
+
+		const activeHolders = holders.filter(
+			h => h.disabledAt === null && h.deletedAt === null
+		)
+		const targetIsCurrentlyActive = activeHolders.some(h => h.userId === targetUserId)
+
+		if (targetIsCurrentlyActive && activeHolders.length <= 1) {
+			throw new PrivilegeGuardError(
+				"FORBIDDEN",
+				"Cannot disable or delete the last active Super Admin",
+				"deactivation would leave zero active Super Admin holders"
+			)
+		}
+	}
+
 	async assignRole(userId: string, roleName: string, actorId: string | null): Promise<void> {
 		await this.runGuarded(
 			{
@@ -191,7 +205,10 @@ export class RbacService {
 				attempted: { roleName },
 			},
 			async tx => {
-				const [user] = await tx.select().from(users).where(eq(users.id, userId))
+				const [user] = await tx
+					.select()
+					.from(users)
+					.where(and(eq(users.id, userId), isNull(users.deletedAt)))
 				if (!user) throw new ORPCError("NOT_FOUND", { message: `User with ID ${userId} not found` })
 
 				const [role] = await tx.select().from(roles).where(eq(roles.name, roleName))
@@ -215,9 +232,6 @@ export class RbacService {
 
 				await tx.insert(userRoles).values({ userId, roleId: role.id }).onConflictDoNothing()
 
-				// A re-grant of a role the user already holds changes nothing, so
-				// it is recorded as a no-op rather than as a state transition.
-				// Silence would be worse: the attempt still happened.
 				await this.auditService.record(
 					{
 						domain: AUDIT_DOMAIN_RBAC,
@@ -237,14 +251,6 @@ export class RbacService {
 		await this.cacheService.invalidate(userId)
 	}
 
-	/**
-	 * Revoke a role. Same in-transaction audit guarantee as {@link assignRole}.
-	 *
-	 * Removing the last Admin is refused. The count is taken
-	 * **inside** the transaction and takes a row lock, which is what closes the
-	 * check-then-write race between concurrent requests, so at most one of
-	 * two concurrent removals succeeds.
-	 */
 	async removeRole(userId: string, roleName: string, actorId: string | null): Promise<void> {
 		await this.runGuarded(
 			{
@@ -255,17 +261,25 @@ export class RbacService {
 				attempted: { roleName },
 			},
 			async tx => {
-				const [user] = await tx.select().from(users).where(eq(users.id, userId))
+				const [user] = await tx
+					.select()
+					.from(users)
+					.where(and(eq(users.id, userId), isNull(users.deletedAt)))
 				if (!user) throw new ORPCError("NOT_FOUND", { message: `User with ID ${userId} not found` })
 
 				const [role] = await tx.select().from(roles).where(eq(roles.name, roleName))
 				if (!role) throw new ORPCError("NOT_FOUND", { message: `Role "${roleName}" not found` })
 
 				if (role.name === ADMIN_ROLE) {
-					// `FOR UPDATE` locks every Admin membership row for the rest of
-					// this transaction. A concurrent removal blocks here until we
-					// commit or roll back, then re-reads the real remaining count
-					// instead of a stale one.
+					const actorIsAdmin = actorId ? await this.holdsAdmin(tx, actorId) : false
+					if (!actorIsAdmin) {
+						throw new PrivilegeGuardError(
+							"FORBIDDEN",
+							"Only a Super Admin may remove the Super Admin role",
+							"caller is not a Super Admin"
+						)
+					}
+
 					const holders = await tx
 						.select({ userId: userRoles.userId })
 						.from(userRoles)
@@ -307,17 +321,7 @@ export class RbacService {
 		await this.cacheService.invalidate(userId)
 	}
 
-	/**
-	 * Run a privileged mutation, converting a guard rejection into an audited
-	 * denial and the right HTTP status.
-	 *
-	 * The guard runs inside the transaction so it reads the same snapshot as
-	 * the write it protects, but its rejection rolls that transaction back —
-	 * which would take the denial entry with it. So the denial is written
-	 * afterwards, on its own: a refused attempt has nothing to roll back, and
-	 * losing the record of who tried is worse than recording it separately.
-	 */
-	private async runGuarded(
+	async runGuarded(
 		context: {
 			action: string
 			actorId: string | null
@@ -343,11 +347,6 @@ export class RbacService {
 				reason: error.reason,
 			})
 
-			// `ORPCError`, not a Nest exception: these methods run inside an oRPC
-			// handler, and oRPC does not understand Nest's HTTP exceptions — it
-			// wraps them as a 500, which would turn a deliberate refusal into an
-			// apparent server fault. `RbacAdminService` throws `ORPCError` for the
-			// same reason.
 			throw new ORPCError(error.kind, { message: error.message })
 		}
 	}

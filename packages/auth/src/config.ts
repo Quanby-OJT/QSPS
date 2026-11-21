@@ -323,6 +323,18 @@ export function createAuth() {
 					console.error("[mailer] password reset email failed:", err)
 				}
 			},
+			/**
+			 * ADM-1: a staff account is created with `must_reset_password` set and
+			 * an emailed set-password link. Completing any password reset clears the
+			 * flag. Runs from the reset itself, not a hook on the request: a reset
+			 * from the email link has no session, so the user comes from here.
+			 */
+			onPasswordReset: async ({ user }) => {
+				await db
+					.update(users)
+					.set({ mustResetPassword: false, updatedAt: new Date() })
+					.where(eq(users.id, user.id))
+			},
 		},
 		/**
 		 * QSPS columns on `users` that Better Auth reads or writes (AUTH-1).
@@ -340,6 +352,11 @@ export function createAuth() {
 				privacyAcceptedAt: { type: "date", required: false, input: false, returned: false },
 				accountType: { type: "string", required: false, input: false, defaultValue: "client" },
 				profileCompletedAt: { type: "date", required: false, input: false },
+				// ADM-1 account lifecycle. Server-set only; the two timestamps are not
+				// returned, so a session payload never discloses an account's status.
+				mustResetPassword: { type: "boolean", required: false, input: false, defaultValue: false },
+				disabledAt: { type: "date", required: false, input: false, returned: false },
+				deletedAt: { type: "date", required: false, input: false, returned: false },
 			},
 		},
 
@@ -408,6 +425,22 @@ export function createAuth() {
 			},
 			session: {
 				create: {
+					/**
+					 * ADM-1: disabled and soft-deleted accounts cannot sign in. Checked
+					 * when the session is created, so it covers every sign-in method
+					 * (password, Google) after the credentials were already verified.
+					 */
+					before: async session => {
+						const [account] = await db
+							.select({ disabledAt: users.disabledAt, deletedAt: users.deletedAt })
+							.from(users)
+							.where(eq(users.id, session.userId))
+						if (!account || account.disabledAt !== null || account.deletedAt !== null) {
+							throw new APIError("FORBIDDEN", {
+								message: "This account is disabled or no longer active.",
+							})
+						}
+					},
 					/** AUTH-1 audit: every new session is a sign-in. */
 					after: async session => {
 						await emitAuthEvent({ type: "session.created", userId: session.userId })

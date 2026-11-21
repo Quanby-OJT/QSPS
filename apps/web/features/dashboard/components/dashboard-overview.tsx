@@ -94,7 +94,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 					<StatCard
 						icon={UserGroupIcon}
 						label="Users"
-						value={users.data?.length}
+						value={users.data?.total}
 						hint="Across all roles"
 						isLoading={isQueryLoading(users)}
 						isError={users.isError}

@@ -11,14 +11,6 @@ import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interc
 
 import { RbacAdminService } from "./rbac-admin.service"
 
-/**
- * The user to attribute a privileged mutation to.
- *
- * Null rather than throwing: every route here already requires a permission,
- * so an absent session means the guard let something through and the safer
- * outcome is an entry recording that the actor was unknown, not a lost audit
- * row.
- */
 function actorId(session?: UserSession): string | null {
 	return session?.user?.id ?? null
 }
@@ -31,7 +23,6 @@ export class RbacController {
 	) {}
 
 	// ---------------------------------------------------------------- roles
-	// Every role and role-membership route needs `users.roles:manage` (FND-2).
 	@RequirePermissions("users.roles:manage")
 	@Implement(v1.rbac.roles.list)
 	async listRoles() {
@@ -90,19 +81,69 @@ export class RbacController {
 	}
 
 	// ---------------------------------------------------------------- users
-	// The LIST needs `users.accounts:read`; the EMAIL ADDRESSES additionally
-	// need `users.accounts:manage`. Splitting them means a read-only holder does
-	// not get the full email directory.
 	@RequirePermissions("users.accounts:read")
 	@Implement(v1.rbac.users.list)
 	async listUsers(@Session() session?: UserSession) {
-		return implement(v1.rbac.users.list).handler(async () => {
+		return implement(v1.rbac.users.list).handler(async ({ input }) => {
 			const userId = session?.user?.id
 			const includeDirectory = userId
 				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
 				: false
 
-			return this.rbacAdminService.listUsers(includeDirectory)
+			return this.rbacAdminService.listUsers(input, includeDirectory)
+		})
+	}
+
+	@RequirePermissions("users.accounts:read")
+	@Implement(v1.rbac.users.export)
+	async exportUsers(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.export).handler(async ({ input }) => {
+			const userId = session?.user?.id
+			const includeDirectory = userId
+				? await this.rbacService.hasPermission(userId, "users.accounts:manage")
+				: false
+
+			return this.rbacAdminService.exportUsers(input, includeDirectory, actorId(session))
+		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("users.accounts:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.rbac.users.create)
+	async createUser(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.create).handler(async ({ input }) => {
+			return this.rbacAdminService.createUser(input, actorId(session))
+		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("users.accounts:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.rbac.users.update)
+	async updateUser(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.update).handler(async ({ input }) => {
+			return this.rbacAdminService.updateUser(input, actorId(session))
+		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("users.accounts:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.rbac.users.setStatus)
+	async setUserStatus(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.setStatus).handler(async ({ input }) => {
+			return this.rbacAdminService.setUserStatus(input, actorId(session))
+		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("users.accounts:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.rbac.users.delete)
+	async deleteUser(@Session() session?: UserSession) {
+		return implement(v1.rbac.users.delete).handler(async ({ input }) => {
+			return this.rbacAdminService.deleteUser(input.userId, actorId(session))
 		})
 	}
 
@@ -127,8 +168,6 @@ export class RbacController {
 	}
 
 	// ------------------------------------------------------------ audit log
-	// Read-only by design. There is deliberately no update or
-	// delete route for `audit_log`, and none may be added.
 	@RequirePermissions("audit.logs:read")
 	@Implement(v1.rbac.audit.list)
 	async listAuditLog() {
