@@ -104,10 +104,16 @@ export function usePermissionsQuery() {
 	})
 }
 
-export function useUsersQuery(filters: Partial<ListUsersRequest> = {}) {
+/**
+ * Needs users.accounts:read. Pass `enabled: false` when the caller lacks it,
+ * so no request (and no denied audit entry) is made at all.
+ */
+export function useUsersQuery(filters: Partial<ListUsersRequest> = {}, enabled = true) {
 	return useQuery({
 		queryKey: rbacKeys.usersFiltered(filters),
 		queryFn: () => apiFetch<ListUsersResponse>(`/rbac/users${buildUserQueryString(filters)}`),
+		enabled,
+		retry: retryUnlessForbidden,
 	})
 }
 

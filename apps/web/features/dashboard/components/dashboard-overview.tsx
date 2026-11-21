@@ -34,9 +34,12 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 	const canCreateOwnBookings = canAccess(access, {
 		requiredPermission: "bookings.own:create",
 	})
+	const canManageRoles = canAccess(access, { requiredPermission: "users.roles:manage" })
 
-	const users = useUsersQuery()
-	const roles = useRolesQuery()
+	// Ask only for what the caller may read: a refused request is a 403 and a
+	// denied audit entry on every Dashboard visit (found in ADM-3 testing).
+	const users = useUsersQuery({}, canReadUsers)
+	const roles = useRolesQuery(canManageRoles)
 
 	// The persisted-cache restore pins `fetchStatus` to `idle`, so raw
 	// `isLoading` disagrees with the server render. See `useIsQueryLoading`.
@@ -90,7 +93,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 			{canCreateOwnBookings ? <ClientLocationPicker /> : null}
 
 			{canReadUsers ? (
-				<div className="grid gap-4 sm:grid-cols-2">
+				<div className={canManageRoles ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
 					<StatCard
 						icon={UserGroupIcon}
 						label="Users"
@@ -99,14 +102,16 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 						isLoading={isQueryLoading(users)}
 						isError={users.isError}
 					/>
-					<StatCard
-						icon={UserMultipleIcon}
-						label="Roles"
-						value={roles.data?.length}
-						hint="Defined in the workspace"
-						isLoading={isQueryLoading(roles)}
-						isError={roles.isError}
-					/>
+					{canManageRoles ? (
+						<StatCard
+							icon={UserMultipleIcon}
+							label="Roles"
+							value={roles.data?.length}
+							hint="Defined in the workspace"
+							isLoading={isQueryLoading(roles)}
+							isError={roles.isError}
+						/>
+					) : null}
 				</div>
 			) : null}
 

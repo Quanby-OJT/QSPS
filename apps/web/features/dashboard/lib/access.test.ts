@@ -135,6 +135,12 @@ describe("navItems", () => {
 					section: "Administration",
 					requiredPermission: "schedules.slots:manage",
 				}),
+				expect.objectContaining({
+					label: "Audit log",
+					href: "/audit-log",
+					section: "Administration",
+					requiredPermission: "audit.logs:read",
+				}),
 			])
 		)
 	})
@@ -178,6 +184,13 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Schedules"])
 
+		// ADM-3: the Audit log link needs audit.logs:read.
+		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["audit.logs:read"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Audit log"])
+
 		expect(
 			getAccessibleNavItems({ roles: ["Super Admin"], permissions: [] }).map(item => item.label)
 		).toEqual([
@@ -189,6 +202,7 @@ describe("navItems", () => {
 			"Locations",
 			"Services",
 			"Schedules",
+			"Audit log",
 		])
 	})
 
@@ -198,6 +212,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/locations")).toBe("Locations")
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
+		expect(getDashboardRouteTitle("/audit-log")).toBe("Audit log")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
