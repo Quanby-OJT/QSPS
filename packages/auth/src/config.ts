@@ -7,17 +7,26 @@ import { z } from "zod"
 
 import { PRIVACY_NOTICE_VERSION, type RoleName } from "@repo/contracts"
 import { createDBClient } from "@repo/db/client"
-import { accounts, roles, sessions, userRoles, users, verifications } from "@repo/db/schema"
+import {
+	accounts,
+	roles,
+	sessions,
+	twoFactors,
+	userRoles,
+	users,
+	verifications,
+} from "@repo/db/schema"
 
 import { isApiDocsEnabled } from "./api-docs.js"
 import { emitAuthEvent } from "./auth-events.js"
 import { authLogger } from "./auth-logger.js"
-import { buildAuthPlugins } from "./auth-plugins.js"
+import { buildAuthPlugins, MFA_EMAIL_CODE_MINUTES } from "./auth-plugins.js"
 import { AUTH_CLIENT_ADDRESS_HEADER } from "./client-address.js"
 import { cookieDomainSchema } from "./cookie-domain-schema.js"
 import { booleanFromEnv } from "./mailer/bool-schema.js"
 import { sendMail } from "./mailer/send-mail.js"
 import { buildResetPasswordEmail } from "./mailer/templates/reset-password-email.js"
+import { buildTwoFactorCodeEmail } from "./mailer/templates/two-factor-code-email.js"
 import { buildVerificationEmail } from "./mailer/templates/verification-email.js"
 import { createTransport } from "./mailer/transport-factory.js"
 import { parseOriginList } from "./origin-list.js"
@@ -176,6 +185,7 @@ export function createAuth() {
 						sessions,
 						accounts,
 						verifications,
+						twoFactors,
 					},
 					usePlural: true,
 				})(options)
@@ -572,7 +582,32 @@ export function createAuth() {
 		 * `isApiDocsEnabled` — the same rule the backend uses for Scalar and
 		 * `spec.json` — so the two cannot disagree.
 		 */
-		plugins: buildAuthPlugins(isApiDocsEnabled(process.env.NODE_ENV, authEnv.ENABLE_API_DOCS)),
+		plugins: buildAuthPlugins(isApiDocsEnabled(process.env.NODE_ENV, authEnv.ENABLE_API_DOCS), {
+			/**
+			 * AUTH-2: the emailed one-time sign-in code. Unlike a reset link, a
+			 * failure here is surfaced: the user is already past the password
+			 * and waiting for this code, so a silent failure would strand them.
+			 * The message stays generic; the transport error goes to the log.
+			 */
+			sendTwoFactorOtp: async ({ email, otp }) => {
+				const message = buildTwoFactorCodeEmail({ code: otp, minutes: MFA_EMAIL_CODE_MINUTES })
+				try {
+					await sendMail(transporter, mailFrom, {
+						to: email,
+						subject: message.subject,
+						html: message.html,
+						text: message.text,
+					})
+				} catch (err) {
+					// eslint-disable-next-line no-console -- transport failure is logged server-side and never returned
+					console.error("[mailer] sign-in code email failed:", err)
+					throw new APIError("INTERNAL_SERVER_ERROR", {
+						message:
+							"The sign-in code could not be sent. Please try again or use your authenticator app.",
+					})
+				}
+			},
+		}),
 	})
 }
 
