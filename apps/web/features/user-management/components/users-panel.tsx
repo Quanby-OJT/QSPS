@@ -70,6 +70,37 @@ import { StaffUserDialog } from "@/features/user-management/components/staff-use
 
 const ALL_VALUE = "__all__"
 
+/**
+ * Labels for the filter dropdowns. Passed to `Select` as `items` so the
+ * trigger shows the label of the chosen option, never the raw value
+ * (it used to print "__all__").
+ */
+const STATUS_ITEMS = {
+	[ALL_VALUE]: "Active & disabled",
+	active: "Active only",
+	disabled: "Disabled only",
+	deleted: "Deleted (archived)",
+} as const
+
+const ACCOUNT_TYPE_ITEMS = {
+	[ALL_VALUE]: "All account types",
+	staff: "Staff",
+	client: "Client",
+} as const
+
+/** BOQ status colours (UI-1): green active, grey disabled, red deleted. */
+const STATUS_BADGE: Record<UserAccountStatus, string> = {
+	active: "border-success/30 bg-success/10 text-success",
+	disabled: "border-border bg-muted text-muted-foreground",
+	deleted: "border-destructive/30 bg-destructive/10 text-destructive",
+}
+
+const STATUS_LABEL: Record<UserAccountStatus, string> = {
+	active: "Active",
+	disabled: "Disabled",
+	deleted: "Deleted",
+}
+
 export function UsersPanel() {
 	const [search, setSearch] = useState("")
 	const [roleFilter, setRoleFilter] = useState<string>(ALL_VALUE)
@@ -111,6 +142,13 @@ export function UsersPanel() {
 	const [actionError, setActionError] = useState<string | null>(null)
 
 	const allRoleNames = useMemo(() => (roles ?? []).map(role => role.name), [roles])
+	const roleItems = useMemo(
+		() => ({
+			[ALL_VALUE]: "All roles",
+			...Object.fromEntries(allRoleNames.map(name => [name, name])),
+		}),
+		[allRoleNames]
+	)
 
 	function openCreateStaff() {
 		setEditingUser(undefined)
@@ -159,7 +197,8 @@ export function UsersPanel() {
 		<div className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<div>
-					<h2 className="text-lg font-semibold">Users</h2>
+					<div className="bg-gold mb-2 h-1 w-10 rounded-full" />
+					<h2 className="text-lg font-bold tracking-tight">Users</h2>
 					<p className="text-muted-foreground text-sm">
 						Create staff accounts, assign roles, manage status, and export user records.
 					</p>
@@ -219,14 +258,15 @@ export function UsersPanel() {
 				</div>
 
 				<Select
+					items={roleItems}
 					value={roleFilter}
 					onValueChange={val => {
 						setRoleFilter(val ?? ALL_VALUE)
 						setPage(1)
 					}}
 				>
-					<SelectTrigger className="w-full">
-						<SelectValue>{roleFilter === ALL_VALUE ? "All roles" : roleFilter}</SelectValue>
+					<SelectTrigger className="w-full" aria-label="Filter by role">
+						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={ALL_VALUE}>All roles</SelectItem>
@@ -239,22 +279,15 @@ export function UsersPanel() {
 				</Select>
 
 				<Select
+					items={STATUS_ITEMS}
 					value={statusFilter}
 					onValueChange={val => {
 						setStatusFilter(val ?? ALL_VALUE)
 						setPage(1)
 					}}
 				>
-					<SelectTrigger className="w-full">
-						<SelectValue>
-							{statusFilter === "active"
-								? "Active only"
-								: statusFilter === "disabled"
-									? "Disabled only"
-									: statusFilter === "deleted"
-										? "Deleted (archived)"
-										: "Active & disabled"}
-						</SelectValue>
+					<SelectTrigger className="w-full" aria-label="Filter by status">
+						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={ALL_VALUE}>Active & disabled</SelectItem>
@@ -265,20 +298,15 @@ export function UsersPanel() {
 				</Select>
 
 				<Select
+					items={ACCOUNT_TYPE_ITEMS}
 					value={accountTypeFilter}
 					onValueChange={val => {
 						setAccountTypeFilter(val ?? ALL_VALUE)
 						setPage(1)
 					}}
 				>
-					<SelectTrigger className="w-full">
-						<SelectValue>
-							{accountTypeFilter === "staff"
-								? "Staff"
-								: accountTypeFilter === "client"
-									? "Client"
-									: "All account types"}
-						</SelectValue>
+					<SelectTrigger className="w-full" aria-label="Filter by account type">
+						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={ALL_VALUE}>All account types</SelectItem>
@@ -307,7 +335,7 @@ export function UsersPanel() {
 			{users.length > 0 ? (
 				<div className="overflow-x-auto rounded-lg border">
 					<Table>
-						<TableHeader>
+						<TableHeader className="bg-muted/50">
 							<TableRow>
 								<TableHead>User</TableHead>
 								<TableHead>Type</TableHead>
@@ -329,21 +357,20 @@ export function UsersPanel() {
 											<div className="text-muted-foreground text-xs">{user.email}</div>
 										</TableCell>
 										<TableCell className="align-top">
-											<Badge variant={user.accountType === "staff" ? "secondary" : "outline"}>
-												{user.accountType}
+											<Badge
+												variant="outline"
+												className={
+													user.accountType === "staff"
+														? "bg-navy text-navy-foreground border-navy"
+														: undefined
+												}
+											>
+												{user.accountType === "staff" ? "Staff" : "Client"}
 											</Badge>
 										</TableCell>
 										<TableCell className="align-top">
-											<Badge
-												variant={
-													user.status === "active"
-														? "default"
-														: user.status === "disabled"
-															? "secondary"
-															: "destructive"
-												}
-											>
-												{user.status}
+											<Badge variant="outline" className={STATUS_BADGE[user.status]}>
+												{STATUS_LABEL[user.status]}
 											</Badge>
 										</TableCell>
 										<TableCell className="align-top">
