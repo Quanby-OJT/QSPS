@@ -21,6 +21,15 @@ describe("auth events", () => {
 		expect(listener).toHaveBeenCalledWith({ type: "session.created", userId: "u1" })
 	})
 
+	it("passes MFA events through with their method (AUTH-2)", async () => {
+		const listener = vi.fn()
+		setAuthEventListener(listener)
+
+		await emitAuthEvent({ type: "mfa.failed", userId: "u1", method: "totp" })
+
+		expect(listener).toHaveBeenCalledWith({ type: "mfa.failed", userId: "u1", method: "totp" })
+	})
+
 	it("logs a failing listener instead of failing the auth flow", async () => {
 		const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
 		setAuthEventListener(() => {
