@@ -290,7 +290,7 @@ export class RbacService {
 
 					if (targetHolds && holders.length <= 1) {
 						throw new PrivilegeGuardError(
-							"FORBIDDEN",
+							"CONFLICT",
 							"Cannot remove the last Admin — at least one Admin must remain",
 							"removal would leave zero Admin holders"
 						)
