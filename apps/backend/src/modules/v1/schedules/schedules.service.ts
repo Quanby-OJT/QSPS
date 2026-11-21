@@ -15,6 +15,13 @@ import { locations, scheduleSlots, services } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { denyOutsideScope } from "@/common/scope/scope-denial"
+import {
+	inScope,
+	NATIONWIDE_SCOPE,
+	scopeCondition,
+	type ResolvedScope,
+} from "@/common/scope/scope-match"
 
 import {
 	eachDate,
@@ -84,21 +91,43 @@ function bookingCount(count: number): string {
 export class SchedulesService {
 	constructor(private readonly auditService: AuditService) {}
 
-	/** Every slot for a service at a location in one Manila month, disabled ones included. */
-	async listSlots(input: ListSlotsRequest): Promise<ScheduleSlot[]> {
+	/**
+	 * Every slot for a service at a location in one Manila month, disabled ones
+	 * included. ADM-2: empty when that service or location is outside the
+	 * caller's Scope.
+	 */
+	async listSlots(
+		input: ListSlotsRequest,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ScheduleSlot[]> {
 		const { start, end } = manilaMonthRange(input.month)
-		return db
-			.select()
+		const inMonth = and(
+			eq(scheduleSlots.serviceId, input.serviceId),
+			eq(scheduleSlots.locationId, input.locationId),
+			gte(scheduleSlots.startsAt, start),
+			lt(scheduleSlots.startsAt, end)
+		)
+
+		// No limit: the plain query, without the join the Scope check needs.
+		if (scope.nationwide) {
+			return db.select().from(scheduleSlots).where(inMonth).orderBy(asc(scheduleSlots.startsAt))
+		}
+
+		const rows = await db
+			.select({ slot: scheduleSlots })
 			.from(scheduleSlots)
+			.innerJoin(services, eq(scheduleSlots.serviceId, services.id))
 			.where(
 				and(
-					eq(scheduleSlots.serviceId, input.serviceId),
-					eq(scheduleSlots.locationId, input.locationId),
-					gte(scheduleSlots.startsAt, start),
-					lt(scheduleSlots.startsAt, end)
+					inMonth,
+					scopeCondition(scope, {
+						serviceCategoryId: services.serviceCategoryId,
+						locationId: scheduleSlots.locationId,
+					})
 				)
 			)
 			.orderBy(asc(scheduleSlots.startsAt))
+		return rows.map(({ slot }) => slot)
 	}
 
 	/**
@@ -137,7 +166,8 @@ export class SchedulesService {
 	async generateSlots(
 		input: GenerateSlotsInput,
 		actorId: string | null,
-		now: Date = new Date()
+		now: Date = new Date(),
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<GenerateSlotsResponse> {
 		if (input.startDate < manilaDateOf(now)) {
 			throw new ORPCError("BAD_REQUEST", { message: "Start date cannot be in the past" })
@@ -157,11 +187,28 @@ export class SchedulesService {
 
 		return db.transaction(async tx => {
 			const [service] = await tx
-				.select({ id: services.id, name: services.name, isActive: services.isActive })
+				.select({
+					id: services.id,
+					name: services.name,
+					isActive: services.isActive,
+					serviceCategoryId: services.serviceCategoryId,
+				})
 				.from(services)
 				.where(eq(services.id, input.serviceId))
 			if (!service) {
 				throw new ORPCError("NOT_FOUND", { message: `Service "${input.serviceId}" was not found` })
+			}
+			if (!inScope(scope, { serviceCategoryId: service.serviceCategoryId })) {
+				await denyOutsideScope(
+					this.auditService,
+					actorId,
+					{
+						type: "service",
+						id: service.id,
+						notFoundMessage: `Service "${input.serviceId}" was not found`,
+					},
+					{ serviceCategoryId: service.serviceCategoryId }
+				)
 			}
 			if (!service.isActive) {
 				throw new ORPCError("CONFLICT", {
@@ -177,6 +224,20 @@ export class SchedulesService {
 				throw new ORPCError("NOT_FOUND", {
 					message: `Location "${input.locationId}" was not found`,
 				})
+			}
+			if (
+				!inScope(scope, { serviceCategoryId: service.serviceCategoryId, locationId: location.id })
+			) {
+				await denyOutsideScope(
+					this.auditService,
+					actorId,
+					{
+						type: "location",
+						id: location.id,
+						notFoundMessage: `Location "${input.locationId}" was not found`,
+					},
+					{ serviceCategoryId: service.serviceCategoryId, locationId: location.id }
+				)
 			}
 			if (!location.isActive) {
 				throw new ORPCError("CONFLICT", {
@@ -234,7 +295,8 @@ export class SchedulesService {
 	/** Change capacity. It may not go below the bookings already made. */
 	async updateSlotCapacity(
 		input: UpdateSlotCapacityRequest,
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<ScheduleSlot> {
 		return db.transaction(async tx => {
 			// Locked so a booking cannot take a place between this check and the update.
@@ -246,6 +308,7 @@ export class SchedulesService {
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Schedule slot "${input.id}" was not found` })
 			}
+			await this.requireSlotInScope(tx, current, actorId, scope)
 			if (input.capacity < current.bookedCount) {
 				throw new ORPCError("CONFLICT", {
 					message: `Capacity cannot be lower than the ${bookingCount(current.bookedCount)} already made for this slot.`,
@@ -282,13 +345,15 @@ export class SchedulesService {
 	/** Disable or re-enable a slot. Existing bookings are not touched. */
 	async setSlotDisabled(
 		input: SetSlotDisabledRequest,
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<ScheduleSlot> {
 		return db.transaction(async tx => {
 			const [current] = await tx.select().from(scheduleSlots).where(eq(scheduleSlots.id, input.id))
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Schedule slot "${input.id}" was not found` })
 			}
+			await this.requireSlotInScope(tx, current, actorId, scope)
 
 			const [updated] = await tx
 				.update(scheduleSlots)
@@ -318,7 +383,11 @@ export class SchedulesService {
 	}
 
 	/** Delete a slot that nobody has booked. A booked slot is disabled instead. */
-	async deleteSlot(id: number, actorId: string | null): Promise<{ success: true; id: number }> {
+	async deleteSlot(
+		id: number,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<{ success: true; id: number }> {
 		return db.transaction(async tx => {
 			// Locked so a booking cannot land on the slot while it is being deleted.
 			const [current] = await tx
@@ -329,6 +398,7 @@ export class SchedulesService {
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Schedule slot "${id}" was not found` })
 			}
+			await this.requireSlotInScope(tx, current, actorId, scope)
 			if (current.bookedCount > 0) {
 				throw new ORPCError("CONFLICT", {
 					message: `This slot has ${bookingCount(current.bookedCount)} and cannot be deleted. Disable it instead.`,
@@ -351,6 +421,35 @@ export class SchedulesService {
 			)
 			return { success: true as const, id: current.id }
 		})
+	}
+
+	/** ADM-2: a slot outside the caller's Scope answers like a missing one. */
+	private async requireSlotInScope(
+		tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+		slot: SlotRow,
+		actorId: string | null,
+		scope: ResolvedScope
+	): Promise<void> {
+		if (scope.nationwide) return
+		const [service] = await tx
+			.select({ serviceCategoryId: services.serviceCategoryId })
+			.from(services)
+			.where(eq(services.id, slot.serviceId))
+		// The foreign key means the service exists; the guard keeps the type honest.
+		const record = service
+			? { serviceCategoryId: service.serviceCategoryId, locationId: slot.locationId }
+			: { locationId: slot.locationId }
+		if (inScope(scope, record)) return
+		await denyOutsideScope(
+			this.auditService,
+			actorId,
+			{
+				type: "schedule_slot",
+				id: slot.id,
+				notFoundMessage: `Schedule slot "${slot.id}" was not found`,
+			},
+			record
+		)
 	}
 
 	private auditValue(slot: SlotRow) {

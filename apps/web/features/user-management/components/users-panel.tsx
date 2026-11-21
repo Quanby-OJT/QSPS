@@ -12,11 +12,12 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
-import type {
-	UserAccountStatus,
-	UserAccountType,
-	UserExportFormat,
-	UserWithRoles,
+import {
+	MODULE_ADMIN_ASSIGNABLE_ROLES,
+	type UserAccountStatus,
+	type UserAccountType,
+	type UserExportFormat,
+	type UserWithRoles,
 } from "@repo/contracts"
 
 import {
@@ -101,7 +102,12 @@ const STATUS_LABEL: Record<UserAccountStatus, string> = {
 	deleted: "Deleted",
 }
 
-export function UsersPanel() {
+interface UsersPanelProps {
+	/** users.roles:manage, decided on the server (ADM-2). */
+	canManageRoles: boolean
+}
+
+export function UsersPanel({ canManageRoles }: UsersPanelProps) {
 	const [search, setSearch] = useState("")
 	const [roleFilter, setRoleFilter] = useState<string>(ALL_VALUE)
 	const [statusFilter, setStatusFilter] = useState<string>(ALL_VALUE)
@@ -123,7 +129,9 @@ export function UsersPanel() {
 	const usersQuery = useUsersQuery({ ...activeFilters, page, pageSize })
 	const { data, isError, error } = usersQuery
 	const users = data?.items ?? []
-	const { data: roles } = useRolesQuery()
+	// ADM-2: a Module Admin cannot read roles (no users.roles:manage), so the
+	// list is not requested. They may still give the roles below Module Admin.
+	const { data: roles } = useRolesQuery(canManageRoles)
 
 	const isQueryLoading = useIsQueryLoading()
 
@@ -141,7 +149,11 @@ export function UsersPanel() {
 	const [userToDelete, setUserToDelete] = useState<UserWithRoles | null>(null)
 	const [actionError, setActionError] = useState<string | null>(null)
 
-	const allRoleNames = useMemo(() => (roles ?? []).map(role => role.name), [roles])
+	const allRoleNames = useMemo(
+		() =>
+			canManageRoles ? (roles ?? []).map(role => role.name) : [...MODULE_ADMIN_ASSIGNABLE_ROLES],
+		[roles, canManageRoles]
+	)
 	const roleItems = useMemo(
 		() => ({
 			[ALL_VALUE]: "All roles",
@@ -341,7 +353,7 @@ export function UsersPanel() {
 								<TableHead>Type</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead>Roles</TableHead>
-								<TableHead className="w-44">Assign role</TableHead>
+								{canManageRoles ? <TableHead className="w-44">Assign role</TableHead> : null}
 								<TableHead className="w-0 text-right">Actions</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -379,7 +391,7 @@ export function UsersPanel() {
 													{user.roles.map(roleName => (
 														<Badge key={roleName} variant="outline" className="gap-1 pr-1">
 															{roleName}
-															{!isDeleted ? (
+															{!isDeleted && canManageRoles ? (
 																<button
 																	type="button"
 																	onClick={() => removeRole.mutate({ userId: user.id, roleName })}
@@ -401,33 +413,35 @@ export function UsersPanel() {
 												<span className="text-muted-foreground text-xs">No roles</span>
 											)}
 										</TableCell>
-										<TableCell className="align-top">
-											<Select
-												value={null}
-												onValueChange={value => {
-													if (typeof value === "string") {
-														assignRole.mutate({ userId: user.id, roleName: value })
+										{canManageRoles ? (
+											<TableCell className="align-top">
+												<Select
+													value={null}
+													onValueChange={value => {
+														if (typeof value === "string") {
+															assignRole.mutate({ userId: user.id, roleName: value })
+														}
+													}}
+													disabled={
+														isDeleted ||
+														available.length === 0 ||
+														assignRole.isPending ||
+														assignRateLimit.isActive
 													}
-												}}
-												disabled={
-													isDeleted ||
-													available.length === 0 ||
-													assignRole.isPending ||
-													assignRateLimit.isActive
-												}
-											>
-												<SelectTrigger size="sm" className="w-full">
-													<SelectValue>Add role</SelectValue>
-												</SelectTrigger>
-												<SelectContent>
-													{available.map(name => (
-														<SelectItem key={name} value={name}>
-															{name}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-										</TableCell>
+												>
+													<SelectTrigger size="sm" className="w-full">
+														<SelectValue>Add role</SelectValue>
+													</SelectTrigger>
+													<SelectContent>
+														{available.map(name => (
+															<SelectItem key={name} value={name}>
+																{name}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</TableCell>
+										) : null}
 										<TableCell className="align-top">
 											{!isDeleted ? (
 												<div className="flex items-center justify-end gap-1">
@@ -509,7 +523,7 @@ export function UsersPanel() {
 			<StaffUserDialog
 				open={dialogOpen}
 				onOpenChange={setDialogOpen}
-				roles={roles ?? []}
+				roleNames={allRoleNames}
 				user={editingUser}
 			/>
 

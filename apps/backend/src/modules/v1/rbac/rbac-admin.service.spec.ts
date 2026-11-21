@@ -24,6 +24,7 @@ jest.mock("@repo/auth", () => ({
 jest.mock("@repo/contracts", () => ({
 	ADMIN_ROLE: "Super Admin",
 	PERMISSION_NAMES: ["users.accounts:read", "users.accounts:manage", "users.roles:manage"],
+	MODULE_ADMIN_ASSIGNABLE_ROLES: ["Processing Officer", "Cashier", "Collecting Officer"],
 }))
 
 jest.mock("@orpc/server", () => ({
@@ -288,6 +289,145 @@ describe("RbacAdminService", () => {
 				newValue: { status: "deleted" },
 			}),
 			tx
+		)
+	})
+
+	it("ADM-2: refuses a Module Admin giving a role above Module Admin, and audits the denial", async () => {
+		const insert = jest.fn()
+		let selectCall = 0
+		mockTransaction({
+			select: jest.fn().mockImplementation(() => {
+				selectCall += 1
+				// 1: the requested roles exist. 2: the actor holds neither Super Admin nor System Admin.
+				return selectCall === 1
+					? { from: () => ({ where: () => Promise.resolve([{ id: 2, name: "System Admin" }]) }) }
+					: {
+							from: () => ({
+								innerJoin: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+							}),
+						}
+			}),
+			insert,
+		})
+
+		await expect(
+			service.createUser(
+				{ name: "Jose Rizal", email: "jose@boq.gov.ph", roles: ["System Admin"] },
+				"module-admin-1"
+			)
+		).rejects.toMatchObject({ code: "FORBIDDEN" })
+
+		expect(insert).not.toHaveBeenCalled()
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "user.create",
+				outcome: "denied",
+				actorId: "module-admin-1",
+				reason: "role above Module Admin: System Admin",
+			})
+		)
+	})
+
+	it("ADM-2: a scoped admin lists only staff whose Scope sits inside their own", async () => {
+		const now = new Date("2026-11-19T00:00:00.000Z")
+		const row = (id: string, name: string) => ({
+			id,
+			name,
+			email: `${id}@boq.gov.ph`,
+			accountType: "staff",
+			disabledAt: null,
+			deletedAt: null,
+			createdAt: now,
+		})
+		const userRows = [
+			row("cebu", "A Cebu Officer"),
+			row("manila", "B Manila Officer"),
+			row("sysadmin", "C Admin"),
+		]
+		const roleRows = [
+			{ userId: "cebu", name: "Processing Officer" },
+			{ userId: "manila", name: "Processing Officer" },
+			{ userId: "sysadmin", name: "System Admin" },
+		]
+		const scopeRows = [
+			{ userId: "cebu", serviceCategoryId: 1, locationId: 10 },
+			{ userId: "manila", serviceCategoryId: 1, locationId: 20 },
+		]
+
+		let callIdx = 0
+		jest.mocked(db.select).mockImplementation(() => {
+			callIdx += 1
+			if (callIdx === 1) {
+				return {
+					from: () => ({ where: () => ({ orderBy: () => Promise.resolve(userRows) }) }),
+				} as never
+			}
+			if (callIdx === 2) {
+				return {
+					from: () => ({ innerJoin: () => ({ where: () => Promise.resolve(roleRows) }) }),
+				} as never
+			}
+			return { from: () => ({ where: () => Promise.resolve(scopeRows) }) } as never
+		})
+
+		const listed = await service.listUsers({ page: 1, pageSize: 10 }, true, {
+			nationwide: false,
+			entries: [{ serviceCategoryId: null, locationId: 10 }],
+		})
+
+		expect(listed.items.map(user => user.id)).toEqual(["cebu"])
+	})
+
+	it("ADM-2: a scoped admin must give a new staff account at least one scope", async () => {
+		await expect(
+			service.createUser(
+				{ name: "Jose Rizal", email: "jose@boq.gov.ph", roles: ["Cashier"] },
+				"module-admin-1",
+				{ nationwide: false, entries: [{ serviceCategoryId: null, locationId: 10 }] }
+			)
+		).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		expect(db.transaction).not.toHaveBeenCalled()
+	})
+
+	it("ADM-2: refuses scopes outside the caller's own, audits it, and changes nothing", async () => {
+		// Each select resolves to the next result, in the order the service asks.
+		const results: unknown[][] = [
+			[{ id: "u-9", accountType: "staff" }], // the target user
+			[{ name: "Processing Officer" }], // the target's roles
+			[{ serviceCategoryId: 1, locationId: 10 }], // the target's scope: inside the caller's
+			[{ id: 1 }], // the requested category exists
+			[{ id: 20 }], // the requested location exists
+		]
+		const next = () => Promise.resolve(results.shift() ?? [])
+		const remove = jest.fn()
+		const insert = jest.fn()
+		mockTransaction({
+			select: jest.fn().mockImplementation(() => ({
+				from: () => ({ where: next, innerJoin: () => ({ where: next }) }),
+			})),
+			delete: remove,
+			insert,
+		})
+
+		await expect(
+			service.setUserScopes(
+				{ userId: "u-9", scopes: [{ serviceCategoryId: 1, locationId: 20 }] },
+				"module-admin-1",
+				{ nationwide: false, entries: [{ serviceCategoryId: null, locationId: 10 }] }
+			)
+		).rejects.toMatchObject({ code: "FORBIDDEN" })
+
+		expect(remove).not.toHaveBeenCalled()
+		expect(insert).not.toHaveBeenCalled()
+		expect(cacheService.invalidate).not.toHaveBeenCalled()
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "user.scopes.set",
+				outcome: "denied",
+				actorId: "module-admin-1",
+				targetId: "u-9",
+				reason: "scope outside the caller's scope",
+			})
 		)
 	})
 

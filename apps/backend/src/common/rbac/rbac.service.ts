@@ -3,7 +3,7 @@ import { ORPCError } from "@orpc/server"
 import { and, eq, isNull } from "drizzle-orm"
 
 import { ADMIN_ROLE, PERMISSION_NAMES, type MePermissions } from "@repo/contracts"
-import { permissions, rolePermissions, roles, userRoles, users } from "@repo/db/schema"
+import { permissions, rolePermissions, roles, userRoles, users, userScopes } from "@repo/db/schema"
 
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -49,9 +49,19 @@ export class RbacService {
 			.leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
 			.where(eq(userRoles.userId, userId))
 
+		// ADM-2: Scope is resolved with the permissions it limits, and cached with them.
+		const scopes = await db
+			.select({
+				serviceCategoryId: userScopes.serviceCategoryId,
+				locationId: userScopes.locationId,
+			})
+			.from(userScopes)
+			.where(eq(userScopes.userId, userId))
+
 		const set: ResolvedPermissionSet = {
 			roleNames: new Set<string>(),
 			permissionNames: new Set<string>(),
+			scopes,
 		}
 
 		for (const row of rows) {
@@ -61,6 +71,14 @@ export class RbacService {
 
 		await this.cacheService.set(userId, set)
 		return set
+	}
+
+	/**
+	 * The user's roles, permissions and Scope rows, from the cache when present.
+	 * `ScopeService` reads Scope through here so both share one cache entry.
+	 */
+	async getResolvedAccess(userId: string): Promise<ResolvedPermissionSet> {
+		return this.resolveForUser(userId)
 	}
 
 	private static readonly permissionCatalog = new Set<string>(PERMISSION_NAMES)
@@ -181,9 +199,7 @@ export class RbacService {
 			)
 		}
 
-		const activeHolders = holders.filter(
-			h => h.disabledAt === null && h.deletedAt === null
-		)
+		const activeHolders = holders.filter(h => h.disabledAt === null && h.deletedAt === null)
 		const targetIsCurrentlyActive = activeHolders.some(h => h.userId === targetUserId)
 
 		if (targetIsCurrentlyActive && activeHolders.length <= 1) {

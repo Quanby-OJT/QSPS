@@ -14,9 +14,11 @@ import type {
 	PermissionCatalogEntry,
 	PermissionName,
 	Role,
+	ScopeEntryInput,
 	SetUserStatusRequest,
 	UpdateRoleRequest,
 	UpdateUserRequest,
+	UserScopes,
 	UserWithRoles,
 } from "@repo/contracts"
 
@@ -77,10 +79,22 @@ export const rbacKeys = {
 }
 
 // ---------------------------------------------------------------- queries
-export function useRolesQuery() {
+/** A refused request (403) will not succeed on a retry. */
+function retryUnlessForbidden(failureCount: number, error: unknown): boolean {
+	if (error instanceof ApiError && error.status === 403) return false
+	return failureCount < 3
+}
+
+/**
+ * Needs users.roles:manage. Pass `enabled: false` when the caller lacks it,
+ * so no request (and no denied audit entry) is made at all.
+ */
+export function useRolesQuery(enabled = true) {
 	return useQuery({
 		queryKey: rbacKeys.roles,
 		queryFn: () => apiFetch<Role[]>("/rbac/roles"),
+		enabled,
+		retry: retryUnlessForbidden,
 	})
 }
 
@@ -96,6 +110,19 @@ export function useUsersQuery(filters: Partial<ListUsersRequest> = {}) {
 	return useQuery({
 		queryKey: rbacKeys.usersFiltered(filters),
 		queryFn: () => apiFetch<ListUsersResponse>(`/rbac/users${buildUserQueryString(filters)}`),
+	})
+}
+
+/**
+ * ADM-2: a staff user's Scope. Needs users.scopes:manage, so callers without
+ * it get a 403; the query does not retry that.
+ */
+export function useUserScopesQuery(userId: string | undefined) {
+	return useQuery({
+		queryKey: [...rbacKeys.users, userId, "scopes"] as const,
+		queryFn: () => apiFetch<UserScopes>(`/rbac/users/${encodeURIComponent(userId ?? "")}/scopes`),
+		enabled: Boolean(userId),
+		retry: false,
 	})
 }
 
@@ -168,6 +195,21 @@ export function useUpdateUserMutation() {
 			apiFetch<UserWithRoles>(`/rbac/users/${encodeURIComponent(userId)}`, {
 				method: "PUT",
 				body: JSON.stringify(rest),
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
+		},
+	})
+}
+
+/** ADM-2: replace a staff user's Scope. */
+export function useSetUserScopesMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ userId, scopes }: { userId: string; scopes: ScopeEntryInput[] }) =>
+			apiFetch<UserScopes>(`/rbac/users/${encodeURIComponent(userId)}/scopes`, {
+				method: "PUT",
+				body: JSON.stringify({ scopes }),
 			}),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: rbacKeys.users })

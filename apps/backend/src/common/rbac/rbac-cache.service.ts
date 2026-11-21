@@ -2,15 +2,26 @@ import { Inject, Injectable, Logger } from "@nestjs/common"
 
 import { REDIS_CLIENT, type RedisClient } from "@/common/redis/redis.provider"
 
+/**
+ * One `user_scopes` row (ADM-2). A null column means "all" on that dimension.
+ */
+export type ScopeEntry = {
+	serviceCategoryId: number | null
+	locationId: number | null
+}
+
 export type ResolvedPermissionSet = {
 	roleNames: Set<string>
 	permissionNames: Set<string>
+	/** The user's Scope rows (ADM-2), cached with the permissions they qualify. */
+	scopes: ScopeEntry[]
 }
 
 /** Wire format — Sets do not survive JSON. */
 type SerializedPermissionSet = {
 	roleNames: string[]
 	permissionNames: string[]
+	scopes: ScopeEntry[]
 }
 
 /** Seconds an entry may live. Matches the previous in-memory TTL. */
@@ -55,10 +66,14 @@ export class RbacCacheService {
 			const raw = await this.redis.get(`${USER_KEY}${userId}`)
 			if (!raw) return undefined
 
-			const parsed = JSON.parse(raw) as SerializedPermissionSet
+			const parsed = JSON.parse(raw) as Partial<SerializedPermissionSet>
+			// An entry written before ADM-2 has no scopes. Treat it as a miss so
+			// the caller reloads both from the database instead of guessing.
+			if (!Array.isArray(parsed.scopes)) return undefined
 			return {
 				roleNames: new Set(parsed.roleNames),
 				permissionNames: new Set(parsed.permissionNames),
+				scopes: parsed.scopes,
 			}
 		} catch {
 			// Unreachable, or a value this version cannot read. Either way the
@@ -73,6 +88,7 @@ export class RbacCacheService {
 		const payload: SerializedPermissionSet = {
 			roleNames: [...value.roleNames],
 			permissionNames: [...value.permissionNames],
+			scopes: value.scopes,
 		}
 
 		try {
@@ -84,7 +100,8 @@ export class RbacCacheService {
 	}
 
 	/**
-	 * Drop one user's entry, after a change to their role assignments.
+	 * Drop one user's entry, after a change to their role assignments or their
+	 * Scope (ADM-2).
 	 *
 	 * Throws when the store is reachable but rejects the delete. Callers invoke
 	 * this **after** the mutation has committed, so a silent failure would

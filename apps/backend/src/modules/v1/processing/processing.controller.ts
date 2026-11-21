@@ -1,8 +1,9 @@
-import { Controller, UseInterceptors } from "@nestjs/common"
+import { Controller, Inject, Optional, UseInterceptors } from "@nestjs/common"
 import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
+import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interceptor"
@@ -23,21 +24,29 @@ function actorId(session?: UserSession): string | null {
  */
 @Controller()
 export class ProcessingController {
-	constructor(private readonly processingService: ProcessingService) {}
+	constructor(
+		private readonly processingService: ProcessingService,
+		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver
+	) {}
+
+	/** ADM-2: the queue and item routes work inside the caller's Scope. */
+	private async scopeOf(session?: UserSession) {
+		return this.scopeResolver ? this.scopeResolver.resolve(actorId(session)) : NO_SCOPE
+	}
 
 	@RequirePermissions("processing.queue:read")
 	@Implement(v1.processing.queue)
 	async queue(@Session() session?: UserSession) {
-		return implement(v1.processing.queue).handler(({ input }) =>
-			this.processingService.queue(input, actorId(session))
+		return implement(v1.processing.queue).handler(async ({ input }) =>
+			this.processingService.queue(input, actorId(session), new Date(), await this.scopeOf(session))
 		)
 	}
 
 	@RequirePermissions("processing.queue:read")
 	@Implement(v1.processing.item)
 	async item(@Session() session?: UserSession) {
-		return implement(v1.processing.item).handler(({ input }) =>
-			this.processingService.item(input, actorId(session))
+		return implement(v1.processing.item).handler(async ({ input }) =>
+			this.processingService.item(input, actorId(session), await this.scopeOf(session))
 		)
 	}
 
@@ -55,8 +64,8 @@ export class ProcessingController {
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.processing.open)
 	async open(@Session() session?: UserSession) {
-		return implement(v1.processing.open).handler(({ input }) =>
-			this.processingService.open(input, actorId(session))
+		return implement(v1.processing.open).handler(async ({ input }) =>
+			this.processingService.open(input, actorId(session), await this.scopeOf(session))
 		)
 	}
 
@@ -66,8 +75,8 @@ export class ProcessingController {
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.processing.assess)
 	async assess(@Session() session?: UserSession) {
-		return implement(v1.processing.assess).handler(({ input }) =>
-			this.processingService.assess(input, actorId(session))
+		return implement(v1.processing.assess).handler(async ({ input }) =>
+			this.processingService.assess(input, actorId(session), await this.scopeOf(session))
 		)
 	}
 }

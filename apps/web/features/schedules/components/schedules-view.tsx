@@ -9,7 +9,7 @@ import type { ScheduleSlot } from "@repo/contracts"
 import { PageHeader } from "@/core/components/page-header"
 import { Button } from "@/core/components/ui/button"
 import { Label } from "@/core/components/ui/label"
-import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
+import { useLocationsQuery } from "@/features/locations/api/locations.hooks"
 import { useScheduleSlotsQuery } from "@/features/schedules/api/schedules.hooks"
 import { GenerateSlotsDialog } from "@/features/schedules/components/generate-slots-dialog"
 import { SlotDialog } from "@/features/schedules/components/slot-dialog"
@@ -23,7 +23,7 @@ import {
 	slotTimeRange,
 	WEEKDAY_LABELS,
 } from "@/features/schedules/lib/calendar"
-import { useAvailableServicesQuery } from "@/features/services/api/services.hooks"
+import { useServicesQuery } from "@/features/services/api/services.hooks"
 
 const selectClassName =
 	"border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-lg border px-3 text-sm focus-visible:ring-[3px]"
@@ -51,8 +51,18 @@ function slotStatus(slot: ScheduleSlot): string {
  * see the month's slots, generate new ones, and edit, disable or delete a slot.
  */
 export function SchedulesView() {
-	const services = useAvailableServicesQuery()
-	const locations = useAvailableLocationsQuery()
+	// ADM-2: the staff lists, which are limited to the caller's Scope, not the
+	// public pickers. Only active ones can take new slots.
+	const servicesQuery = useServicesQuery()
+	const locationsQuery = useLocationsQuery()
+	const serviceList = useMemo(
+		() => servicesQuery.data?.filter(item => item.isActive),
+		[servicesQuery.data]
+	)
+	const locationList = useMemo(
+		() => locationsQuery.data?.filter(item => item.isActive),
+		[locationsQuery.data]
+	)
 
 	const [chosenServiceId, setChosenServiceId] = useState<number | null>(null)
 	const [chosenLocationId, setChosenLocationId] = useState<number | null>(null)
@@ -61,18 +71,18 @@ export function SchedulesView() {
 	const [selectedSlot, setSelectedSlot] = useState<ScheduleSlot | null>(null)
 
 	// Until the admin chooses, show the first service and location.
-	const serviceId = chosenServiceId ?? services.data?.[0]?.id ?? null
-	const locationId = chosenLocationId ?? locations.data?.[0]?.id ?? null
-	const service = services.data?.find(item => item.id === serviceId)
-	const location = locations.data?.find(item => item.id === locationId)
+	const serviceId = chosenServiceId ?? serviceList?.[0]?.id ?? null
+	const locationId = chosenLocationId ?? locationList?.[0]?.id ?? null
+	const service = serviceList?.find(item => item.id === serviceId)
+	const location = locationList?.find(item => item.id === locationId)
 
 	const slots = useScheduleSlotsQuery({ serviceId, locationId, month })
 	const slotsByDate = useMemo(() => groupSlotsByDate(slots.data ?? []), [slots.data])
 	const weeks = useMemo(() => monthGrid(month), [month])
 	const today = manilaDateKey(new Date())
 
-	const isLoadingPickers = services.isPending || locations.isPending
-	const pickerError = services.error ?? locations.error
+	const isLoadingPickers = servicesQuery.isPending || locationsQuery.isPending
+	const pickerError = servicesQuery.error ?? locationsQuery.error
 	const hasNothingToSchedule =
 		!isLoadingPickers && !pickerError && (serviceId === null || locationId === null)
 
@@ -105,8 +115,8 @@ export function SchedulesView() {
 						className="mt-3"
 						variant="outline"
 						onClick={() => {
-							void services.refetch()
-							void locations.refetch()
+							void servicesQuery.refetch()
+							void locationsQuery.refetch()
 						}}
 					>
 						Retry
@@ -130,7 +140,7 @@ export function SchedulesView() {
 								value={serviceId ?? ""}
 								onChange={event => setChosenServiceId(Number(event.target.value))}
 							>
-								{services.data?.map(item => (
+								{serviceList?.map(item => (
 									<option key={item.id} value={item.id}>
 										{item.name}
 									</option>
@@ -146,7 +156,7 @@ export function SchedulesView() {
 								value={locationId ?? ""}
 								onChange={event => setChosenLocationId(Number(event.target.value))}
 							>
-								{locations.data?.map(item => (
+								{locationList?.map(item => (
 									<option key={item.id} value={item.id}>
 										{item.name}
 									</option>

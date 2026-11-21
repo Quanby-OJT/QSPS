@@ -40,6 +40,23 @@ export const ADMIN_ROLE = "Super Admin" as const
 /** A valid role name. */
 export type RoleName = z.infer<typeof RoleNameSchema>
 
+/**
+ * Roles that act nationwide (ADM-2). DOMAIN-MODEL glossary: an empty Scope
+ * means nationwide and is reserved for these roles. Every other staff role
+ * sees only the Service Categories and Locations in its `user_scopes` rows.
+ */
+export const NATIONWIDE_ROLES: readonly RoleName[] = ["Super Admin", "System Admin", "Auditor"]
+
+/**
+ * Roles a Module Admin may give a staff account (ADM-2): only those below
+ * Module Admin. Super Admin and System Admin may give any role.
+ */
+export const MODULE_ADMIN_ASSIGNABLE_ROLES: readonly RoleName[] = [
+	"Processing Officer",
+	"Cashier",
+	"Collecting Officer",
+]
+
 // ---------------------------------------------------------------------------
 // Permission catalog
 // ---------------------------------------------------------------------------

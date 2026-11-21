@@ -12,6 +12,13 @@ import { serviceCategories, services } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { denyOutsideScope } from "@/common/scope/scope-denial"
+import {
+	inScope,
+	NATIONWIDE_SCOPE,
+	scopeCondition,
+	type ResolvedScope,
+} from "@/common/scope/scope-match"
 
 const AUDIT_DOMAIN_SERVICES = "services"
 
@@ -48,11 +55,13 @@ export class ServicesService {
 		return db.select().from(serviceCategories).orderBy(asc(serviceCategories.name))
 	}
 
-	async list(): Promise<Service[]> {
+	/** Staff list. ADM-2: limited to the Service Categories in the caller's Scope. */
+	async list(scope: ResolvedScope = NATIONWIDE_SCOPE): Promise<Service[]> {
 		const rows = await db
 			.select({ service: services, category: serviceCategories })
 			.from(services)
 			.innerJoin(serviceCategories, eq(services.serviceCategoryId, serviceCategories.id))
+			.where(scopeCondition(scope, { serviceCategoryId: services.serviceCategoryId }))
 			.orderBy(asc(serviceCategories.name), asc(services.name))
 		return rows.map(({ service, category }) => serviceResponse(service, category))
 	}
@@ -67,7 +76,11 @@ export class ServicesService {
 		return rows.map(({ service, category }) => serviceResponse(service, category))
 	}
 
-	async create(input: CreateServiceInput, actorId: string | null): Promise<Service> {
+	async create(
+		input: CreateServiceInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<Service> {
 		return db.transaction(async tx => {
 			const [category] = await tx
 				.select()
@@ -78,6 +91,7 @@ export class ServicesService {
 					message: `Service category "${input.serviceCategoryId}" was not found`,
 				})
 			}
+			await this.requireCategoryInScope(category.id, actorId, scope)
 
 			const [sameCode] = await tx
 				.select({ id: services.id })
@@ -126,12 +140,17 @@ export class ServicesService {
 		})
 	}
 
-	async update(input: UpdateServiceRequest, actorId: string | null): Promise<Service> {
+	async update(
+		input: UpdateServiceRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<Service> {
 		return db.transaction(async tx => {
 			const [current] = await tx.select().from(services).where(eq(services.id, input.id))
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Service "${input.id}" was not found` })
 			}
+			await this.requireServiceInScope(current, actorId, scope)
 
 			const serviceCategoryId = input.serviceCategoryId ?? current.serviceCategoryId
 			const [category] = await tx
@@ -143,6 +162,8 @@ export class ServicesService {
 					message: `Service category "${serviceCategoryId}" was not found`,
 				})
 			}
+			// Moving a service to another category needs that category in Scope too.
+			await this.requireCategoryInScope(category.id, actorId, scope)
 
 			const name = input.name ?? current.name
 			const [duplicate] = await tx
@@ -200,13 +221,15 @@ export class ServicesService {
 
 	async setActive(
 		input: { id: number; isActive: boolean },
-		actorId: string | null
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<Service> {
 		return db.transaction(async tx => {
 			const [current] = await tx.select().from(services).where(eq(services.id, input.id))
 			if (!current) {
 				throw new ORPCError("NOT_FOUND", { message: `Service "${input.id}" was not found` })
 			}
+			await this.requireServiceInScope(current, actorId, scope)
 
 			const [category] = await tx
 				.select()
@@ -243,6 +266,39 @@ export class ServicesService {
 			)
 			return serviceResponse(updated, category)
 		})
+	}
+
+	/** ADM-2: a service outside the caller's Scope answers like a missing one. */
+	private async requireServiceInScope(
+		service: ServiceRow,
+		actorId: string | null,
+		scope: ResolvedScope
+	): Promise<void> {
+		if (inScope(scope, { serviceCategoryId: service.serviceCategoryId })) return
+		await denyOutsideScope(
+			this.auditService,
+			actorId,
+			{ type: "service", id: service.id, notFoundMessage: `Service "${service.id}" was not found` },
+			{ serviceCategoryId: service.serviceCategoryId }
+		)
+	}
+
+	private async requireCategoryInScope(
+		serviceCategoryId: number,
+		actorId: string | null,
+		scope: ResolvedScope
+	): Promise<void> {
+		if (inScope(scope, { serviceCategoryId })) return
+		await denyOutsideScope(
+			this.auditService,
+			actorId,
+			{
+				type: "service_category",
+				id: serviceCategoryId,
+				notFoundMessage: `Service category "${serviceCategoryId}" was not found`,
+			},
+			{ serviceCategoryId }
+		)
 	}
 
 	private auditValue(service: ServiceRow) {
