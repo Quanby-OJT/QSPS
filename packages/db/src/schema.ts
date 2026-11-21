@@ -735,6 +735,26 @@ export const receipts = createTable("receipts", t => ({
 }))
 
 // ============================================================================
+// POLICIES
+// ============================================================================
+
+/**
+ * Admin-editable rule values (ADM-6). One row per Policy BOQ has changed; a
+ * key with no row reads its documented default from the policy registry in
+ * `@repo/contracts`. Written only by `PolicyService.set`, which records the
+ * old and new value in the audit trail in the same transaction.
+ */
+export const policies = createTable("policies", t => ({
+	id: t.serial("id").primaryKey(),
+	key: t.text("key").notNull().unique(),
+	value: t.jsonb("value").$type<unknown>().notNull(),
+	/** Who last changed it. Null only for a row written by the System. */
+	updatedBy: t.text("updated_by").references(() => users.id, { onDelete: "set null" }),
+	createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+}))
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -763,6 +783,7 @@ export const relations = defineRelations(
 		userScopes,
 		documents,
 		documentSequences,
+		policies,
 	},
 	r => ({
 		users: {
@@ -974,6 +995,7 @@ export const schema = Object.assign(
 		userScopes,
 		documents,
 		documentSequences,
+		policies,
 	},
 	relations
 )

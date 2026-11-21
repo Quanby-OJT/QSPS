@@ -30,9 +30,13 @@ export const env = createEnv({
 		THROTTLE_STRICT_TTL: z.coerce.number().int().positive().default(60000),
 		THROTTLE_STRICT_LIMIT: z.coerce.number().int().positive().default(10),
 
-		// Bookings: minutes an unpaid Booking holds its slot before it can be
-		// auto-cancelled. Read from env until the hold Policy is editable (ADM-6).
-		BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().default(60),
+		// Policy defaults (ADM-6). When set, each replaces the documented default
+		// of its Policy in the policy registry; a value stored on the policy
+		// screen wins over both. Unset means the registry default.
+		BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().optional(),
+		AUTH_LOCKOUT_THRESHOLD: z.coerce.number().int().positive().optional(),
+		AUTH_LOCKOUT_MINUTES: z.coerce.number().int().positive().optional(),
+		AUTH_STAFF_PASSWORD_MAX_AGE_DAYS: z.coerce.number().int().positive().optional(),
 
 		// Payments (PAY-1). The web app's base URL, where a gateway sends the
 		// client back after checkout (/payments/return).

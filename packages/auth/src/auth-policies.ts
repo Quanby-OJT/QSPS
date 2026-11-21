@@ -2,10 +2,11 @@
  * Sign-in security Policies (AUTH-3).
  *
  * DOMAIN-MODEL keys `auth.lockout_threshold`, `auth.lockout_minutes` and
- * `auth.staff_password_max_age_days` are read through `PolicyService`. That
- * service arrives with ADM-6; until then the values come from env. ADM-6 plugs
- * in with {@link setAuthPolicyReader} (same late binding as the audit
- * listener), and changing a value there needs `settings.policies:manage`.
+ * `auth.staff_password_max_age_days` are read through `PolicyService` (ADM-6),
+ * which the backend registers with {@link setAuthPolicyReader} at startup (same
+ * late binding as the audit listener). The env values are the fallback when no
+ * reader is registered or it fails. Changing a value needs
+ * `settings.policies:manage`.
  *
  * Free of `createEnv()` so it can be tested without auth configuration.
  */
@@ -26,7 +27,7 @@ export type AuthPolicyReader = () => Promise<Partial<AuthPolicies>>
 
 let reader: AuthPolicyReader | null = null
 
-/** ADM-6 registers `PolicyService` here. `null` goes back to the env defaults. */
+/** The backend registers `PolicyService` here (ADM-6). `null` goes back to the env defaults. */
 export function setAuthPolicyReader(next: AuthPolicyReader | null): void {
 	reader = next
 }

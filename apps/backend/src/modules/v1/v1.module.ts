@@ -8,6 +8,7 @@ import { HealthModule } from "./health/health.module"
 import { LocationsModule } from "./locations/locations.module"
 import { MeModule } from "./me/me.module"
 import { PaymentsModule } from "./payments/payments.module"
+import { PoliciesModule } from "./policies/policies.module"
 import { ProcessingModule } from "./processing/processing.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
 import { SchedulesModule } from "./schedules/schedules.module"
@@ -20,6 +21,7 @@ import { ServicesModule } from "./services/services.module"
 		LocationsModule,
 		MeModule,
 		PaymentsModule,
+		PoliciesModule,
 		ProcessingModule,
 		RbacAdminModule,
 		SchedulesModule,

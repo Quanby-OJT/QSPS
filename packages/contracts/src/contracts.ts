@@ -176,6 +176,36 @@ export type {
 	UpdateLocationRequest,
 } from "./modules/v1/locations/locations.schema.js"
 
+// Policy management contracts + registry + schemas (ADM-6)
+export { policiesContract } from "./modules/v1/policies/policies.contract.js"
+export {
+	POLICY_AREAS,
+	POLICY_AREA_LABELS,
+	POLICY_DEFINITIONS,
+	POLICY_KEYS,
+	getPolicyDefinition,
+	isPolicyKey,
+	policyValueSchema,
+	validatePolicyValue,
+} from "./modules/v1/policies/policies.registry.js"
+export type {
+	PolicyArea,
+	PolicyDefinition,
+	PolicyKey,
+	PolicyType,
+	PolicyValidation,
+	PolicyValue,
+	IntegerPolicyDefinition,
+	BooleanPolicyDefinition,
+} from "./modules/v1/policies/policies.registry.js"
+export {
+	PolicyKeySchema,
+	PolicyValueSchema,
+	PolicySchema,
+	UpdatePolicyRequestSchema,
+} from "./modules/v1/policies/policies.schema.js"
+export type { Policy, UpdatePolicyRequest } from "./modules/v1/policies/policies.schema.js"
+
 // RBAC administration contract + schemas
 export { rbacContract } from "./modules/v1/rbac/rbac.contract.js"
 export {

@@ -1,5 +1,6 @@
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import type { PolicyService } from "@/common/policy/policy.service"
 
 import { BookingService } from "./bookings.service"
 import { generateReferenceNumber } from "./reference-number"
@@ -21,9 +22,9 @@ jest.mock("@/common/database/database.client", () => ({
 	},
 }))
 
-// The hold comes from env until the hold Policy is editable (ADM-6).
-jest.mock("@/config/env.config", () => ({
-	env: { BOOKING_HOLD_MINUTES: 60 },
+// ADM-6: the hold comes from PolicyService; the real one needs the database and Redis.
+jest.mock("@/common/policy/policy.service", () => ({
+	PolicyService: jest.fn(),
 }))
 
 jest.mock("./reference-number", () => ({
@@ -32,6 +33,11 @@ jest.mock("./reference-number", () => ({
 
 /** Tuesday 17 November 2026, 15:00 in Manila. */
 const NOW = new Date("2026-11-17T07:00:00.000Z")
+
+/** A PolicyService that answers `booking.hold_minutes` with `holdMinutes`. */
+function policies(holdMinutes = 60) {
+	return { get: jest.fn().mockResolvedValue(holdMinutes) }
+}
 
 const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 	id: 7,
@@ -157,7 +163,10 @@ describe("BookingService.create", () => {
 		jest.clearAllMocks()
 		jest.mocked(generateReferenceNumber).mockReturnValue("QSPS-261117-AB12CD")
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
-		bookingService = new BookingService(auditService as unknown as AuditService)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
 	})
 
 	it("creates a pending_payment booking with one item and a Reference Number", async () => {
@@ -206,13 +215,29 @@ describe("BookingService.create", () => {
 		})
 	})
 
-	it("sets hold_expires_at from the hold setting: 60 minutes after booking", async () => {
+	it("sets hold_expires_at from the hold Policy: 60 minutes after booking by default", async () => {
 		const { bookingValues } = mockBookingTransaction()
 
 		await bookingService.create({ scheduleSlotId: 7 }, "client-1", NOW)
 
 		expect(bookingValues).toHaveBeenCalledWith(
 			expect.objectContaining({ holdExpiresAt: new Date("2026-11-17T08:00:00.000Z") })
+		)
+	})
+
+	it("uses a changed hold Policy for the next booking (ADM-6)", async () => {
+		const policyService = policies(90)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policyService as unknown as PolicyService
+		)
+		const { bookingValues } = mockBookingTransaction()
+
+		await bookingService.create({ scheduleSlotId: 7 }, "client-1", NOW)
+
+		expect(policyService.get).toHaveBeenCalledWith("booking.hold_minutes")
+		expect(bookingValues).toHaveBeenCalledWith(
+			expect.objectContaining({ holdExpiresAt: new Date("2026-11-17T08:30:00.000Z") })
 		)
 	})
 
@@ -398,7 +423,10 @@ describe("BookingService.markPaid", () => {
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
-		bookingService = new BookingService(auditService as unknown as AuditService)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
 	})
 
 	it("locks the booking, marks it paid, clears the hold and audits", async () => {
@@ -461,7 +489,10 @@ describe("BookingService.checkInItems (PRC-1)", () => {
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
-		bookingService = new BookingService(auditService as unknown as AuditService)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
 	})
 
 	it("checks in the booked items of a paid booking, under locks, with an audit entry each", async () => {
@@ -534,7 +565,10 @@ describe("BookingService.transitionItem (PRC-1)", () => {
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
-		bookingService = new BookingService(auditService as unknown as AuditService)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
 	})
 
 	const options = { actorId: "staff-1", allowedFrom: ["in_assessment"] as const, now: NOW }
@@ -625,7 +659,10 @@ describe("BookingService.completeIfAllItemsFinal (CRT-1)", () => {
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
-		bookingService = new BookingService(auditService as unknown as AuditService)
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
 	})
 
 	it("completes a paid booking when every item is final, under a lock, with an audit entry", async () => {
