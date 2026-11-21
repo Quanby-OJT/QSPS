@@ -180,33 +180,38 @@ export const rolePermissions = createTable(
 // ============================================================================
 
 /**
- * Append-only record of privileged mutations.
+ * Append-only record of user and System actions (FND-3, TOR §VIII.1).
  *
- * Owned by the `authz` epic. Rows are written **in the same transaction** as
- * the mutation they describe, so a failed insert rolls the mutation back and
- * the log can never disagree with the data. Other domains record events by
- * calling the audit service's helper — never by inserting here directly — so
- * that the append-only rule has exactly one enforcement point.
+ * Rows are written **in the same transaction** as the mutation they describe,
+ * so a failed insert rolls the mutation back and the log can never disagree
+ * with the data. Only `AuditService.record` inserts here (DOMAIN-MODEL §6).
  *
- * There is deliberately no `updatedAt`: a row that can be updated is not an
- * audit trail. The application exposes no UPDATE or DELETE path to this table.
+ * Tamper resistance:
+ * - A database trigger rejects UPDATE, DELETE and TRUNCATE for every role,
+ *   administrators included (migration `audit_log_append_only`).
+ * - Each row stores `entry_hash = sha256(prev_hash + this row)`, chaining it to
+ *   the row before. `pnpm audit:verify` recomputes the chain and reports the
+ *   first row changed outside the application. Rows written before FND-3 have
+ *   no hash and are reported as before the chain started.
  *
- * `actorId` is nullable and uses `set null` rather than `cascade`: deleting a
- * user must never erase the record of what they did.
+ * `actorId` stays `set null`, but users are never hard-deleted (DOMAIN-MODEL
+ * §4): with the trigger in place, deleting a user who has audit entries fails,
+ * which is the intended protection.
  */
 export const auditLog = createTable(
 	"audit_log",
 	t => ({
 		id: t.serial("id").primaryKey(),
-		/** Broad area the event belongs to, e.g. "rbac". Kept generic so auth
-		 *  events can adopt this table without a schema change. */
+		/** Broad area the event belongs to, e.g. "rbac", or the job name for System actions. */
 		domain: t.text("domain").notNull(),
 		/** What happened, e.g. "role.assign", "role.remove", "role.create". */
 		action: t.text("action").notNull(),
 		/** Whether the attempt succeeded or was refused. A denial is evidence. */
 		outcome: t.text("outcome").notNull().default("success").$type<"success" | "denied">(),
-		/** Who acted. Null only for system-initiated events. */
+		/** Who acted. Null only for System actions. */
 		actorId: t.text("actor_id").references(() => users.id, { onDelete: "set null" }),
+		/** The actor's role names at that moment, e.g. "Cashier, Processing Officer". Null for System. */
+		actorRole: t.text("actor_role"),
 		/** Kind of thing acted on, e.g. "user", "role". */
 		targetType: t.text("target_type"),
 		/** Identifier of the thing acted on, as text so any key type fits. */
@@ -215,6 +220,14 @@ export const auditLog = createTable(
 		oldValue: t.jsonb("old_value").$type<unknown>(),
 		newValue: t.jsonb("new_value").$type<unknown>(),
 		reason: t.text("reason"),
+		/** Client address, resolved with the same trusted-proxy rule as the rate limiter. Null for System. */
+		ipAddress: t.text("ip_address"),
+		/** Client User-Agent header, capped in length. Null for System. */
+		userAgent: t.text("user_agent"),
+		/** `entry_hash` of the row before this one; null for the first chained row. */
+		prevHash: t.text("prev_hash"),
+		/** sha256 (hex) of `prev_hash` plus this row's fields. Null only for rows from before FND-3. */
+		entryHash: t.text("entry_hash"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	}),
 	t => [

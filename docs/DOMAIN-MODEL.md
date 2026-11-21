@@ -194,7 +194,7 @@ initiated ──► pending ──► succeeded ──► refunded
 | `schedule_slots.booked_count` | schedules (creates rows) | booking | Only `BookingService` changes `booked_count`, always with a row lock. Schedule screens edit `capacity` only and may not set it below `booked_count`. |
 | `payments` | payments | reports, migration, offline | Only `PaymentService` writes. Reports read. Offline and migration go through `PaymentService` methods. |
 | `documents` | certificates | migration | Migration inserts only rows with `source = legacy` through `DocumentService.importLegacy`; it never updates `qsps` rows. |
-| `audit_log` | foundation | every epic | Only `AuditService.record` inserts. No other code touches the table. |
+| `audit_log` (template) | * `actor_role`, `ip_address`, `user_agent`, `prev_hash`, `entry_hash` | Insert-only. Database trigger rejects update, delete, and truncate for every role. `entry_hash` is sha256 of `prev_hash` plus the row's fields, so `pnpm audit:verify` finds any row changed outside the application. Rows from before FND-3 have no hash. System actions have no actor, role, IP, or user agent; `domain` names the job. |
 | `users` | auth (Better Auth) | admin-settings, migration | Profile columns are written by auth and admin-settings services; credentials only by Better Auth. Migration sets `legacy_id` and `must_reset_password`, never a password hash it cannot verify. |
 | `notifications` | notifications | booking, payments, certificates | Other epics call `NotificationService.enqueue` with a `dedupe_key`; only the outbox worker changes `status`. |
 | `policies` | admin-settings | booking, payments | Other epics read through `PolicyService.get(key)`; none write. |
