@@ -165,11 +165,16 @@ export class RbacAdminService {
 		const attempted = { name: payload.name, description: payload.description }
 
 		if (role.name === ADMIN_ROLE) {
+			// FND-3's audit tests read "cannot be renamed" for a rename attempt.
+			const renaming = payload.name !== undefined && payload.name !== role.name
+			const message = renaming
+				? `The ${ADMIN_ROLE} role cannot be renamed`
+				: `The ${ADMIN_ROLE} role cannot be changed`
 			await this.refuseRole(
 				{ action: "role.update", actorId, role, attempted },
 				"FORBIDDEN",
-				`The ${ADMIN_ROLE} role cannot be changed`,
-				`the ${ADMIN_ROLE} role is protected`
+				message,
+				renaming ? message : `the ${ADMIN_ROLE} role is protected`
 			)
 		}
 		if (payload.name !== undefined && payload.name !== role.name && SEEDED_ROLES.has(role.name)) {
@@ -319,7 +324,7 @@ export class RbacAdminService {
 				{ action: "role.delete", actorId, role },
 				"FORBIDDEN",
 				`The ${ADMIN_ROLE} role cannot be deleted`,
-				`the ${ADMIN_ROLE} role is protected`
+				`The ${ADMIN_ROLE} role cannot be deleted`
 			)
 		}
 		if (SEEDED_ROLES.has(role.name)) {
