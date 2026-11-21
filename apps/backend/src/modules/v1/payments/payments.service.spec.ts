@@ -10,6 +10,12 @@ import { PaymentService } from "./payments.service"
 import type { ParsedNotification, PaymentProvider } from "./providers/payment-provider"
 import { PaymentProviderRegistry } from "./providers/provider-registry"
 
+// ADM-6: BookingService now reads PolicyService, which loads @repo/contracts
+// (and the ESM-only @orpc/contract). This spec does not test policies.
+jest.mock("@/common/policy/policy.service", () => ({
+	PolicyService: jest.fn(),
+}))
+
 jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {
 		constructor(

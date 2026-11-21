@@ -5,6 +5,12 @@ import type { PdfService } from "@/common/pdf/pdf.service"
 import type { BookingService } from "../bookings/bookings.service"
 import { DocumentService } from "./documents.service"
 
+// ADM-6: BookingService now reads PolicyService, which loads @repo/contracts
+// (and the ESM-only @orpc/contract). This spec does not test policies.
+jest.mock("@/common/policy/policy.service", () => ({
+	PolicyService: jest.fn(),
+}))
+
 jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {
 		constructor(

@@ -77,6 +77,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "schedules.slots:manage",
 	},
 	{
+		label: "Policies",
+		href: "/policies",
+		icon: AccountSetting01Icon,
+		section: "Administration",
+		requiredPermission: "settings.policies:manage",
+	},
+	{
 		label: "Audit log",
 		href: "/audit-log",
 		icon: ShieldKeyIcon,

@@ -7,7 +7,7 @@ import { bookingItems, bookings, locations, scheduleSlots, services, users } fro
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
-import { env } from "@/config/env.config"
+import { PolicyService } from "@/common/policy/policy.service"
 
 import { canTransitionItem, isTerminalItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
@@ -35,7 +35,10 @@ export type CheckInResult =
  */
 @Injectable()
 export class BookingService {
-	constructor(private readonly auditService: AuditService) {}
+	constructor(
+		private readonly auditService: AuditService,
+		private readonly policyService: PolicyService
+	) {}
 
 	/**
 	 * Book one Service in one Schedule Slot (Flow B, steps 1 to 3).
@@ -53,6 +56,9 @@ export class BookingService {
 		if (!actorId) {
 			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to book" })
 		}
+
+		// ADM-6: the hold comes from the `booking.hold_minutes` Policy.
+		const holdMinutes = await this.policyService.get("booking.hold_minutes")
 
 		return db.transaction(async tx => {
 			// Locks the client's own row so two requests from the same client are
@@ -100,7 +106,7 @@ export class BookingService {
 			}
 
 			const referenceNumber = await this.unusedReferenceNumber(tx, now)
-			const holdExpiresAt = new Date(now.getTime() + env.BOOKING_HOLD_MINUTES * MS_PER_MINUTE)
+			const holdExpiresAt = new Date(now.getTime() + holdMinutes * MS_PER_MINUTE)
 
 			const [booking] = await tx
 				.insert(bookings)

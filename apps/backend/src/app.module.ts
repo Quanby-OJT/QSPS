@@ -24,6 +24,7 @@ import { AnalyticsModule } from "./common/analytics/analytics.module"
 import { AuditModule } from "./common/audit/audit.module"
 import { MaintenanceModule } from "./common/maintenance/maintenance.module"
 import { ORPCCommonModule } from "./common/orpc/orpc.module"
+import { PolicyModule } from "./common/policy/policy.module"
 import { RbacModule } from "./common/rbac/rbac.module"
 import { RedisModule } from "./common/redis/redis.module"
 import { REDIS_CLIENT, type RedisClient } from "./common/redis/redis.provider"
@@ -113,6 +114,8 @@ import { env } from "./config/env.config"
 		// RBAC services
 		// Global: the audit trail is meant to outgrow RBAC.
 		AuditModule,
+		// ADM-6: booking, payment and sign-in Policies, read by every epic.
+		PolicyModule,
 		RbacModule,
 		// Scheduled sweeps of expired rows (the idempotency sweep; the verifications sweep extends it).
 		MaintenanceModule,
