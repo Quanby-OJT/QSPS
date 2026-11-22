@@ -40,6 +40,7 @@ const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 	capacity: 20,
 	bookedCount: 0,
 	isDisabled: false,
+		disabledReason: null,
 	createdAt: new Date("2026-11-17T00:00:00.000Z"),
 	updatedAt: new Date("2026-11-17T00:00:00.000Z"),
 	...overrides,

@@ -65,6 +65,7 @@ export const ScheduleSlotSchema = z.object({
 	capacity: z.number().int().min(0),
 	bookedCount: z.number().int().min(0),
 	isDisabled: z.boolean(),
+	disabledReason: z.string().nullable().optional(),
 	createdAt: dateField,
 	updatedAt: dateField,
 })
@@ -141,6 +142,46 @@ export const UpdateSlotCapacityRequestSchema = SlotIdParamSchema.extend({
 	capacity: CapacitySchema,
 })
 
+/** Bulk edit one Manila calendar day, Monday-based week, or calendar month. */
+export const BulkUpdateCapacityRequestSchema = z.object({
+	serviceId: ServiceIdSchema,
+	locationId: LocationIdSchema,
+	period: z.enum(["day", "week", "month"]),
+	anchorDate: BusinessDateSchema,
+	capacity: CapacitySchema,
+})
+export const BulkUpdateCapacityResponseSchema = z.object({
+	selectedCount: z.number().int().min(0),
+	updatedCount: z.number().int().min(0),
+	skipped: z.array(z.object({
+		id: SlotIdSchema,
+		startsAt: dateField,
+		bookedCount: z.number().int().min(0),
+		capacity: z.number().int().min(0),
+	})),
+})
+export const BlockScheduleDateRequestSchema = z.object({
+	serviceId: ServiceIdSchema,
+	locationId: LocationIdSchema,
+	date: BusinessDateSchema,
+	reason: z.string().trim().min(1).max(500),
+})
+export const UnblockScheduleDateRequestSchema = z.object({
+	serviceId: ServiceIdSchema,
+	locationId: LocationIdSchema,
+	date: BusinessDateSchema,
+})
+export const BlockScheduleDateResponseSchema = z.object({
+	disabledCount: z.number().int().min(0),
+	paidBookings: z.array(z.object({
+		referenceNumber: z.string(),
+		startsAt: dateField,
+	})),
+})
+export const UnblockScheduleDateResponseSchema = z.object({
+	enabledCount: z.number().int().min(0),
+})
+
 export const SetSlotDisabledRequestSchema = SlotIdParamSchema.extend({
 	isDisabled: z.boolean(),
 })
@@ -167,5 +208,9 @@ export type GenerateSlotsInput = z.infer<typeof GenerateSlotsSchema>
 export type GenerateSlotsResponse = z.infer<typeof GenerateSlotsResponseSchema>
 export type ListSlotsRequest = z.infer<typeof ListSlotsRequestSchema>
 export type UpdateSlotCapacityRequest = z.infer<typeof UpdateSlotCapacityRequestSchema>
+export type BulkUpdateCapacityRequest = z.infer<typeof BulkUpdateCapacityRequestSchema>
+export type BulkUpdateCapacityResponse = z.infer<typeof BulkUpdateCapacityResponseSchema>
+export type BlockScheduleDateRequest = z.infer<typeof BlockScheduleDateRequestSchema>
+export type UnblockScheduleDateRequest = z.infer<typeof UnblockScheduleDateRequestSchema>
 export type SetSlotDisabledRequest = z.infer<typeof SetSlotDisabledRequestSchema>
 export type SlotAvailability = z.infer<typeof SlotAvailabilitySchema>

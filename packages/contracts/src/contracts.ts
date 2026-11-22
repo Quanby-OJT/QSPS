@@ -143,6 +143,12 @@ export {
 	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 	SetSlotDisabledRequestSchema,
+	BulkUpdateCapacityRequestSchema,
+	BulkUpdateCapacityResponseSchema,
+	BlockScheduleDateRequestSchema,
+	BlockScheduleDateResponseSchema,
+	UnblockScheduleDateRequestSchema,
+	UnblockScheduleDateResponseSchema,
 	DeleteSlotResponseSchema,
 	SlotAvailabilitySchema,
 } from "./modules/v1/schedules/schedules.schema.js"
@@ -154,6 +160,10 @@ export type {
 	ListSlotsRequest,
 	UpdateSlotCapacityRequest,
 	SetSlotDisabledRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
+	BlockScheduleDateRequest,
+	UnblockScheduleDateRequest,
 	SlotAvailability,
 } from "./modules/v1/schedules/schedules.schema.js"
 

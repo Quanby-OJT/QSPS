@@ -1,8 +1,11 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq, gte, lt } from "drizzle-orm"
+import { and, asc, eq, gte, isNotNull, lt } from "drizzle-orm"
 
 import type {
+	BlockScheduleDateRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
 	GenerateSlotsInput,
 	GenerateSlotsResponse,
 	ListSlotsRequest,
@@ -11,7 +14,7 @@ import type {
 	SlotAvailability,
 	UpdateSlotCapacityRequest,
 } from "@repo/contracts"
-import { locations, scheduleSlots, services } from "@repo/db/schema"
+import { bookingItems, bookings, locations, scheduleSlots, services } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -79,11 +82,35 @@ function bookingCount(count: number): string {
 	return count === 1 ? "1 booking" : `${count} bookings`
 }
 
+function shiftDate(date: string, days: number): string {
+	const value = new Date(`${date  }T00:00:00.000Z`)
+	value.setUTCDate(value.getUTCDate() + days)
+	return value.toISOString().slice(0, 10)
+}
+
+function dateRange(anchorDate: string, period: "day" | "week" | "month") {
+	let startDate = anchorDate
+	let endDate = shiftDate(anchorDate, 1)
+	if (period === "week") {
+		const mondayOffset = (weekdayOf(anchorDate) + 6) % 7
+		startDate = shiftDate(anchorDate, -mondayOffset)
+		endDate = shiftDate(startDate, 7)
+	} else if (period === "month") {
+		const [year = 0, month = 1] = anchorDate.split("-").map(Number)
+		startDate = `${anchorDate.slice(0, 7)}-01`
+		const nextYear = month === 12 ? year + 1 : year
+		const nextMonth = month === 12 ? 1 : month + 1
+		endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`
+	}
+	return { startDate, endDate, start: manilaDateTimeToUtc(startDate, "00:00"), end: manilaDateTimeToUtc(endDate, "00:00") }
+}
+
 /**
  * Schedule Slots (SCH-1): capacity for one Service at one Location on one date
  * and time window.
  *
- * This service creates slots and edits `capacity` and `is_disabled`. It never
+ * This service creates slots and edits `capacity`, `is_disabled` and the
+ * date-block reason. It never
  * writes `booked_count`: only `BookingService` changes it, with a row lock
  * (DOMAIN-MODEL.md section 6). Every change is audited in the same transaction.
  */
@@ -292,6 +319,74 @@ export class SchedulesService {
 		})
 	}
 
+	/** Bulk capacity edit; unsafe reductions are reported and left unchanged. */
+	async bulkUpdateCapacity(input: BulkUpdateCapacityRequest, actorId: string | null, scope: ResolvedScope = NATIONWIDE_SCOPE): Promise<BulkUpdateCapacityResponse> {
+		const range = dateRange(input.anchorDate, input.period)
+		return db.transaction(async tx => {
+			const slots = await tx.select().from(scheduleSlots).where(and(
+				eq(scheduleSlots.serviceId, input.serviceId), eq(scheduleSlots.locationId, input.locationId),
+				gte(scheduleSlots.startsAt, range.start), lt(scheduleSlots.startsAt, range.end)
+			)).orderBy(asc(scheduleSlots.id)).for("update")
+			if (slots.length > 0) await this.requireSlotInScope(tx, slots[0]!, actorId, scope)
+			const skipped: BulkUpdateCapacityResponse["skipped"] = []
+			let updatedCount = 0
+			for (const slot of slots) {
+				if (slot.bookedCount > input.capacity) {
+					skipped.push({ id: slot.id, startsAt: slot.startsAt, bookedCount: slot.bookedCount, capacity: slot.capacity })
+					continue
+				}
+				await tx.update(scheduleSlots).set({ capacity: input.capacity, updatedAt: new Date() }).where(eq(scheduleSlots.id, slot.id))
+				updatedCount++
+			}
+			await this.auditService.record({ domain: AUDIT_DOMAIN_SCHEDULES, action: "schedule.slots.capacity.bulk_update", actorId, targetType: "schedule_slot", targetId: null, oldValue: null,
+				newValue: { serviceId: input.serviceId, locationId: input.locationId, period: input.period, startDate: range.startDate, endDate: shiftDate(range.endDate, -1), capacity: input.capacity, selectedCount: slots.length, updatedCount, skippedCount: skipped.length } }, tx)
+			return { selectedCount: slots.length, updatedCount, skipped }
+		})
+	}
+
+	async blockDate(input: BlockScheduleDateRequest, actorId: string | null, scope: ResolvedScope = NATIONWIDE_SCOPE) {
+		const range = dateRange(input.date, "day")
+		return db.transaction(async tx => {
+			const slots = await tx.select().from(scheduleSlots).where(and(
+				eq(scheduleSlots.serviceId, input.serviceId), eq(scheduleSlots.locationId, input.locationId),
+				gte(scheduleSlots.startsAt, range.start), lt(scheduleSlots.startsAt, range.end)
+			)).orderBy(asc(scheduleSlots.id)).for("update")
+			if (slots.length > 0) await this.requireSlotInScope(tx, slots[0]!, actorId, scope)
+			const paidBookings = new Map<string, Date>()
+			for (const slot of slots) {
+				const paid = await tx.select({ referenceNumber: bookings.referenceNumber, startsAt: scheduleSlots.startsAt })
+					.from(bookingItems).innerJoin(bookings, eq(bookingItems.bookingId, bookings.id))
+					.innerJoin(scheduleSlots, eq(bookingItems.scheduleSlotId, scheduleSlots.id))
+					.where(and(eq(bookingItems.scheduleSlotId, slot.id), eq(bookings.status, "paid")))
+				for (const booking of paid) paidBookings.set(booking.referenceNumber, booking.startsAt)
+				// Preserve a one-off manual disable across a later date unblock. A
+				// non-null reason marks slots disabled by this date-level action.
+				if (!slot.isDisabled || slot.disabledReason !== null) {
+					await tx.update(scheduleSlots).set({ isDisabled: true, disabledReason: input.reason, updatedAt: new Date() }).where(eq(scheduleSlots.id, slot.id))
+				}
+			}
+			const affected = [...paidBookings].map(([referenceNumber, startsAt]) => ({ referenceNumber, startsAt }))
+			await this.auditService.record({ domain: AUDIT_DOMAIN_SCHEDULES, action: "schedule.date.block", actorId, targetType: "schedule_date", targetId: `${String(input.serviceId)  }:${  String(input.locationId)  }:${  input.date}`,
+				oldValue: null, newValue: { serviceId: input.serviceId, locationId: input.locationId, date: input.date, reason: input.reason, disabledCount: slots.length, paidBookingCount: affected.length } }, tx)
+			return { disabledCount: slots.length, paidBookings: affected }
+		})
+	}
+
+	async unblockDate(input: { serviceId: number; locationId: number; date: string }, actorId: string | null, scope: ResolvedScope = NATIONWIDE_SCOPE) {
+		const range = dateRange(input.date, "day")
+		return db.transaction(async tx => {
+			const slots = await tx.select().from(scheduleSlots).where(and(
+				eq(scheduleSlots.serviceId, input.serviceId), eq(scheduleSlots.locationId, input.locationId),
+				gte(scheduleSlots.startsAt, range.start), lt(scheduleSlots.startsAt, range.end), isNotNull(scheduleSlots.disabledReason)
+			)).orderBy(asc(scheduleSlots.id)).for("update")
+			if (slots.length > 0) await this.requireSlotInScope(tx, slots[0]!, actorId, scope)
+			for (const slot of slots) await tx.update(scheduleSlots).set({ isDisabled: false, disabledReason: null, updatedAt: new Date() }).where(eq(scheduleSlots.id, slot.id))
+			await this.auditService.record({ domain: AUDIT_DOMAIN_SCHEDULES, action: "schedule.date.unblock", actorId, targetType: "schedule_date", targetId: `${String(input.serviceId)  }:${  String(input.locationId)  }:${  input.date}`,
+				oldValue: null, newValue: { serviceId: input.serviceId, locationId: input.locationId, date: input.date, enabledCount: slots.length } }, tx)
+			return { enabledCount: slots.length }
+		})
+	}
+
 	/** Change capacity. It may not go below the bookings already made. */
 	async updateSlotCapacity(
 		input: UpdateSlotCapacityRequest,
@@ -357,7 +452,7 @@ export class SchedulesService {
 
 			const [updated] = await tx
 				.update(scheduleSlots)
-				.set({ isDisabled: input.isDisabled, updatedAt: new Date() })
+				.set({ isDisabled: input.isDisabled, ...(input.isDisabled ? {} : { disabledReason: null }), updatedAt: new Date() })
 				.where(eq(scheduleSlots.id, current.id))
 				.returning()
 			if (!updated) {

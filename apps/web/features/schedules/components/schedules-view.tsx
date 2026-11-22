@@ -13,6 +13,7 @@ import { useHydrated } from "@/core/hooks/use-hydrated"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { useLocationsQuery } from "@/features/locations/api/locations.hooks"
 import { useScheduleSlotsQuery } from "@/features/schedules/api/schedules.hooks"
+import { BulkScheduleActions } from "@/features/schedules/components/bulk-schedule-actions"
 import { GenerateSlotsDialog } from "@/features/schedules/components/generate-slots-dialog"
 import { SlotDialog } from "@/features/schedules/components/slot-dialog"
 import {
@@ -51,6 +52,7 @@ function slotStatus(slot: ScheduleSlot): string {
 /**
  * Admin calendar for Schedule Slots (SCH-1): pick a service and a location,
  * see the month's slots, generate new ones, and edit, disable or delete a slot.
+ * SCH-2 adds bulk capacity changes and blocking a whole date.
  *
  * Hydration-safe: the server and the client's first render both show the
  * loading line, even when the client already holds restored copies of the
@@ -197,6 +199,15 @@ export function SchedulesView() {
 						</div>
 					</div>
 
+					{serviceId !== null && locationId !== null ? (
+						// Keyed so switching service or location clears the forms and results.
+						<BulkScheduleActions
+							key={`${serviceId}-${locationId}`}
+							serviceId={serviceId}
+							locationId={locationId}
+						/>
+					) : null}
+
 					{!slotsLoading && slots.isError ? (
 						<div className="border-destructive/30 bg-destructive/5 rounded-lg border p-4">
 							<p className="text-sm font-medium">Could not load the schedule.</p>
@@ -251,13 +262,18 @@ export function SchedulesView() {
 																		type="button"
 																		className={slotButtonClassName(slot)}
 																		onClick={() => setSelectedSlot(slot)}
-																		aria-label={`${slotTimeRange(slot)}, ${slot.bookedCount} of ${slot.capacity} booked, ${slotStatus(slot)}. Edit slot`}
+																		aria-label={`${slotTimeRange(slot)}, ${slot.bookedCount} of ${slot.capacity} booked, ${slotStatus(slot)}${slot.disabledReason ? `: ${slot.disabledReason}` : ""}. Edit slot`}
 																	>
 																		<span className="block font-medium">{slotTimeRange(slot)}</span>
 																		<span className="block">
 																			{slot.bookedCount}/{slot.capacity} booked
 																			{slotStatus(slot) === "Open" ? "" : ` · ${slotStatus(slot)}`}
 																		</span>
+																		{slot.disabledReason ? (
+																			<span className="block truncate" title={slot.disabledReason}>
+																				{slot.disabledReason}
+																			</span>
+																		) : null}
 																	</button>
 																))}
 															</div>

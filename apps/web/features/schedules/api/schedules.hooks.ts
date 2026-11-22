@@ -5,11 +5,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type {
 	GenerateSlotsInput,
 	GenerateSlotsResponse,
+	BlockScheduleDateRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
 	ListSlotsRequest,
 	ScheduleSlot,
 	SetSlotDisabledRequest,
 	SlotAvailability,
 	UpdateSlotCapacityRequest,
+	UnblockScheduleDateRequest,
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
@@ -142,6 +146,47 @@ export function useGenerateSlotsMutation() {
 	return useMutation({
 		mutationFn: (input: GenerateSlotsInput) =>
 			apiFetch<GenerateSlotsResponse>("/schedules/slots/generate", {
+				method: "POST",
+				body: JSON.stringify(input),
+			}),
+		onSuccess: refresh,
+	})
+}
+
+export function useBulkUpdateCapacityMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: (input: BulkUpdateCapacityRequest) =>
+			apiFetch<BulkUpdateCapacityResponse>("/schedules/slots/capacity/bulk", {
+				method: "PUT",
+				body: JSON.stringify(input),
+			}),
+		onSuccess: refresh,
+	})
+}
+
+export type BlockScheduleDateResponse = {
+	disabledCount: number
+	paidBookings: { referenceNumber: string; startsAt: string | Date }[]
+}
+
+export function useBlockScheduleDateMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: (input: BlockScheduleDateRequest) =>
+			apiFetch<BlockScheduleDateResponse>("/schedules/dates/block", {
+				method: "POST",
+				body: JSON.stringify(input),
+			}),
+		onSuccess: refresh,
+	})
+}
+
+export function useUnblockScheduleDateMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: (input: UnblockScheduleDateRequest) =>
+			apiFetch<{ enabledCount: number }>("/schedules/dates/unblock", {
 				method: "POST",
 				body: JSON.stringify(input),
 			}),

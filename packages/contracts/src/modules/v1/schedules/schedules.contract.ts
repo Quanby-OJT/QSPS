@@ -2,6 +2,10 @@ import { oc } from "@orpc/contract"
 import { z } from "zod"
 
 import {
+	BlockScheduleDateRequestSchema,
+	BlockScheduleDateResponseSchema,
+	BulkUpdateCapacityRequestSchema,
+	BulkUpdateCapacityResponseSchema,
 	DeleteSlotResponseSchema,
 	GenerateSlotsResponseSchema,
 	GenerateSlotsSchema,
@@ -9,6 +13,8 @@ import {
 	ScheduleSlotSchema,
 	SetSlotDisabledRequestSchema,
 	SlotAvailabilitySchema,
+	UnblockScheduleDateRequestSchema,
+	UnblockScheduleDateResponseSchema,
 	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 } from "./schedules.schema.js"
@@ -49,6 +55,38 @@ export const schedulesContract = {
 		})
 		.input(GenerateSlotsSchema)
 		.output(GenerateSlotsResponseSchema),
+
+	bulkUpdateCapacity: oc
+		.route({
+			method: "PUT",
+			path: "/schedules/slots/capacity/bulk",
+			summary: "Bulk update schedule capacity",
+			description: "Update capacity across one day, week, or month. Slots whose booked count exceeds the requested capacity are returned unchanged.",
+			tags: ["Schedules"],
+		})
+		.input(BulkUpdateCapacityRequestSchema)
+		.output(BulkUpdateCapacityResponseSchema),
+
+	blockDate: oc
+		.route({
+			method: "POST",
+			path: "/schedules/dates/block",
+			summary: "Block a schedule date",
+			description: "Disable all slots for a service and location on a Manila date, returning paid bookings for follow-up.",
+			tags: ["Schedules"],
+		})
+		.input(BlockScheduleDateRequestSchema)
+		.output(BlockScheduleDateResponseSchema),
+
+	unblockDate: oc
+		.route({
+			method: "POST",
+			path: "/schedules/dates/unblock",
+			summary: "Unblock a schedule date",
+			tags: ["Schedules"],
+		})
+		.input(UnblockScheduleDateRequestSchema)
+		.output(UnblockScheduleDateResponseSchema),
 
 	updateSlotCapacity: oc
 		.route({
