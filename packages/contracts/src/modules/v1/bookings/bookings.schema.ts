@@ -70,10 +70,17 @@ export const BookingSchema = z.object({
 
 /**
  * Book one Service in one Schedule Slot. The slot already fixes the service,
- * the location and the time, so it is the only thing the client sends.
+ * the location and the time. The client also sends the ids of the policy
+ * versions it accepted on the review step (ADM-9); every applicable policy
+ * that requires acceptance must be among them.
  */
 export const CreateBookingSchema = z.object({
 	scheduleSlotId: z.number().int().positive(),
+	acceptedPolicyDocumentIds: z
+		.array(z.number().int().positive())
+		.max(100)
+		.default([])
+		.transform(ids => [...new Set(ids)]),
 })
 
 export type BookingStatus = z.infer<typeof BookingStatusSchema>

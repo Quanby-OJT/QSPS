@@ -19,13 +19,15 @@ const SEALS = [
 const LINKS = [
 	{ href: "/verify", label: "Verify a document" },
 	{ href: "/help", label: "Help" },
+	{ href: "/terms", label: "Terms and policies" },
 ] as const
 
 /**
  * Footer on every QSPS page (UI-1): the WHO, Philippine government, DOH and
  * BOQ seals, then the copyright line. The year follows the clock so it
- * never goes stale. The links include Help (ADM-8) and the official BOQ
- * website (TOR §IX), on the public site and in both portals.
+ * never goes stale. The links include Help (ADM-8), the booking terms
+ * (ADM-9) and the official BOQ website (TOR §IX), on the public site and in
+ * both portals.
  */
 export function SiteFooter({ className }: { className?: string }) {
 	const year = new Date().getFullYear()

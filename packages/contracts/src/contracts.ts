@@ -210,6 +210,32 @@ export {
 } from "./modules/v1/policies/policies.schema.js"
 export type { Policy, UpdatePolicyRequest } from "./modules/v1/policies/policies.schema.js"
 
+// Written policies accepted at booking (ADM-9)
+export { policyDocumentsContract } from "./modules/v1/policies/policy-documents.contract.js"
+export {
+	MAX_POLICY_TITLE_LENGTH,
+	MAX_POLICY_BODY_LENGTH,
+	MAX_POLICY_SERVICES,
+	POLICY_DOCUMENT_STATES,
+	PolicyEffectiveDateSchema,
+	PolicyDocumentKeySchema,
+	PolicyDocumentStateSchema,
+	PolicyDocumentSummarySchema,
+	PolicyDocumentSchema,
+	CreatePolicyDocumentSchema,
+	UpdatePolicyDocumentSchema,
+	PolicyDocumentKeyParamSchema,
+	ApplicablePoliciesRequestSchema,
+} from "./modules/v1/policies/policy-documents.schema.js"
+export type {
+	PolicyDocumentState,
+	PolicyDocumentSummary,
+	PolicyDocument,
+	CreatePolicyDocumentInput,
+	UpdatePolicyDocumentInput,
+	ApplicablePoliciesRequest,
+} from "./modules/v1/policies/policy-documents.schema.js"
+
 // Help desk contacts contract + schema (ADM-8)
 export { supportContract } from "./modules/v1/support/support.contract.js"
 export { SupportContactsSchema } from "./modules/v1/support/support.schema.js"

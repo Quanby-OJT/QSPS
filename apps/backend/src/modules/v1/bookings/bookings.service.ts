@@ -3,11 +3,21 @@ import { ORPCError } from "@orpc/server"
 import { and, asc, eq, sql } from "drizzle-orm"
 
 import type { Booking, BookingItemStatus, BookingStatus, CreateBookingInput } from "@repo/contracts"
-import { bookingItems, bookings, locations, scheduleSlots, services, users } from "@repo/db/schema"
+import {
+	bookingItems,
+	bookings,
+	locations,
+	policyAcceptances,
+	scheduleSlots,
+	services,
+	users,
+} from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { PolicyService } from "@/common/policy/policy.service"
+import { loadPoliciesForService } from "@/modules/v1/policies/policy-document-rules"
+import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
 import { canTransitionItem, isTerminalItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
@@ -42,6 +52,10 @@ export class BookingService {
 
 	/**
 	 * Book one Service in one Schedule Slot (Flow B, steps 1 to 3).
+	 *
+	 * ADM-9: refused unless the client accepted every written policy in effect
+	 * for the Service that requires acceptance; the accepted versions are
+	 * stored against the Booking in the same transaction.
 	 *
 	 * The slot row is locked before its capacity is read, so when two clients
 	 * confirm the last place at the same moment the second waits, then sees the
@@ -105,6 +119,21 @@ export class BookingService {
 				throw new ORPCError("CONFLICT", { message: "This location is not available for booking" })
 			}
 
+			// ADM-9: every written policy in effect for this Service that requires
+			// acceptance must be accepted, in the version in effect now. Read in
+			// this transaction, so what is checked is what is stored.
+			const accepted = new Set(input.acceptedPolicyDocumentIds)
+			const applicable = await loadPoliciesForService(tx, service.id, manilaDateOf(now))
+			const notAccepted = applicable.find(
+				policy => policy.requiresAcceptance && !accepted.has(policy.id)
+			)
+			if (notAccepted) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: `Please read and accept "${notAccepted.title}" before booking. If you already did, it was updated while you were booking: review it again.`,
+				})
+			}
+			const acceptedPolicies = applicable.filter(policy => accepted.has(policy.id))
+
 			const referenceNumber = await this.unusedReferenceNumber(tx, now)
 			const holdExpiresAt = new Date(now.getTime() + holdMinutes * MS_PER_MINUTE)
 
@@ -139,6 +168,17 @@ export class BookingService {
 				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking could not be created" })
 			}
 
+			if (acceptedPolicies.length > 0) {
+				await tx.insert(policyAcceptances).values(
+					acceptedPolicies.map(policy => ({
+						bookingId: booking.id,
+						policyDocumentId: policy.id,
+						clientId: actorId,
+						acceptedAt: now,
+					}))
+				)
+			}
+
 			// Counted in the database, on the locked row, so it cannot be lost.
 			await tx
 				.update(scheduleSlots)
@@ -171,6 +211,11 @@ export class BookingService {
 								status: item.status,
 							},
 						],
+						acceptedPolicies: acceptedPolicies.map(policy => ({
+							policyDocumentId: policy.id,
+							documentKey: policy.documentKey,
+							version: policy.version,
+						})),
 					},
 				},
 				tx
