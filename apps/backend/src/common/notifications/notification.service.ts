@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 
-import { bookings, notifications } from "@repo/db/schema"
+import { normalizeSmsNumber, smsDestinationKey } from "@repo/auth/sms"
+import { bookings, notifications, users } from "@repo/db/schema"
 
 import type { Transaction } from "@/modules/v1/bookings/bookings.service"
 
@@ -36,8 +37,12 @@ export class NotificationService {
 			.select({
 				userId: bookings.clientId,
 				referenceNumber: bookings.referenceNumber,
+				mobile: users.mobile,
+				mobileVerifiedAt: users.mobileVerifiedAt,
+				smsEnabled: users.smsNotificationsEnabled,
 			})
 			.from(bookings)
+			.innerJoin(users, eq(bookings.clientId, users.id))
 			.where(eq(bookings.id, bookingId))
 
 		if (!booking) {
@@ -60,5 +65,28 @@ export class NotificationService {
 			.onConflictDoNothing({
 				target: notifications.dedupeKey,
 			})
+
+		const mobile = booking.mobile ? normalizeSmsNumber(booking.mobile) : null
+		if (
+			booking.smsEnabled &&
+			booking.mobileVerifiedAt &&
+			mobile &&
+			["booking_confirmed", "payment_received", "booking_cancelled"].includes(template)
+		) {
+			await tx
+				.insert(notifications)
+				.values({
+					userId: booking.userId,
+					channel: "sms",
+					template,
+					payload: {
+						bookingId,
+						referenceNumber: booking.referenceNumber,
+						destinationKey: smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", mobile),
+					},
+					dedupeKey: JSON.stringify(["sms", booking.userId, template, eventId]),
+				})
+				.onConflictDoNothing({ target: notifications.dedupeKey })
+		}
 	}
 }

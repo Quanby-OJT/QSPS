@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common"
 import { Cron, CronExpression } from "@nestjs/schedule"
-import { and, asc, eq, lte } from "drizzle-orm"
+import { and, asc, eq, inArray, lte } from "drizzle-orm"
 
 import type { MailMessage } from "@repo/auth"
+import { createSmsSender, normalizeSmsNumber, smsDestinationKey } from "@repo/auth/sms"
 import { notifications, users } from "@repo/db/schema"
 
 import { db } from "@/common/database/database.client"
@@ -74,7 +75,7 @@ export class NotificationWorker {
 				.from(notifications)
 				.where(
 					and(
-						eq(notifications.channel, "email"),
+						inArray(notifications.channel, ["email", "sms"]),
 						eq(notifications.status, "queued"),
 						lte(notifications.nextAttemptAt, now)
 					)
@@ -89,7 +90,12 @@ export class NotificationWorker {
 
 			try {
 				const [user] = await tx
-					.select({ email: users.email })
+					.select({
+						email: users.email,
+						mobile: users.mobile,
+						mobileVerifiedAt: users.mobileVerifiedAt,
+						smsEnabled: users.smsNotificationsEnabled,
+					})
 					.from(users)
 					.where(eq(users.id, row.userId))
 
@@ -101,6 +107,36 @@ export class NotificationWorker {
 
 				if (typeof referenceNumber !== "string") {
 					throw new Error("Missing booking reference")
+				}
+
+				if (row.channel === "sms") {
+					const mobile = user.mobile ? normalizeSmsNumber(user.mobile) : null
+					if (
+						!mobile ||
+						!user.mobileVerifiedAt ||
+						!user.smsEnabled ||
+						row.payload.destinationKey !==
+							smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", mobile)
+					) {
+						await tx
+							.update(notifications)
+							.set({ status: "failed", attempts })
+							.where(eq(notifications.id, row.id))
+						return true
+					}
+					const events: Record<string, string> = {
+						booking_confirmed: "Booking confirmed",
+						payment_received: "Payment received",
+						booking_cancelled: "Booking cancelled",
+					}
+					const event = events[row.template]
+					if (!event) throw new Error("Unsupported SMS template")
+					await createSmsSender().send(mobile, `${event}. Reference: ${referenceNumber}`)
+					await tx
+						.update(notifications)
+						.set({ status: "sent", attempts })
+						.where(eq(notifications.id, row.id))
+					return true
 				}
 
 				const message: MailMessage = {

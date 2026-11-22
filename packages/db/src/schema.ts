@@ -19,6 +19,9 @@ export const users = createTable("users", t => ({
 	/** `client` (registered member of the public) or `staff` (BOQ employee). */
 	accountType: t.text("account_type").notNull().default("client"),
 	mobile: t.text("mobile"),
+	mobileVerifiedAt: t.timestamp("mobile_verified_at", { withTimezone: true }),
+	smsNotificationsEnabled: t.boolean("sms_notifications_enabled").notNull().default(false),
+	mfaOtpChannel: t.text("mfa_otp_channel").notNull().default("email").$type<"email" | "sms">(),
 	birthDate: t.date("birth_date"),
 	nationality: t.text("nationality"),
 	/** Free text: TOR §VIII.2 requires the field to accept all genders. */
@@ -838,6 +841,24 @@ export const policyAcceptances = createTable(
 	]
 )
 
+// NTF-2: persist send limits across instances; the key is a keyed digest.
+export const smsCodeLimits = createTable("sms_code_limits", t => ({
+	key: t.text("key").primaryKey(),
+	windowStartedAt: t.timestamp("window_started_at", { withTimezone: true }).notNull(),
+	count: t.integer("count").notNull().default(0),
+}))
+
+export const mobileVerificationChallenges = createTable("mobile_verification_challenges", t => ({
+	userId: t
+		.text("user_id")
+		.primaryKey()
+		.references(() => users.id, { onDelete: "cascade" }),
+	mobile: t.text("mobile").notNull(),
+	codeDigest: t.text("code_digest").notNull(),
+	expiresAt: t.timestamp("expires_at", { withTimezone: true }).notNull(),
+	failedAttempts: t.integer("failed_attempts").notNull().default(0),
+}))
+
 export const notifications = createTable(
 	"notifications",
 	t => ({
@@ -890,6 +911,8 @@ export const relations = defineRelations(
 		policyDocuments,
 		policyAcceptances,
 		notifications,
+		smsCodeLimits,
+		mobileVerificationChallenges,
 	},
 	r => ({
 		users: {
@@ -1126,6 +1149,8 @@ export const schema = Object.assign(
 		policyDocuments,
 		policyAcceptances,
 		notifications,
+		smsCodeLimits,
+		mobileVerificationChallenges,
 	},
 	relations
 )

@@ -1,18 +1,14 @@
 import type { Metadata } from "next"
-import { AccountSetting01Icon } from "@hugeicons/core-free-icons"
 
-import { ComingSoonPage } from "@/features/dashboard/components/coming-soon-page"
+import { SmsSettings } from "@/features/auth/two-factor/components/sms-settings"
 
-export const metadata: Metadata = {
-	title: "Account",
-}
+export const metadata: Metadata = { title: "Account" }
 
 export default function AccountPage() {
 	return (
-		<ComingSoonPage
-			title="Account"
-			description="Profile and account settings will be available here soon."
-			icon={AccountSetting01Icon}
-		/>
+		<div className="flex flex-col gap-6">
+			<h1 className="text-2xl font-bold">Account</h1>
+			<SmsSettings />
+		</div>
 	)
 }

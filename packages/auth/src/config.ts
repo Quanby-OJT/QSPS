@@ -45,6 +45,7 @@ import { parseOriginList } from "./origin-list.js"
 import { rateLimitStorage } from "./rate-limit-storage.js"
 import { withSafeDatabaseErrors } from "./safe-database-errors.js"
 import { authSecretSchema } from "./secret-schema.js"
+import { createSmsSender, normalizeSmsNumber, reserveSmsCode, SmsRateLimitError } from "./sms.js"
 
 /**
  * Type-safe environment variable validation for Auth package
@@ -645,6 +646,47 @@ export function createAuth() {
 				 * the plugin runs, so a refused change never touches the database.
 				 * Without a session the plugin itself answers 401.
 				 */
+				if (ctx.path === "/two-factor/send-otp") {
+					let userId = (await getSessionFromCtx(ctx))?.user.id ?? null
+					if (!userId) {
+						const cookie = ctx.context.createAuthCookie(TWO_FACTOR_CHALLENGE_COOKIE)
+						const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
+						const record = identifier
+							? await ctx.context.internalAdapter.findVerificationValue(identifier)
+							: null
+						if (record && new Date(record.expiresAt).getTime() > Date.now()) userId = record.value
+					}
+					if (userId) {
+						const [recipient] = await db
+							.select({
+								mobile: users.mobile,
+								mobileVerifiedAt: users.mobileVerifiedAt,
+								channel: users.mfaOtpChannel,
+							})
+							.from(users)
+							.where(eq(users.id, userId))
+						if (recipient?.channel === "sms") {
+							const mobile = recipient.mobile ? normalizeSmsNumber(recipient.mobile) : null
+							if (!mobile || !recipient.mobileVerifiedAt)
+								throw new APIError("BAD_REQUEST", {
+									message: "A verified mobile number is required for SMS codes.",
+								})
+							try {
+								createSmsSender()
+								// Better Auth catches delivery callback errors. Refuse exhausted
+								// requests before it creates a new OTP or calls the provider.
+								await reserveSmsCode(db, authEnv.BETTER_AUTH_SECRET, mobile, userId)
+							} catch (error) {
+								if (error instanceof SmsRateLimitError)
+									throw new APIError("TOO_MANY_REQUESTS", { message: error.message })
+								throw new APIError("INTERNAL_SERVER_ERROR", {
+									message: "SMS sign-in codes are unavailable. Use your authenticator app.",
+								})
+							}
+						}
+					}
+					return
+				}
 				if (MFA_SETTINGS_PATHS.has(ctx.path)) {
 					const session = await getSessionFromCtx(ctx)
 					if (!session) return
@@ -1018,7 +1060,33 @@ export function createAuth() {
 			 * and waiting for this code, so a silent failure would strand them.
 			 * The message stays generic; the transport error goes to the log.
 			 */
-			sendTwoFactorOtp: async ({ email, otp }) => {
+			sendTwoFactorOtp: async ({ userId, email, otp }) => {
+				const [recipient] = await db
+					.select({
+						mobile: users.mobile,
+						mobileVerifiedAt: users.mobileVerifiedAt,
+						channel: users.mfaOtpChannel,
+					})
+					.from(users)
+					.where(eq(users.id, userId))
+				if (recipient?.channel === "sms") {
+					const mobile = recipient.mobile ? normalizeSmsNumber(recipient.mobile) : null
+					if (!mobile || !recipient.mobileVerifiedAt)
+						throw new APIError("BAD_REQUEST", {
+							message: "A verified mobile number is required for SMS codes.",
+						})
+					try {
+						await createSmsSender().send(
+							mobile,
+							`Your QSPS sign-in code is ${otp}. Valid for 5 minutes. Do not share it.`
+						)
+						return
+					} catch {
+						throw new APIError("INTERNAL_SERVER_ERROR", {
+							message: "The SMS code could not be sent. Try again or use your authenticator app.",
+						})
+					}
+				}
 				const message = buildTwoFactorCodeEmail({ code: otp, minutes: MFA_EMAIL_CODE_MINUTES })
 				try {
 					await sendMail(transporter, mailFrom, {
