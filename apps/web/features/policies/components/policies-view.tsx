@@ -20,20 +20,25 @@ import {
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Skeleton } from "@/core/components/ui/skeleton"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { ApiError } from "@/core/lib/api-error"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { usePoliciesQuery, useUpdatePolicyMutation } from "@/features/policies/api/policies.hooks"
 import {
 	changedLabel,
 	draftOf,
+	fieldHint,
 	formatPolicyValue,
 	groupPolicies,
 	isChanged,
 	parseDraft,
+	textInputType,
 	type PolicyDraft,
 } from "@/features/policies/lib/policy-form"
 
 /**
- * ADM-6: booking, payment and sign-in Policies (TOR §VIII.3, Annex B).
+ * ADM-6, ADM-8: booking, payment, sign-in and help desk Policies (TOR §VIII.3,
+ * §IX, Annex B).
  *
  * Every registered key is listed, grouped by area, so a key added to the
  * registry by a later ticket appears here without a screen change. Each row
@@ -41,14 +46,19 @@ import {
  */
 export function PoliciesView() {
 	const query = usePoliciesQuery()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 	const forbidden = query.error instanceof ApiError && query.error.status === 403
+	// The server and the first client render both show the placeholder, even
+	// when the client already holds a restored copy of the policies.
+	const loading = !hydrated || isQueryLoading(query)
 
 	return (
 		<section className="flex w-full flex-col gap-6">
 			<PageHeader
 				icon={AccountSetting01Icon}
 				title="Policies"
-				description="Booking, payment and sign-in rules. A change applies to the next action and is recorded in the audit log."
+				description="Booking, payment and sign-in rules, and the help desk contacts. A change applies at once and is recorded in the audit log."
 			/>
 
 			{forbidden ? (
@@ -64,7 +74,7 @@ export function PoliciesView() {
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>
-			) : query.isPending ? (
+			) : loading ? (
 				<div className="flex flex-col gap-3" role="status" aria-label="Loading policies">
 					<Skeleton className="h-40 w-full rounded-xl" />
 					<Skeleton className="h-28 w-full rounded-xl" />
@@ -78,7 +88,7 @@ export function PoliciesView() {
 						Retry
 					</Button>
 				</div>
-			) : (
+			) : !query.data ? null : (
 				groupPolicies(query.data).map(group => (
 					<section
 						key={group.area}
@@ -152,7 +162,9 @@ function PolicyRow({ policy }: { policy: Policy }) {
 				</p>
 			</div>
 
-			<div className="flex flex-col gap-1.5 sm:w-64 sm:shrink-0">
+			<div
+				className={`flex flex-col gap-1.5 sm:shrink-0 ${policy.type === "text" ? "sm:w-96" : "sm:w-64"}`}
+			>
 				<div className="flex items-center gap-2">
 					{policy.type === "boolean" ? (
 						<div className="flex h-9 items-center gap-2">
@@ -171,6 +183,23 @@ function PolicyRow({ policy }: { policy: Policy }) {
 								{draft === true ? "On" : "Off"}
 							</span>
 						</div>
+					) : policy.type === "text" ? (
+						<Input
+							id={fieldId}
+							type={textInputType(policy)}
+							inputMode={policy.format === "phone" ? "tel" : undefined}
+							autoComplete="off"
+							maxLength={policy.maxLength ?? undefined}
+							placeholder="Not set"
+							value={typeof draft === "string" ? draft : ""}
+							onChange={event => {
+								setDraft(event.target.value)
+								setError(null)
+							}}
+							aria-invalid={error ? true : undefined}
+							aria-describedby={messageId}
+							className="min-w-0 flex-1"
+						/>
 					) : (
 						<>
 							<Input
@@ -209,9 +238,7 @@ function PolicyRow({ policy }: { policy: Policy }) {
 					</p>
 				) : (
 					<p id={messageId} className="text-muted-foreground text-xs">
-						{policy.type === "integer"
-							? `From ${String(policy.min)} to ${String(policy.max)}`
-							: "On or off"}
+						{fieldHint(policy)}
 					</p>
 				)}
 			</div>

@@ -125,6 +125,9 @@ export const env = createEnv({
 		// development: no CAPTCHA widget is shown. Production needs it, together
 		// with CAPTCHA_SECRET_KEY on the backend.
 		NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().optional(),
+		// ADM-8 (TOR §IX): the official Bureau of Quarantine website, linked from
+		// the header and footer of the public site and both portals, and from Help.
+		NEXT_PUBLIC_BOQ_WEBSITE_URL: z.url().default("https://quarantine.doh.gov.ph"),
 	},
 
 	/**
@@ -171,6 +174,9 @@ export const env = createEnv({
 
 		// AUTH-3 (browser)
 		NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+
+		// ADM-8 (browser)
+		NEXT_PUBLIC_BOQ_WEBSITE_URL: process.env.NEXT_PUBLIC_BOQ_WEBSITE_URL,
 	},
 
 	/**

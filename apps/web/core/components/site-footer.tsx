@@ -2,6 +2,7 @@ import Image from "next/image"
 import Link from "next/link"
 
 import { cn } from "@/core/lib/utils"
+import { env } from "@/env"
 
 /**
  * Partner seals, in the order BOQ shows them (UI-1). Official marks: used
@@ -15,12 +16,16 @@ const SEALS = [
 	{ src: "/brand/boq.png", alt: "Bureau of Quarantine", width: 480, height: 403 },
 ] as const
 
-const LINKS = [{ href: "/verify", label: "Verify a document" }] as const
+const LINKS = [
+	{ href: "/verify", label: "Verify a document" },
+	{ href: "/help", label: "Help" },
+] as const
 
 /**
  * Footer on every QSPS page (UI-1): the WHO, Philippine government, DOH and
  * BOQ seals, then the copyright line. The year follows the clock so it
- * never goes stale.
+ * never goes stale. The links include Help (ADM-8) and the official BOQ
+ * website (TOR §IX), on the public site and in both portals.
  */
 export function SiteFooter({ className }: { className?: string }) {
 	const year = new Date().getFullYear()
@@ -60,6 +65,15 @@ export function SiteFooter({ className }: { className?: string }) {
 							{link.label}
 						</Link>
 					))}
+					<a
+						href={env.NEXT_PUBLIC_BOQ_WEBSITE_URL}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+					>
+						Official BOQ website
+						<span className="sr-only"> (opens in a new tab)</span>
+					</a>
 				</nav>
 			</div>
 		</footer>

@@ -263,7 +263,29 @@ describe("PolicyService.set", () => {
 		)
 	})
 
+	it("stores a help desk channel trimmed", async () => {
+		const { values } = mockSetTransaction([])
+		jest.mocked(db.select).mockReturnValue(query([]) as never)
+		const service = new PolicyService(auditService as unknown as AuditService, null)
+
+		await service.set("support.email", "  help@example.gov.ph ", "admin-1")
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ key: "support.email", value: "help@example.gov.ph" })
+		)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				targetId: "support.email",
+				oldValue: { value: "", isDefault: true },
+				newValue: { value: "help@example.gov.ph" },
+			}),
+			expect.anything()
+		)
+	})
+
 	it.each([
+		["support.ticket_url", "http://help.example.gov.ph"],
+		["support.phone", "call us"],
 		["booking.hold_minutes", 4],
 		["booking.hold_minutes", 30.5],
 		["booking.expedite_enabled", 1],
@@ -338,7 +360,7 @@ describe("PolicyService.list", () => {
 
 		const list = await service.list()
 
-		expect(list).toHaveLength(11)
+		expect(list).toHaveLength(15)
 		expect(list.find(policy => policy.key === "booking.hold_minutes")).toEqual({
 			key: "booking.hold_minutes",
 			area: "booking",
@@ -348,6 +370,8 @@ describe("PolicyService.list", () => {
 			min: 5,
 			max: 1440,
 			unit: "minutes",
+			format: null,
+			maxLength: null,
 			defaultValue: 60,
 			value: 90,
 			isDefault: false,
@@ -367,6 +391,80 @@ describe("PolicyService.list", () => {
 			unit: null,
 			value: true,
 		})
+		expect(list.find(policy => policy.key === "support.ticket_url")).toMatchObject({
+			area: "support",
+			type: "text",
+			format: "url",
+			maxLength: 500,
+			min: null,
+			unit: null,
+			defaultValue: "",
+			value: "",
+			isDefault: true,
+		})
+	})
+})
+
+describe("PolicyService.supportContacts (ADM-8)", () => {
+	beforeEach(() => {
+		jest.clearAllMocks()
+		for (const key of Object.keys(mutableEnv)) mutableEnv[key] = undefined
+	})
+
+	it("answers with every channel null when none is set", async () => {
+		jest.mocked(db.select).mockReturnValue(query([]) as never)
+		const service = new PolicyService({ record: jest.fn() } as unknown as AuditService, null)
+
+		await expect(service.supportContacts()).resolves.toEqual({
+			phone: null,
+			email: null,
+			ticketUrl: null,
+			hours: null,
+		})
+	})
+
+	it("answers with the set channels and leaves blank ones null", async () => {
+		jest.mocked(db.select).mockReturnValue(
+			query([
+				{ key: "support.phone", value: "+63 2 8123 4567" },
+				{ key: "support.email", value: "" },
+				{ key: "support.ticket_url", value: "https://help.example.gov.ph" },
+			]) as never
+		)
+		const service = new PolicyService({ record: jest.fn() } as unknown as AuditService, null)
+
+		await expect(service.supportContacts()).resolves.toEqual({
+			phone: "+63 2 8123 4567",
+			email: null,
+			ticketUrl: "https://help.example.gov.ph",
+			hours: null,
+		})
+	})
+
+	it("hides a stored value that no longer passes its rule", async () => {
+		jest
+			.mocked(db.select)
+			.mockReturnValue(query([{ key: "support.ticket_url", value: "not a link" }]) as never)
+		const service = new PolicyService({ record: jest.fn() } as unknown as AuditService, null)
+
+		await expect(service.supportContacts()).resolves.toMatchObject({ ticketUrl: null })
+	})
+
+	it("reads from the cache, so a cleared cache shows a change on the next read", async () => {
+		const redis = fakeRedis()
+		redis.store.set(
+			"policy:values",
+			JSON.stringify({ "support.hours": "Mon to Fri, 8 AM to 5 PM" })
+		)
+		const service = new PolicyService(
+			{ record: jest.fn() } as unknown as AuditService,
+			redis as never
+		)
+
+		await expect(service.supportContacts()).resolves.toMatchObject({
+			hours: "Mon to Fri, 8 AM to 5 PM",
+		})
+		expect(db.select).not.toHaveBeenCalled()
 	})
 })
 

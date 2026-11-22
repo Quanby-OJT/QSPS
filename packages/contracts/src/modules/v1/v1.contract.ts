@@ -11,6 +11,7 @@ import { processingContract } from "./processing/processing.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
 import { schedulesContract } from "./schedules/schedules.contract.js"
 import { servicesContract } from "./services/services.contract.js"
+import { supportContract } from "./support/support.contract.js"
 
 /**
  * V1 contract router for the versioned service API.
@@ -29,6 +30,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		rbac: rbacContract,
 		schedules: schedulesContract,
 		services: servicesContract,
+		support: supportContract,
 	})
 )
 

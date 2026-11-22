@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 /**
- * Policy registry (ADM-6, DOMAIN-MODEL section 4 `policies`).
+ * Policy registry (ADM-6, ADM-8, DOMAIN-MODEL section 4 `policies`).
  *
  * Every admin-editable rule value is declared here once: its key, the area it
  * is grouped under on the policy screen, its type, its allowed range, and its
@@ -12,10 +12,12 @@ import { z } from "zod"
  *
  * The behaviour each policy drives belongs to the ticket that uses it
  * (BKG-2, BKG-5, BKG-6, BKG-7, PAY-7); ADM-6 only stores and serves values.
+ * The help desk channels (ADM-8) are text keys: an empty value hides the
+ * channel on the Help pages.
  */
 
 /** Groups on the policy screen, in display order. */
-export const POLICY_AREAS = ["booking", "payment", "auth"] as const
+export const POLICY_AREAS = ["booking", "payment", "auth", "support"] as const
 
 export type PolicyArea = (typeof POLICY_AREAS)[number]
 
@@ -23,7 +25,13 @@ export const POLICY_AREA_LABELS: Record<PolicyArea, string> = {
 	booking: "Booking",
 	payment: "Payments and refunds",
 	auth: "Sign-in security",
+	support: "Help desk",
 }
+
+/** How a text Policy is checked, and which input the policy screen shows for it. */
+export const POLICY_TEXT_FORMATS = ["phone", "email", "url", "text"] as const
+
+export type PolicyTextFormat = (typeof POLICY_TEXT_FORMATS)[number]
 
 interface PolicyDefinitionBase {
 	key: string
@@ -46,7 +54,18 @@ export interface BooleanPolicyDefinition extends PolicyDefinitionBase {
 	defaultValue: boolean
 }
 
-export type PolicyDefinition = IntegerPolicyDefinition | BooleanPolicyDefinition
+/** Free text, checked by format. An empty string is always allowed and means "not set". */
+export interface TextPolicyDefinition extends PolicyDefinitionBase {
+	type: "text"
+	format: PolicyTextFormat
+	maxLength: number
+	defaultValue: string
+}
+
+export type PolicyDefinition =
+	| IntegerPolicyDefinition
+	| BooleanPolicyDefinition
+	| TextPolicyDefinition
 
 export type PolicyType = PolicyDefinition["type"]
 
@@ -172,6 +191,49 @@ export const POLICY_DEFINITIONS = [
 		unit: "days",
 		defaultValue: 90,
 	},
+	// Help desk (ADM-8, TOR §IX). Shown on the public, client and admin Help pages.
+	{
+		key: "support.phone",
+		area: "support",
+		label: "Help desk phone",
+		description: "The number clients call for help. Leave blank to hide it.",
+		type: "text",
+		format: "phone",
+		maxLength: 30,
+		defaultValue: "",
+	},
+	{
+		key: "support.email",
+		area: "support",
+		label: "Help desk email",
+		description: "The address clients write to for help. Leave blank to hide it.",
+		type: "text",
+		format: "email",
+		maxLength: 254,
+		defaultValue: "",
+	},
+	{
+		key: "support.ticket_url",
+		area: "support",
+		label: "Ticketing link",
+		description:
+			"The https:// address where clients open a help desk ticket. Leave blank to hide it.",
+		type: "text",
+		format: "url",
+		maxLength: 500,
+		defaultValue: "",
+	},
+	{
+		key: "support.hours",
+		area: "support",
+		label: "Support hours",
+		description:
+			"When the help desk answers, e.g. Monday to Friday, 8:00 AM to 5:00 PM. Leave blank to hide it.",
+		type: "text",
+		format: "text",
+		maxLength: 200,
+		defaultValue: "",
+	},
 ] as const satisfies readonly PolicyDefinition[]
 
 type RegisteredDefinition = (typeof POLICY_DEFINITIONS)[number]
@@ -179,9 +241,16 @@ type RegisteredDefinition = (typeof POLICY_DEFINITIONS)[number]
 /** A registered Policy key, e.g. "booking.hold_minutes". */
 export type PolicyKey = RegisteredDefinition["key"]
 
-/** The value type of one key: a number for integer keys, a boolean for boolean keys. */
+/** The value type of one key: a number, a boolean or a string, by the key's type. */
 export type PolicyValue<K extends PolicyKey> =
-	Extract<RegisteredDefinition, { key: K }> extends { type: "integer" } ? number : boolean
+	Extract<RegisteredDefinition, { key: K }> extends { type: "integer" }
+		? number
+		: Extract<RegisteredDefinition, { key: K }> extends { type: "boolean" }
+			? boolean
+			: string
+
+/** Any Policy value. */
+export type AnyPolicyValue = number | boolean | string
 
 /** Every registered key, in registry order. */
 export const POLICY_KEYS = POLICY_DEFINITIONS.map(
@@ -200,11 +269,53 @@ export function getPolicyDefinition(key: string): PolicyDefinition | undefined {
 	return DEFINITIONS_BY_KEY.get(key)
 }
 
-/** The schema a value for `definition` must pass: its type, and for integers its range. */
-export function policyValueSchema(definition: PolicyDefinition): z.ZodType<number | boolean> {
+/** An https address with a real domain name, e.g. https://help.example.gov.ph/tickets. */
+const HTTPS_URL = z.url({ protocol: /^https$/, hostname: z.regexes.domain })
+const PHONE_PATTERN = /^\+?[0-9(][0-9 ()-]*[0-9]$/
+
+/** Whether a trimmed, non-empty text value fits its format. */
+function fitsTextFormat(format: PolicyTextFormat, value: string): boolean {
+	switch (format) {
+		case "phone": {
+			const digits = value.replace(/[^0-9]/g, "").length
+			return PHONE_PATTERN.test(value) && digits >= 7 && digits <= 15
+		}
+		case "email":
+			return z.email().safeParse(value).success
+		case "url":
+			return HTTPS_URL.safeParse(value).success
+		case "text":
+			return true
+	}
+}
+
+const TEXT_FORMAT_HINTS: Record<PolicyTextFormat, string> = {
+	phone: "a phone number of 7 to 15 digits, e.g. +63 2 8123 4567",
+	email: "an email address",
+	url: "a full https:// address",
+	text: "text",
+}
+
+function textValueSchema(definition: TextPolicyDefinition): z.ZodType<string> {
+	const { label, maxLength, format } = definition
+	return z
+		.string({ error: `${label} must be text` })
+		.trim()
+		.max(maxLength, { error: `${label} must be at most ${maxLength} characters` })
+		.refine(value => value === "" || fitsTextFormat(format, value), {
+			error: `${label} must be ${TEXT_FORMAT_HINTS[format]}, or blank to hide it`,
+		})
+}
+
+/**
+ * The schema a value for `definition` must pass: its type, for integers its
+ * range, and for text its length and format. Text is trimmed.
+ */
+export function policyValueSchema(definition: PolicyDefinition): z.ZodType<AnyPolicyValue> {
 	if (definition.type === "boolean") {
 		return z.boolean({ error: `${definition.label} must be on or off` })
 	}
+	if (definition.type === "text") return textValueSchema(definition)
 	const message = `${definition.label} must be a whole number from ${definition.min} to ${definition.max}`
 	return z
 		.number({ error: message })
@@ -213,11 +324,9 @@ export function policyValueSchema(definition: PolicyDefinition): z.ZodType<numbe
 		.max(definition.max, { error: message })
 }
 
-export type PolicyValidation =
-	| { ok: true; value: number | boolean }
-	| { ok: false; message: string }
+export type PolicyValidation = { ok: true; value: AnyPolicyValue } | { ok: false; message: string }
 
-/** Check one value against its key's type and range. Unknown keys are refused. */
+/** Check one value against its key's rule. Unknown keys are refused. Text comes back trimmed. */
 export function validatePolicyValue(key: string, value: unknown): PolicyValidation {
 	const definition = getPolicyDefinition(key)
 	if (!definition) return { ok: false, message: `Unknown policy "${key}"` }
