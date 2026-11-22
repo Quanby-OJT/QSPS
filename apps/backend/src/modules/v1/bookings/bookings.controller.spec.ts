@@ -15,6 +15,7 @@ jest.mock("@/config/api-versions.config", () => ({
 	v1: {
 		bookings: {
 			create: {},
+			policies: {},
 		},
 	},
 }))
@@ -26,6 +27,9 @@ jest.mock("@/shared/interceptors/idempotency.interceptor", () => ({
 jest.mock("./bookings.service", () => ({
 	BookingService: jest.fn(),
 }))
+jest.mock("@/modules/v1/policies/policy-documents.service", () => ({
+	PolicyDocumentService: jest.fn(),
+}))
 
 describe("BookingsController permissions", () => {
 	// RbacGuard reads this metadata: 403 plus a denied audit entry without the
@@ -33,6 +37,12 @@ describe("BookingsController permissions", () => {
 	it("requires bookings.own:create to book", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.create)
+		).toEqual(["bookings.own:create"])
+	})
+
+	it("requires bookings.own:create to read the policies that apply (ADM-9)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.policies)
 		).toEqual(["bookings.own:create"])
 	})
 })

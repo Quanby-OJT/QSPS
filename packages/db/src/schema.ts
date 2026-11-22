@@ -755,6 +755,81 @@ export const policies = createTable("policies", t => ({
 }))
 
 // ============================================================================
+// POLICY DOCUMENTS (ADM-9)
+// ============================================================================
+
+/**
+ * A written policy clients read, and may have to accept, at booking (ADM-9,
+ * assumption A1). One row per version: all versions of a policy share
+ * `document_key`, and editing writes the next `version` instead of changing a
+ * row, so an acceptance always points at the exact text the client saw. Only
+ * `withdrawn_at` is ever updated. Written only by `PolicyDocumentService`.
+ */
+export const policyDocuments = createTable(
+	"policy_documents",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		/** Random key shared by every version of one policy. */
+		documentKey: t.text("document_key").notNull(),
+		/** 1 for the first version, then 2, 3… */
+		version: t.integer("version").notNull(),
+		title: t.text("title").notNull(),
+		/** Plain text; shown as paragraphs, never as HTML. */
+		body: t.text("body").notNull(),
+		appliesToAllServices: t.boolean("applies_to_all_services").notNull().default(false),
+		/** The Services it applies to; empty when it applies to all. */
+		serviceIds: t
+			.integer("service_ids")
+			.array()
+			.notNull()
+			.default(sql`'{}'::integer[]`),
+		/** First Manila date the version applies to bookings. */
+		effectiveFrom: t.date("effective_from").notNull(),
+		requiresAcceptance: t.boolean("requires_acceptance").notNull().default(true),
+		/** Set on every version of the key when the policy is withdrawn. */
+		withdrawnAt: t.timestamp("withdrawn_at"),
+		createdBy: t
+			.text("created_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("policy_documents_key_version_uq").on(t.documentKey, t.version),
+		index("policy_documents_effective_idx").on(t.effectiveFrom),
+	]
+)
+
+/**
+ * A client's acceptance of one policy version for one Booking (ADM-9).
+ * Insert-only; written by `BookingService.create` in the booking transaction.
+ */
+export const policyAcceptances = createTable(
+	"policy_acceptances",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		/** The exact version accepted. */
+		policyDocumentId: t
+			.integer("policy_document_id")
+			.notNull()
+			.references(() => policyDocuments.id, { onDelete: "restrict" }),
+		clientId: t
+			.text("client_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		acceptedAt: t.timestamp("accepted_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("policy_acceptances_booking_document_uq").on(t.bookingId, t.policyDocumentId),
+		index("policy_acceptances_document_idx").on(t.policyDocumentId),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -784,6 +859,8 @@ export const relations = defineRelations(
 		documents,
 		documentSequences,
 		policies,
+		policyDocuments,
+		policyAcceptances,
 	},
 	r => ({
 		users: {
@@ -943,6 +1020,27 @@ export const relations = defineRelations(
 				to: r.serviceCategories.id,
 			}),
 		},
+		policyDocuments: {
+			acceptances: r.many.policyAcceptances(),
+			creator: r.one.users({
+				from: r.policyDocuments.createdBy,
+				to: r.users.id,
+			}),
+		},
+		policyAcceptances: {
+			booking: r.one.bookings({
+				from: r.policyAcceptances.bookingId,
+				to: r.bookings.id,
+			}),
+			policyDocument: r.one.policyDocuments({
+				from: r.policyAcceptances.policyDocumentId,
+				to: r.policyDocuments.id,
+			}),
+			client: r.one.users({
+				from: r.policyAcceptances.clientId,
+				to: r.users.id,
+			}),
+		},
 		userRoles: {
 			user: r.one.users({
 				from: r.userRoles.userId,
@@ -996,6 +1094,8 @@ export const schema = Object.assign(
 		documents,
 		documentSequences,
 		policies,
+		policyDocuments,
+		policyAcceptances,
 	},
 	relations
 )

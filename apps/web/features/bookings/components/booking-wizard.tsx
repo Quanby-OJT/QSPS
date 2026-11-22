@@ -11,11 +11,14 @@ import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
 import { useCreateBookingMutation } from "@/features/bookings/api/bookings.hooks"
+import { BookingPolicies } from "@/features/bookings/components/booking-policies"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
 import {
 	DEFAULT_PAYMENT_CHANNEL,
 	useCreatePaymentMutation,
 } from "@/features/payments/api/payments.hooks"
+import { useBookingPoliciesQuery } from "@/features/policies/api/policy-documents.hooks"
+import { missingAcceptances } from "@/features/policies/lib/policy-documents"
 import { useSlotAvailabilityQuery } from "@/features/schedules/api/schedules.hooks"
 import {
 	dateLabel,
@@ -41,7 +44,9 @@ function newIdempotencyKey(): string {
 
 /**
  * Booking wizard (BKG-1): service, location, date and time, review, then a
- * confirmation with the Reference Number and its QR code.
+ * confirmation with the Reference Number and its QR code. The review step
+ * shows the written policies for the Service (ADM-9); confirming needs every
+ * one that requires acceptance to be ticked.
  */
 export function BookingWizard() {
 	const services = useAvailableServicesQuery()
@@ -61,6 +66,8 @@ export function BookingWizard() {
 	const [paymentKey, setPaymentKey] = useState(newIdempotencyKey)
 	// Keeps the BOQ loader up while the browser leaves for the checkout page.
 	const [redirecting, setRedirecting] = useState(false)
+	// ADM-9: the policy versions the client ticked on the review step.
+	const [acceptedPolicyIds, setAcceptedPolicyIds] = useState<ReadonlySet<number>>(() => new Set())
 
 	const service = services.data?.find(item => item.id === serviceId)
 	const location = locations.data?.find(item => item.id === locationId)
@@ -71,6 +78,18 @@ export function BookingWizard() {
 		month,
 	})
 	const slotsByDate = useMemo(() => groupSlotsByDate(availability.data ?? []), [availability.data])
+	const bookingPolicies = useBookingPoliciesQuery(step === 3 ? serviceId : null)
+	const policiesReady = bookingPolicies.isSuccess
+	const stillToAccept = missingAcceptances(bookingPolicies.data ?? [], acceptedPolicyIds)
+
+	function setPolicyAccepted(policyId: number, accepted: boolean) {
+		setAcceptedPolicyIds(current => {
+			const next = new Set(current)
+			if (accepted) next.add(policyId)
+			else next.delete(policyId)
+			return next
+		})
+	}
 	const currentMonth = manilaMonthOf(new Date())
 
 	// PAY-1: send the client to the provider's hosted checkout. The booking is
@@ -95,7 +114,13 @@ export function BookingWizard() {
 	async function confirm() {
 		if (!slot) return
 		try {
-			const created = await createBooking.mutateAsync({ scheduleSlotId: slot.id, idempotencyKey })
+			// Only versions still on screen are sent; a stale tick cannot count.
+			const shownIds = new Set((bookingPolicies.data ?? []).map(policy => policy.id))
+			const created = await createBooking.mutateAsync({
+				scheduleSlotId: slot.id,
+				acceptedPolicyDocumentIds: [...acceptedPolicyIds].filter(id => shownIds.has(id)),
+				idempotencyKey,
+			})
 			setBooking(created)
 			setStep(4)
 		} catch (error) {
@@ -104,6 +129,8 @@ export function BookingWizard() {
 			// fresh availability, and use a new key for the next attempt.
 			setIdempotencyKey(newIdempotencyKey())
 			setSlot(null)
+			// A policy may have changed while the client was reviewing; ask again.
+			setAcceptedPolicyIds(new Set())
 			setStep(2)
 			void availability.refetch()
 		}
@@ -114,6 +141,7 @@ export function BookingWizard() {
 		setSlot(null)
 		setServiceId(null)
 		setLocationId(null)
+		setAcceptedPolicyIds(new Set())
 		setIdempotencyKey(newIdempotencyKey())
 		setStep(0)
 	}
@@ -168,6 +196,7 @@ export function BookingWizard() {
 								onClick={() => {
 									setServiceId(item.id)
 									setSlot(null)
+									setAcceptedPolicyIds(new Set())
 								}}
 							>
 								<span className="block font-medium">{item.name}</span>
@@ -268,7 +297,7 @@ export function BookingWizard() {
 											type="button"
 											disabled={!item.isAvailable}
 											aria-pressed={item.id === slot?.id}
-											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
+											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
 											onClick={() => setSlot(item)}
 										>
 											<span className="block font-medium">{slotTimeRange(item)}</span>
@@ -303,15 +332,29 @@ export function BookingWizard() {
 						<Detail label="Time" value={slotTimeRange(slot)} />
 						<Detail label="Fee" value={`₱${feeInPesos(service?.feeCentavos ?? 0)}`} />
 					</dl>
+					<BookingPolicies
+						policies={bookingPolicies.data ?? []}
+						loading={bookingPolicies.isPending}
+						failed={bookingPolicies.isError}
+						onRetry={() => void bookingPolicies.refetch()}
+						accepted={acceptedPolicyIds}
+						onAcceptedChange={setPolicyAccepted}
+					/>
 					<p className="text-muted-foreground text-sm">
 						Confirming reserves your place. You do not need to pay now, but an unpaid booking is
 						held for a limited time.
 					</p>
+					{policiesReady && stillToAccept.length > 0 ? (
+						<p className="text-sm" role="status">
+							Tick {stillToAccept.length === 1 ? "the booking term" : "each booking term"} above to
+							confirm.
+						</p>
+					) : null}
 					<WizardActions
 						onBack={() => setStep(2)}
 						onNext={() => void confirm()}
 						nextLabel={createBooking.isPending ? "Confirming…" : "Confirm booking"}
-						nextDisabled={createBooking.isPending}
+						nextDisabled={createBooking.isPending || !policiesReady || stillToAccept.length > 0}
 					/>
 				</div>
 			) : null}

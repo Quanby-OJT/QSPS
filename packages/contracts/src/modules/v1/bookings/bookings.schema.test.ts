@@ -4,10 +4,22 @@ import { BookingSchema, CreateBookingSchema, ReferenceNumberSchema } from "./boo
 
 describe("booking schemas", () => {
 	it("accepts a slot id and rejects anything that is not a positive whole number", () => {
-		expect(CreateBookingSchema.parse({ scheduleSlotId: 7 })).toEqual({ scheduleSlotId: 7 })
+		expect(CreateBookingSchema.parse({ scheduleSlotId: 7 })).toEqual({
+			scheduleSlotId: 7,
+			acceptedPolicyDocumentIds: [],
+		})
 		expect(CreateBookingSchema.safeParse({ scheduleSlotId: 0 }).success).toBe(false)
 		expect(CreateBookingSchema.safeParse({ scheduleSlotId: 1.5 }).success).toBe(false)
 		expect(CreateBookingSchema.safeParse({}).success).toBe(false)
+	})
+
+	it("takes the accepted policy versions, once each (ADM-9)", () => {
+		expect(
+			CreateBookingSchema.parse({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [3, 5, 3] })
+		).toEqual({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [3, 5] })
+		expect(
+			CreateBookingSchema.safeParse({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [0] }).success
+		).toBe(false)
 	})
 
 	it("accepts reference numbers written QSPS-YYMMDD-XXXXXX only", () => {
