@@ -32,7 +32,11 @@ export const BOOKING_ITEM_STATUSES = [
 	"no_show",
 ] as const
 
+/** Why a Booking was cancelled (BKG-2). */
+export const BOOKING_CANCEL_REASONS = ["hold_expired", "no_show", "client_cancelled"] as const
+
 export const BookingStatusSchema = z.enum(BOOKING_STATUSES)
+export const BookingCancelReasonSchema = z.enum(BOOKING_CANCEL_REASONS)
 export const BookingKindSchema = z.enum(BOOKING_KINDS)
 export const BookingItemStatusSchema = z.enum(BOOKING_ITEM_STATUSES)
 
@@ -62,8 +66,13 @@ export const BookingSchema = z.object({
 	status: BookingStatusSchema,
 	kind: BookingKindSchema,
 	totalCentavos: z.number().int().min(0),
-	/** When an unpaid booking stops holding its slot. */
+	/** When an unpaid booking stops holding its slot. Null once paid or once onsite payment is chosen. */
 	holdExpiresAt: dateField.nullable(),
+	/** BKG-2: the client will pay at the BOQ cashier; the arrival cutoff applies instead of the hold. */
+	payOnsite: z.boolean(),
+	/** BKG-2: set only when `status` is `cancelled`. */
+	cancelReason: BookingCancelReasonSchema.nullable(),
+	cancelledAt: dateField.nullable(),
 	createdAt: dateField,
 	items: z.array(BookingItemSchema).min(1),
 })
@@ -83,7 +92,13 @@ export const CreateBookingSchema = z.object({
 		.transform(ids => [...new Set(ids)]),
 })
 
+/** One of the caller's own Bookings, by id (BKG-2). */
+export const BookingIdParamSchema = z.object({
+	bookingId: z.coerce.number().int().positive(),
+})
+
 export type BookingStatus = z.infer<typeof BookingStatusSchema>
+export type BookingCancelReason = z.infer<typeof BookingCancelReasonSchema>
 export type BookingKind = z.infer<typeof BookingKindSchema>
 export type BookingItemStatus = z.infer<typeof BookingItemStatusSchema>
 export type BookingItem = z.infer<typeof BookingItemSchema>

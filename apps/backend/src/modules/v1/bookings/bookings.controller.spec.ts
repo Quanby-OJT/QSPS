@@ -16,6 +16,9 @@ jest.mock("@/config/api-versions.config", () => ({
 		bookings: {
 			create: {},
 			policies: {},
+			unpaid: {},
+			cancel: {},
+			payOnsite: {},
 		},
 	},
 }))
@@ -44,5 +47,23 @@ describe("BookingsController permissions", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.policies)
 		).toEqual(["bookings.own:create"])
+	})
+
+	it("requires bookings.own:read to see the booking awaiting payment (BKG-2)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.unpaid)
+		).toEqual(["bookings.own:read"])
+	})
+
+	it("requires bookings.own:cancel to cancel (BKG-2)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.cancel)
+		).toEqual(["bookings.own:cancel"])
+	})
+
+	it("requires payments.own:create to choose paying at the office (BKG-2)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.payOnsite)
+		).toEqual(["payments.own:create"])
 	})
 })

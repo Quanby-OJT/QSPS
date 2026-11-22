@@ -14,6 +14,7 @@ import {
 } from "@/core/components/ui/card"
 import { Skeleton } from "@/core/components/ui/skeleton"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
+import { UnpaidBookingCard } from "@/features/bookings/components/unpaid-booking-card"
 import { canAccess, type AccessProfile } from "@/features/dashboard/lib/access"
 import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
 import { ClientLocationPicker } from "@/features/locations/components/client-location-picker"
@@ -35,6 +36,8 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 		requiredPermission: "bookings.own:create",
 	})
 	const canManageRoles = canAccess(access, { requiredPermission: "users.roles:manage" })
+	// BKG-2: the client's booking awaiting payment, with pay and cancel.
+	const canReadOwnBookings = canAccess(access, { requiredPermission: "bookings.own:read" })
 
 	// Ask only for what the caller may read: a refused request is a 403 and a
 	// denied audit entry on every Dashboard visit (found in ADM-3 testing).
@@ -54,7 +57,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 			<header className="bg-navy text-navy-foreground relative overflow-hidden rounded-xl p-6 sm:p-8">
 				<div
 					aria-hidden
-					className="bg-gold/10 pointer-events-none absolute -top-16 -right-16 size-56 rounded-full"
+					className="bg-gold/10 pointer-events-none absolute -right-16 -top-16 size-56 rounded-full"
 				/>
 				<div className="relative flex flex-wrap items-center justify-between gap-6">
 					<div className="min-w-0">
@@ -72,7 +75,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 								{access.roles.map(role => (
 									<span
 										key={role}
-										className="border-gold/40 text-gold rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide uppercase"
+										className="border-gold/40 text-gold rounded-full border px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide"
 									>
 										{role}
 									</span>
@@ -89,6 +92,8 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 					/>
 				</div>
 			</header>
+
+			{canCreateOwnBookings && canReadOwnBookings ? <UnpaidBookingCard /> : null}
 
 			{canCreateOwnBookings ? <ClientLocationPicker /> : null}
 
@@ -127,7 +132,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 								<Link
 									key={item.href}
 									href={item.href}
-									className="group/action border-border hover:border-primary/40 hover:bg-primary/5 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 transition-all outline-none hover:-translate-y-0.5 hover:shadow-sm focus-visible:ring-[3px] motion-reduce:hover:translate-y-0"
+									className="group/action border-border hover:border-primary/40 hover:bg-primary/5 focus-visible:border-ring focus-visible:ring-ring/50 flex items-center gap-3 rounded-lg border p-3 outline-none transition-all hover:-translate-y-0.5 hover:shadow-sm focus-visible:ring-[3px] motion-reduce:hover:translate-y-0"
 								>
 									<div className="bg-primary/10 text-primary group-hover/action:bg-primary group-hover/action:text-primary-foreground flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors">
 										<HugeiconsIcon icon={item.icon} strokeWidth={2} className="size-5" />
@@ -166,7 +171,7 @@ function StatCard({ icon, label, value, hint, isLoading, isError }: StatCardProp
 		<Card className="border-t-gold border-t-4">
 			<CardHeader>
 				<div className="flex items-center justify-between gap-2">
-					<CardDescription className="text-xs font-semibold tracking-wide uppercase">
+					<CardDescription className="text-xs font-semibold uppercase tracking-wide">
 						{label}
 					</CardDescription>
 					<div className="bg-navy text-gold flex size-9 items-center justify-center rounded-lg">
