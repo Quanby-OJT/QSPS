@@ -3,12 +3,14 @@ import Link from "next/link"
 
 import { ThemeToggle } from "@/core/components/theme-toggle"
 import { linkButton } from "@/core/lib/link-button"
+import { env } from "@/env"
 
 /**
  * Header for the public pages (UI-1): the BOQ seal and name, the main links,
  * a light/dark switch, and Sign in / Book now, or Dashboard when already
  * signed in. One row on every screen: on a phone the name and the page links
- * are hidden, so the seal, the switch and the sign in buttons fit.
+ * are hidden, so the seal, the switch and the sign in buttons fit; Help and
+ * the official BOQ website (ADM-8, TOR §IX) are in the footer there too.
  */
 export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 	return (
@@ -47,6 +49,18 @@ export function PublicHeader({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
 					<Link href="/verify" className="hover:text-primary hidden md:inline">
 						Verify a document
 					</Link>
+					<Link href="/help" className="hover:text-primary hidden md:inline">
+						Help
+					</Link>
+					<a
+						href={env.NEXT_PUBLIC_BOQ_WEBSITE_URL}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="hover:text-primary hidden lg:inline"
+					>
+						BOQ website
+						<span className="sr-only"> (opens in a new tab)</span>
+					</a>
 					{isLoggedIn ? (
 						<Link href="/dashboard" className={linkButton({ className: "max-sm:h-9 max-sm:px-3" })}>
 							Dashboard

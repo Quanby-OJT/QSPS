@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { POLICY_AREAS, POLICY_KEYS, validatePolicyValue } from "./policies.registry.js"
+import {
+	POLICY_AREAS,
+	POLICY_KEYS,
+	POLICY_TEXT_FORMATS,
+	validatePolicyValue,
+} from "./policies.registry.js"
 
 const dateField = z
 	.union([z.date(), z.string()])
@@ -8,7 +13,7 @@ const dateField = z
 
 export const PolicyKeySchema = z.enum(POLICY_KEYS)
 
-export const PolicyValueSchema = z.union([z.number(), z.boolean()])
+export const PolicyValueSchema = z.union([z.number(), z.boolean(), z.string()])
 
 /** One registered Policy with its current value, as the policy screen shows it. */
 export const PolicySchema = z.object({
@@ -16,11 +21,14 @@ export const PolicySchema = z.object({
 	area: z.enum(POLICY_AREAS),
 	label: z.string(),
 	description: z.string(),
-	type: z.enum(["integer", "boolean"]),
-	/** Integer keys only; null for boolean keys. */
+	type: z.enum(["integer", "boolean", "text"]),
+	/** Integer keys only; null for the others. */
 	min: z.number().int().nullable(),
 	max: z.number().int().nullable(),
 	unit: z.string().nullable(),
+	/** Text keys only; null for the others. */
+	format: z.enum(POLICY_TEXT_FORMATS).nullable(),
+	maxLength: z.number().int().nullable(),
 	/** The documented default, or the env value that replaces it. */
 	defaultValue: PolicyValueSchema,
 	/** What `PolicyService.get` returns right now. */
@@ -32,9 +40,9 @@ export const PolicySchema = z.object({
 })
 
 /**
- * Change one Policy. The value is checked against its key's type and range
- * here, so a bad value is a 400 before it reaches the service, which checks
- * again before writing.
+ * Change one Policy. The value is checked against its key's rule here, so a
+ * bad value is a 400 before it reaches the service, which checks again before
+ * writing.
  */
 export const UpdatePolicyRequestSchema = z
 	.object({

@@ -39,6 +39,8 @@ const hold: Policy = {
 	min: 5,
 	max: 1440,
 	unit: "minutes",
+	format: null,
+	maxLength: null,
 	defaultValue: 60,
 	value: 60,
 	isDefault: true,
@@ -73,6 +75,23 @@ const lockout: Policy = {
 	updatedByEmail: "admin@qsps.local",
 }
 
+const supportEmail: Policy = {
+	...hold,
+	key: "support.email",
+	area: "support",
+	label: "Help desk email",
+	description: "The address clients write to for help.",
+	type: "text",
+	min: null,
+	max: null,
+	unit: null,
+	format: "email",
+	maxLength: 254,
+	defaultValue: "",
+	value: "help@example.gov.ph",
+	isDefault: false,
+}
+
 function loaded(data: Policy[]) {
 	usePolicies.mockReturnValue({
 		data,
@@ -83,7 +102,7 @@ function loaded(data: Policy[]) {
 	})
 }
 
-describe("PoliciesView (ADM-6)", () => {
+describe("PoliciesView (ADM-6, ADM-8)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mutateAsync.mockResolvedValue(hold)
@@ -162,6 +181,47 @@ describe("PoliciesView (ADM-6)", () => {
 		expect(await within(form).findByRole("alert")).toHaveTextContent(
 			"Unpaid booking hold must be a whole number"
 		)
+	})
+
+	it("shows help desk channels under their own area, as text fields", () => {
+		loaded([hold, supportEmail])
+		render(<PoliciesView />)
+
+		expect(screen.getByRole("heading", { name: "Help desk" })).toBeInTheDocument()
+		const form = screen.getByRole("form", { name: "Help desk email" })
+		const field = within(form).getByLabelText("Help desk email")
+		expect(field).toHaveAttribute("type", "email")
+		expect(field).toHaveValue("help@example.gov.ph")
+		expect(form).toHaveTextContent("Default: Not set")
+	})
+
+	it("saves a cleared channel as blank, which hides it", async () => {
+		loaded([supportEmail])
+		const user = userEvent.setup()
+		render(<PoliciesView />)
+
+		const form = screen.getByRole("form", { name: "Help desk email" })
+		await user.clear(within(form).getByLabelText("Help desk email"))
+		await user.click(within(form).getByRole("button", { name: "Save" }))
+
+		expect(mutateAsync).toHaveBeenCalledWith({ key: "support.email", value: "" })
+	})
+
+	it("refuses a bad email without calling the API", async () => {
+		loaded([supportEmail])
+		const user = userEvent.setup()
+		render(<PoliciesView />)
+
+		const form = screen.getByRole("form", { name: "Help desk email" })
+		const field = within(form).getByLabelText("Help desk email")
+		await user.clear(field)
+		await user.type(field, "not-an-email")
+		await user.click(within(form).getByRole("button", { name: "Save" }))
+
+		expect(within(form).getByRole("alert")).toHaveTextContent(
+			"Help desk email must be an email address, or blank to hide it"
+		)
+		expect(mutateAsync).not.toHaveBeenCalled()
 	})
 
 	it("says so plainly when the user lacks the permission", () => {

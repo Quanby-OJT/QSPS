@@ -6,9 +6,11 @@ import { setAuthPolicyReader, type AuthPolicies } from "@repo/auth/auth-policies
 import {
 	POLICY_DEFINITIONS,
 	validatePolicyValue,
+	type AnyPolicyValue,
 	type Policy,
 	type PolicyKey,
 	type PolicyValue,
+	type SupportContacts,
 } from "@repo/contracts"
 import { policies, users } from "@repo/db/schema"
 
@@ -36,7 +38,7 @@ type StoredRow = {
 }
 
 /** The value a key answers with, and whether it is the default. */
-type Effective = { value: number | boolean; isDefault: boolean }
+type Effective = { value: AnyPolicyValue; isDefault: boolean }
 
 /**
  * Env values that replace a key's documented default when set (DOMAIN-MODEL
@@ -52,7 +54,7 @@ function envDefaults(): Partial<Record<PolicyKey, number | undefined>> {
 }
 
 /**
- * Booking, payment and sign-in Policies (ADM-6, DOMAIN-MODEL section 6).
+ * Booking, payment, sign-in and help desk Policies (ADM-6, ADM-8, DOMAIN-MODEL section 6).
  *
  * The only code that writes `policies`. Every other epic reads a rule through
  * {@link get}, which answers with the stored value, or the documented default
@@ -103,8 +105,27 @@ export class PolicyService implements OnModuleInit, OnModuleDestroy {
 		}
 	}
 
+	/**
+	 * The help desk channels for the Help pages (ADM-8), read together from one
+	 * lookup. A blank channel is null, so the page leaves it out. Served from the
+	 * cache, which a change clears, so a new value shows on the next page load.
+	 */
+	async supportContacts(): Promise<SupportContacts> {
+		const stored = await this.storedValues()
+		const channel = (key: PolicyKey): string | null => {
+			const value = this.effective(key, stored.get(key)).value
+			return typeof value === "string" && value !== "" ? value : null
+		}
+		return {
+			phone: channel("support.phone"),
+			email: channel("support.email"),
+			ticketUrl: channel("support.ticket_url"),
+			hours: channel("support.hours"),
+		}
+	}
+
 	/** The documented default, or the env value that replaces it when it passes the key's rule. */
-	defaultValue(key: PolicyKey): number | boolean {
+	defaultValue(key: PolicyKey): AnyPolicyValue {
 		const definition = definitionOf(key)
 		const fromEnv = envDefaults()[key]
 		if (fromEnv !== undefined) {
@@ -209,6 +230,8 @@ export class PolicyService implements OnModuleInit, OnModuleDestroy {
 			min: definition.type === "integer" ? definition.min : null,
 			max: definition.type === "integer" ? definition.max : null,
 			unit: definition.type === "integer" ? definition.unit : null,
+			format: definition.type === "text" ? definition.format : null,
+			maxLength: definition.type === "text" ? definition.maxLength : null,
 			defaultValue: this.defaultValue(definition.key),
 			value: current.value,
 			isDefault: current.isDefault,

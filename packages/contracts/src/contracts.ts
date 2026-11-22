@@ -176,27 +176,31 @@ export type {
 	UpdateLocationRequest,
 } from "./modules/v1/locations/locations.schema.js"
 
-// Policy management contracts + registry + schemas (ADM-6)
+// Policy management contracts + registry + schemas (ADM-6, ADM-8)
 export { policiesContract } from "./modules/v1/policies/policies.contract.js"
 export {
 	POLICY_AREAS,
 	POLICY_AREA_LABELS,
 	POLICY_DEFINITIONS,
 	POLICY_KEYS,
+	POLICY_TEXT_FORMATS,
 	getPolicyDefinition,
 	isPolicyKey,
 	policyValueSchema,
 	validatePolicyValue,
 } from "./modules/v1/policies/policies.registry.js"
 export type {
+	AnyPolicyValue,
 	PolicyArea,
 	PolicyDefinition,
 	PolicyKey,
+	PolicyTextFormat,
 	PolicyType,
 	PolicyValidation,
 	PolicyValue,
 	IntegerPolicyDefinition,
 	BooleanPolicyDefinition,
+	TextPolicyDefinition,
 } from "./modules/v1/policies/policies.registry.js"
 export {
 	PolicyKeySchema,
@@ -205,6 +209,11 @@ export {
 	UpdatePolicyRequestSchema,
 } from "./modules/v1/policies/policies.schema.js"
 export type { Policy, UpdatePolicyRequest } from "./modules/v1/policies/policies.schema.js"
+
+// Help desk contacts contract + schema (ADM-8)
+export { supportContract } from "./modules/v1/support/support.contract.js"
+export { SupportContactsSchema } from "./modules/v1/support/support.schema.js"
+export type { SupportContacts } from "./modules/v1/support/support.schema.js"
 
 // RBAC administration contract + schemas
 export { rbacContract } from "./modules/v1/rbac/rbac.contract.js"

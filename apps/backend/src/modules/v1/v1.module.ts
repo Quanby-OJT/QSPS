@@ -13,6 +13,7 @@ import { ProcessingModule } from "./processing/processing.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
 import { SchedulesModule } from "./schedules/schedules.module"
 import { ServicesModule } from "./services/services.module"
+import { SupportModule } from "./support/support.module"
 
 @Module({
 	imports: [
@@ -22,6 +23,7 @@ import { ServicesModule } from "./services/services.module"
 		MeModule,
 		PaymentsModule,
 		PoliciesModule,
+		SupportModule,
 		ProcessingModule,
 		RbacAdminModule,
 		SchedulesModule,
