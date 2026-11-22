@@ -470,8 +470,17 @@ export const bookings = createTable(
 			.default("regular")
 			.$type<"regular" | "expedite" | "vip" | "walk-in">(),
 		totalCentavos: t.integer("total_centavos").notNull(),
-		/** When an unpaid booking stops holding its slot; null once paid. */
+		/** When an unpaid booking stops holding its slot; null once paid or once onsite payment is chosen. */
 		holdExpiresAt: t.timestamp("hold_expires_at"),
+		/**
+		 * BKG-2: the client will pay at the BOQ cashier. The hold no longer
+		 * applies; the arrival cutoff (`booking.arrival_cutoff_minutes`) does.
+		 */
+		payOnsite: t.boolean("pay_onsite").notNull().default(false),
+		/** BKG-2: why a cancelled booking was cancelled; null for any other status. */
+		cancelReason: t.text("cancel_reason").$type<"hold_expired" | "no_show" | "client_cancelled">(),
+		/** BKG-2: when the booking was cancelled; null for any other status. */
+		cancelledAt: t.timestamp("cancelled_at"),
 		/** Who created it: the client, or staff for VIP and walk-in bookings. */
 		createdBy: t
 			.text("created_by")

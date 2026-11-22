@@ -32,6 +32,37 @@ export class BookingsController {
 		)
 	}
 
+	// BKG-2: the client's one booking awaiting payment, or null.
+	@RequirePermissions("bookings.own:read")
+	@Implement(v1.bookings.unpaid)
+	async unpaid(@Session() session?: UserSession) {
+		return implement(v1.bookings.unpaid).handler(() =>
+			this.bookingService.findUnpaid(actorId(session))
+		)
+	}
+
+	// BKG-2: the client cancels their own unpaid booking, freeing the place.
+	@StrictThrottle()
+	@RequirePermissions("bookings.own:cancel")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.bookings.cancel)
+	async cancel(@Session() session?: UserSession) {
+		return implement(v1.bookings.cancel).handler(({ input }) =>
+			this.bookingService.cancelOwn(input.bookingId, actorId(session))
+		)
+	}
+
+	// BKG-2: pay at the BOQ cashier; the arrival cutoff replaces the hold.
+	@StrictThrottle()
+	@RequirePermissions("payments.own:create")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.bookings.payOnsite)
+	async payOnsite(@Session() session?: UserSession) {
+		return implement(v1.bookings.payOnsite).handler(({ input }) =>
+			this.bookingService.choosePayOnsite(input.bookingId, actorId(session))
+		)
+	}
+
 	// Idempotent: a retried confirm with the same Idempotency-Key replays the
 	// first response instead of booking a second place.
 	@StrictThrottle()

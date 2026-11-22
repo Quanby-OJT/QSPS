@@ -1,12 +1,13 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
 
 import type { Booking, BookingItemStatus, BookingStatus, CreateBookingInput } from "@repo/contracts"
 import {
 	bookingItems,
 	bookings,
 	locations,
+	payments,
 	policyAcceptances,
 	scheduleSlots,
 	services,
@@ -19,11 +20,19 @@ import { PolicyService } from "@/common/policy/policy.service"
 import { loadPoliciesForService } from "@/modules/v1/policies/policy-document-rules"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
+import {
+	IN_FLIGHT_PAYMENT_STATUSES,
+	PAYMENT_IN_FLIGHT_MINUTES,
+	type BookingCancelReason,
+} from "./booking-expiry"
 import { canTransitionItem, isTerminalItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
 const AUDIT_DOMAIN_BOOKINGS = "bookings"
+
+/** Audit domain of cancellations made by the expiry job (System, no actor). */
+export const AUDIT_DOMAIN_BOOKING_EXPIRY = "booking-expiry"
 
 /** How many times to draw a new Reference Number when one is already taken. */
 const MAX_REFERENCE_ATTEMPTS = 5
@@ -31,6 +40,9 @@ const MAX_REFERENCE_ATTEMPTS = 5
 const MS_PER_MINUTE = 60_000
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/** The database, or a transaction: anything that can run a select. */
+type Reader = typeof db | Transaction
 
 /** What happened when staff tried to check a Booking in (PRC-1). */
 export type CheckInResult =
@@ -41,7 +53,8 @@ export type CheckInResult =
 /**
  * Bookings (BKG-1). The only code that changes `bookings.status`,
  * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
- * (DOMAIN-MODEL.md section 6).
+ * (DOMAIN-MODEL.md section 6). BKG-2 adds cancelling: by the client, and by
+ * the expiry job in `common/maintenance/`.
  */
 @Injectable()
 export class BookingService {
@@ -228,6 +241,9 @@ export class BookingService {
 				kind: booking.kind,
 				totalCentavos: booking.totalCentavos,
 				holdExpiresAt: booking.holdExpiresAt,
+				payOnsite: booking.payOnsite,
+				cancelReason: booking.cancelReason,
+				cancelledAt: booking.cancelledAt,
 				createdAt: booking.createdAt,
 				items: [
 					{
@@ -473,6 +489,295 @@ export class BookingService {
 			tx
 		)
 		return true
+	}
+
+	/**
+	 * The caller's one Booking awaiting payment, or null (BKG-2). The client
+	 * dashboard shows it with Pay now, Pay at the office and Cancel.
+	 */
+	async findUnpaid(actorId: string | null): Promise<Booking | null> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your bookings" })
+		}
+		const [unpaid] = await db
+			.select({ id: bookings.id })
+			.from(bookings)
+			.where(and(eq(bookings.clientId, actorId), eq(bookings.status, "pending_payment")))
+			.limit(1)
+		return unpaid ? this.loadBooking(db, unpaid.id) : null
+	}
+
+	/**
+	 * The client cancels their own unpaid Booking (BKG-2, `bookings.own:cancel`).
+	 *
+	 * Someone else's Booking answers exactly like a missing one, so ids cannot
+	 * be probed; the attempt is audited as denied. Refused while a Payment for
+	 * it is still in flight, because the money may already be on its way.
+	 */
+	async cancelOwn(
+		bookingId: number,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<Booking> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to cancel a booking" })
+		}
+
+		const denied = await db.transaction(async tx => {
+			const [owned] = await tx
+				.select({ clientId: bookings.clientId, status: bookings.status })
+				.from(bookings)
+				.where(eq(bookings.id, bookingId))
+				.for("update")
+			if (!owned || owned.clientId !== actorId) {
+				return owned ? "not_owner" : "not_found"
+			}
+			if (owned.status !== "pending_payment") {
+				throw new ORPCError("CONFLICT", {
+					message: "Only a booking that is awaiting payment can be cancelled",
+				})
+			}
+			if (await this.hasPaymentInFlight(tx, bookingId, now)) {
+				throw new ORPCError("CONFLICT", {
+					message:
+						"A payment for this booking is still being processed. Please wait for it to finish before cancelling.",
+				})
+			}
+			await this.cancel(tx, bookingId, "client_cancelled", { actorId, now })
+			return null
+		})
+
+		if (denied) {
+			await this.recordDenial(actorId, "booking.cancel", bookingId, denied)
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+		return this.loadBooking(db, bookingId)
+	}
+
+	/**
+	 * The client will pay at the BOQ cashier (BKG-2). The hold stops applying;
+	 * the expiry job cancels the Booking as `no_show` if it is still unpaid
+	 * when the arrival cutoff passes. Choosing it twice changes nothing.
+	 */
+	async choosePayOnsite(
+		bookingId: number,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<Booking> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to change how you pay" })
+		}
+
+		const denied = await db.transaction(async tx => {
+			const [owned] = await tx
+				.select({
+					clientId: bookings.clientId,
+					status: bookings.status,
+					payOnsite: bookings.payOnsite,
+					holdExpiresAt: bookings.holdExpiresAt,
+				})
+				.from(bookings)
+				.where(eq(bookings.id, bookingId))
+				.for("update")
+			if (!owned || owned.clientId !== actorId) {
+				return owned ? "not_owner" : "not_found"
+			}
+			if (owned.status !== "pending_payment") {
+				throw new ORPCError("CONFLICT", { message: "This booking is not awaiting payment" })
+			}
+			if (owned.payOnsite) return null
+
+			await tx
+				.update(bookings)
+				.set({ payOnsite: true, holdExpiresAt: null, updatedAt: now })
+				.where(eq(bookings.id, bookingId))
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "booking.pay_onsite",
+					actorId,
+					targetType: "booking",
+					targetId: String(bookingId),
+					oldValue: {
+						payOnsite: false,
+						holdExpiresAt: owned.holdExpiresAt?.toISOString() ?? null,
+					},
+					newValue: { payOnsite: true, holdExpiresAt: null },
+				},
+				tx
+			)
+			return null
+		})
+
+		if (denied) {
+			await this.recordDenial(actorId, "booking.pay_onsite", bookingId, denied)
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+		return this.loadBooking(db, bookingId)
+	}
+
+	/**
+	 * Cancel an unpaid Booking and give back one place in each item's slot, in
+	 * the caller's transaction (BKG-2, state machine 5.1).
+	 *
+	 * Locks the Booking row first and re-reads its status, so a Booking that
+	 * another run (or a payment) already moved on is left alone: returns false
+	 * and changes nothing. That is what makes a second, concurrent expiry run
+	 * cancel nothing and release nothing. A null actor is the System (the
+	 * expiry job); its audit entry has no actor and names the job.
+	 */
+	async cancel(
+		tx: Transaction,
+		bookingId: number,
+		reason: BookingCancelReason,
+		options: { actorId: string | null; now?: Date }
+	): Promise<boolean> {
+		const now = options.now ?? new Date()
+		const [booking] = await tx
+			.select({ id: bookings.id, status: bookings.status })
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.for("update")
+		if (!booking) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking "${bookingId}" was not found` })
+		}
+		if (!canTransition(booking.status, "cancelled")) return false
+
+		const items = await tx
+			.select({ id: bookingItems.id, scheduleSlotId: bookingItems.scheduleSlotId })
+			.from(bookingItems)
+			.where(eq(bookingItems.bookingId, bookingId))
+			.orderBy(asc(bookingItems.scheduleSlotId), asc(bookingItems.id))
+
+		await tx
+			.update(bookings)
+			.set({
+				status: "cancelled",
+				cancelReason: reason,
+				cancelledAt: now,
+				holdExpiresAt: null,
+				updatedAt: now,
+			})
+			.where(eq(bookings.id, bookingId))
+
+		// One place back per item. Slots are updated in id order, so two
+		// cancellations sharing slots always lock them in the same order. The
+		// count is computed by the database on the locked row, never below zero.
+		for (const item of items) {
+			await tx
+				.update(scheduleSlots)
+				.set({
+					bookedCount: sql`greatest(${scheduleSlots.bookedCount} - 1, 0)`,
+					updatedAt: now,
+				})
+				.where(eq(scheduleSlots.id, item.scheduleSlotId))
+		}
+
+		await this.auditService.record(
+			{
+				domain: options.actorId ? AUDIT_DOMAIN_BOOKINGS : AUDIT_DOMAIN_BOOKING_EXPIRY,
+				action: "booking.cancelled",
+				actorId: options.actorId,
+				targetType: "booking",
+				targetId: String(bookingId),
+				oldValue: { status: booking.status },
+				newValue: {
+					status: "cancelled",
+					cancelReason: reason,
+					releasedScheduleSlotIds: items.map(item => item.scheduleSlotId),
+				},
+			},
+			tx
+		)
+		return true
+	}
+
+	/**
+	 * Whether the Booking has a Payment that may still succeed: `initiated` or
+	 * `pending` and younger than the payment timeout. While it does, the
+	 * Booking is neither expired nor cancelled by the client (BKG-2).
+	 */
+	async hasPaymentInFlight(reader: Reader, bookingId: number, now: Date): Promise<boolean> {
+		const since = new Date(now.getTime() - PAYMENT_IN_FLIGHT_MINUTES * MS_PER_MINUTE)
+		const [inFlight] = await reader
+			.select({ id: payments.id })
+			.from(payments)
+			.where(
+				and(
+					eq(payments.bookingId, bookingId),
+					inArray(payments.status, [...IN_FLIGHT_PAYMENT_STATUSES]),
+					gt(payments.createdAt, since)
+				)
+			)
+			.limit(1)
+		return Boolean(inFlight)
+	}
+
+	/** One Booking with its items, as the API returns it. */
+	private async loadBooking(reader: Reader, bookingId: number): Promise<Booking> {
+		const [booking] = await reader
+			.select()
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.limit(1)
+		if (!booking) {
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+
+		const items = await reader
+			.select({
+				id: bookingItems.id,
+				serviceId: bookingItems.serviceId,
+				serviceName: services.name,
+				locationId: bookingItems.locationId,
+				locationName: locations.name,
+				scheduleSlotId: bookingItems.scheduleSlotId,
+				startsAt: scheduleSlots.startsAt,
+				endsAt: scheduleSlots.endsAt,
+				feeCentavos: bookingItems.feeCentavos,
+				status: bookingItems.status,
+			})
+			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
+			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
+			.where(eq(bookingItems.bookingId, bookingId))
+			.orderBy(asc(bookingItems.id))
+
+		return {
+			id: booking.id,
+			referenceNumber: booking.referenceNumber,
+			status: booking.status,
+			kind: booking.kind,
+			totalCentavos: booking.totalCentavos,
+			holdExpiresAt: booking.holdExpiresAt,
+			payOnsite: booking.payOnsite,
+			cancelReason: booking.cancelReason,
+			cancelledAt: booking.cancelledAt,
+			createdAt: booking.createdAt,
+			items,
+		}
+	}
+
+	/**
+	 * Audit a refused attempt on someone else's (or a missing) Booking. Written
+	 * outside any transaction: nothing changed, and the request is about to fail.
+	 */
+	private async recordDenial(
+		actorId: string,
+		action: string,
+		bookingId: number,
+		reason: "not_owner" | "not_found"
+	): Promise<void> {
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_BOOKINGS,
+			action,
+			outcome: "denied",
+			actorId,
+			targetType: "booking",
+			targetId: String(bookingId),
+			reason,
+		})
 	}
 
 	/** Draw Reference Numbers until one is not already in use. */

@@ -5,7 +5,7 @@ import {
 	ApplicablePoliciesRequestSchema,
 	PolicyDocumentSummarySchema,
 } from "../policies/policy-documents.schema.js"
-import { BookingSchema, CreateBookingSchema } from "./bookings.schema.js"
+import { BookingIdParamSchema, BookingSchema, CreateBookingSchema } from "./bookings.schema.js"
 
 export const bookingsContract = {
 	create: oc
@@ -31,4 +31,39 @@ export const bookingsContract = {
 		})
 		.input(ApplicablePoliciesRequestSchema)
 		.output(z.array(PolicyDocumentSummarySchema)),
+
+	unpaid: oc
+		.route({
+			method: "GET",
+			path: "/bookings/unpaid",
+			summary: "The caller's booking awaiting payment",
+			description:
+				"The caller's one pending_payment Booking, or null when there is none (BKG-2: one unpaid booking per client). Requires bookings.own:read.",
+			tags: ["Bookings"],
+		})
+		.output(BookingSchema.nullable()),
+
+	cancel: oc
+		.route({
+			method: "POST",
+			path: "/bookings/{bookingId}/cancel",
+			summary: "Cancel your own unpaid booking",
+			description:
+				"Cancels a pending_payment Booking the caller owns with reason client_cancelled and releases its slot places in the same transaction (BKG-2). Refused while a payment for it is still being processed. Requires bookings.own:cancel.",
+			tags: ["Bookings"],
+		})
+		.input(BookingIdParamSchema)
+		.output(BookingSchema),
+
+	payOnsite: oc
+		.route({
+			method: "POST",
+			path: "/bookings/{bookingId}/pay-onsite",
+			summary: "Pay at the BOQ cashier instead",
+			description:
+				"Marks a pending_payment Booking the caller owns as paid onsite (BKG-2). The hold no longer applies; the Booking is cancelled as no_show if still unpaid when the arrival cutoff (booking.arrival_cutoff_minutes) passes. Requires payments.own:create.",
+			tags: ["Bookings"],
+		})
+		.input(BookingIdParamSchema)
+		.output(BookingSchema),
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { BookingSchema, CreateBookingSchema, ReferenceNumberSchema } from "./bookings.schema.js"
+import {
+	BookingIdParamSchema,
+	BookingSchema,
+	CreateBookingSchema,
+	ReferenceNumberSchema,
+} from "./bookings.schema.js"
 
 describe("booking schemas", () => {
 	it("accepts a slot id and rejects anything that is not a positive whole number", () => {
@@ -37,6 +42,9 @@ describe("booking schemas", () => {
 			kind: "regular",
 			totalCentavos: 150000,
 			holdExpiresAt: "2026-11-17T08:00:00.000Z",
+			payOnsite: false,
+			cancelReason: null,
+			cancelledAt: null,
 			createdAt: "2026-11-17T07:00:00.000Z",
 			items: [
 				{
@@ -66,10 +74,53 @@ describe("booking schemas", () => {
 			kind: "regular",
 			totalCentavos: 0,
 			holdExpiresAt: null,
+			payOnsite: false,
+			cancelReason: null,
+			cancelledAt: null,
 			createdAt: new Date(),
 			items: [],
 		}
 		expect(BookingSchema.safeParse(base).success).toBe(false)
 		expect(BookingSchema.safeParse({ ...base, status: "unpaid" }).success).toBe(false)
+	})
+
+	it("takes the three cancel reasons only, with the cancel time as a date (BKG-2)", () => {
+		const cancelled = {
+			id: 1,
+			referenceNumber: "QSPS-261117-AB12CD",
+			status: "cancelled",
+			kind: "regular",
+			totalCentavos: 0,
+			holdExpiresAt: null,
+			payOnsite: true,
+			cancelReason: "no_show",
+			cancelledAt: "2026-11-17T09:00:00.000Z",
+			createdAt: "2026-11-17T07:00:00.000Z",
+			items: [
+				{
+					id: 1,
+					serviceId: 1,
+					serviceName: "Yellow fever vaccination",
+					locationId: 2,
+					locationName: "Manila",
+					scheduleSlotId: 7,
+					startsAt: "2026-12-02T00:00:00.000Z",
+					endsAt: "2026-12-02T04:00:00.000Z",
+					feeCentavos: 0,
+					status: "booked",
+				},
+			],
+		}
+		for (const reason of ["hold_expired", "no_show", "client_cancelled"]) {
+			expect(BookingSchema.safeParse({ ...cancelled, cancelReason: reason }).success).toBe(true)
+		}
+		expect(BookingSchema.safeParse({ ...cancelled, cancelReason: "expired" }).success).toBe(false)
+		expect(BookingSchema.parse(cancelled).cancelledAt).toEqual(new Date("2026-11-17T09:00:00.000Z"))
+	})
+
+	it("reads a booking id from the path (BKG-2)", () => {
+		expect(BookingIdParamSchema.parse({ bookingId: "15" })).toEqual({ bookingId: 15 })
+		expect(BookingIdParamSchema.safeParse({ bookingId: "0" }).success).toBe(false)
+		expect(BookingIdParamSchema.safeParse({ bookingId: "abc" }).success).toBe(false)
 	})
 })
