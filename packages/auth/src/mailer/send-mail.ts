@@ -8,6 +8,12 @@ export type MailMessage = {
 	subject: string
 	html: string
 	text: string
+	attachments?: {
+		filename: string
+		content: Buffer
+		cid?: string
+		contentType?: string
+	}[]
 }
 
 /**
@@ -32,6 +38,7 @@ export async function sendMail(
 		subject: message.subject,
 		html: message.html,
 		text: message.text,
+		attachments: message.attachments,
 	})
 
 	// `info.message` is only a string on the dev (`jsonTransport`) transport.

@@ -1,9 +1,13 @@
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import type { PolicyService } from "@/common/policy/policy.service"
 
 import { BookingService } from "./bookings.service"
 import { generateReferenceNumber } from "./reference-number"
+
+beforeEach(() => jest.spyOn(NotificationService, "enqueue").mockResolvedValue(undefined))
+afterEach(() => jest.restoreAllMocks())
 
 jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {

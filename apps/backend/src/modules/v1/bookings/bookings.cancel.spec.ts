@@ -1,5 +1,6 @@
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import type { PolicyService } from "@/common/policy/policy.service"
 
 import { BookingService } from "./bookings.service"
@@ -109,6 +110,7 @@ describe("BookingService cancelling (BKG-2)", () => {
 	beforeEach(() => {
 		// resetAllMocks: the mockReturnValueOnce queues must not leak between tests.
 		jest.resetAllMocks()
+		jest.spyOn(NotificationService, "enqueue").mockResolvedValue(undefined)
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
 		bookingService = new BookingService(
 			auditService as unknown as AuditService,

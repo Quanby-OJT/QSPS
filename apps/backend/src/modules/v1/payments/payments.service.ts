@@ -13,6 +13,7 @@ import { bookings, paymentEvents, payments, receipts } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import { env } from "@/config/env.config"
 
 import { BookingService } from "../bookings/bookings.service"
@@ -437,7 +438,13 @@ export class PaymentService {
 				)
 			}
 
-			// The notifications epic enqueues the client's message here.
+			await NotificationService.enqueue(
+				tx,
+				payment.bookingId,
+				"payment_received",
+				`payment:${paymentId}:succeeded`,
+				{ paymentId }
+			)
 
 			await this.auditService.record(
 				{

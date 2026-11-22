@@ -23,6 +23,7 @@ import { TelemetryLifecycle } from "@/telemetry/telemetry.lifecycle"
 import { AnalyticsModule } from "./common/analytics/analytics.module"
 import { AuditModule } from "./common/audit/audit.module"
 import { MaintenanceModule } from "./common/maintenance/maintenance.module"
+import { NotificationsModule } from "./common/notifications/notifications.module"
 import { ORPCCommonModule } from "./common/orpc/orpc.module"
 import { PolicyModule } from "./common/policy/policy.module"
 import { RbacModule } from "./common/rbac/rbac.module"
@@ -119,6 +120,7 @@ import { env } from "./config/env.config"
 		RbacModule,
 		// Scheduled sweeps of expired rows (the idempotency sweep; the verifications sweep extends it).
 		MaintenanceModule,
+		NotificationsModule,
 		// Versioned modules
 		V1Module,
 	],

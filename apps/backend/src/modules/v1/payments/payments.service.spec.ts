@@ -4,6 +4,7 @@ import { paymentEvents, payments, receipts } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 
 import type { BookingService } from "../bookings/bookings.service"
 import { PaymentService } from "./payments.service"
@@ -159,6 +160,7 @@ describe("PaymentService", () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks()
+		jest.spyOn(NotificationService, "enqueue").mockResolvedValue(undefined)
 		audit = { record: jest.fn().mockResolvedValue(undefined) }
 		bookingService = { markPaid: jest.fn().mockResolvedValue(true) }
 		provider = stubProvider()
