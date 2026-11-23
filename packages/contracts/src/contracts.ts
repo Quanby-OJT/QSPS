@@ -136,6 +136,18 @@ export {
 	AssessmentSchema,
 	ProcessingItemSchema,
 	CheckInResponseSchema,
+	ASSESSMENT_KINDS,
+	AssessmentKindSchema,
+	MIN_OVERRIDE_REASON_LENGTH,
+	APPROVAL_QUEUE_VIEWS,
+	ApprovalQueueViewSchema,
+	ApprovalQueueRequestSchema,
+	ApprovalQueueItemSchema,
+	ApprovalQueueSchema,
+	APPROVAL_DECISIONS,
+	ApprovalDecisionSchema,
+	DecideApprovalSchema,
+	OverrideItemSchema,
 } from "./modules/v1/processing/processing.schema.js"
 export type {
 	AssessmentOutcome,
@@ -149,6 +161,14 @@ export type {
 	Assessment,
 	ProcessingItem,
 	CheckInResponse,
+	AssessmentKind,
+	ApprovalQueueView,
+	ApprovalQueueRequest,
+	ApprovalQueueItem,
+	ApprovalQueue,
+	ApprovalDecision,
+	DecideApprovalInput,
+	OverrideItemInput,
 } from "./modules/v1/processing/processing.schema.js"
 
 // Certificates contracts + schemas (CRT-1, CRT-2)

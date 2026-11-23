@@ -1,9 +1,13 @@
 import { oc } from "@orpc/contract"
 
 import {
+	ApprovalQueueRequestSchema,
+	ApprovalQueueSchema,
 	BookingItemIdParamSchema,
 	CheckInResponseSchema,
 	CheckInSchema,
+	DecideApprovalSchema,
+	OverrideItemSchema,
 	ProcessingItemSchema,
 	ProcessingQueueRequestSchema,
 	ProcessingQueueSchema,
@@ -69,5 +73,38 @@ export const processingContract = {
 			tags: ["Processing"],
 		})
 		.input(RecordAssessmentSchema)
+		.output(ProcessingItemSchema),
+	approvals: oc
+		.route({
+			method: "GET",
+			path: "/processing/approvals",
+			summary: "Items waiting for head approval",
+			description:
+				"PRC-3: Booking Items in pending_head_approval (view=pending), or rejected items an approver may override (view=rejected), inside the caller's Scope. Needs processing.assessments:approve.",
+			tags: ["Processing"],
+		})
+		.input(ApprovalQueueRequestSchema)
+		.output(ApprovalQueueSchema),
+	decide: oc
+		.route({
+			method: "POST",
+			path: "/processing/items/{bookingItemId}/approval",
+			summary: "Approve or send back a pending item",
+			description:
+				"PRC-3: approve moves pending_head_approval to cleared; return sends it back to in_assessment with notes. Refused with 403 when the caller performed the clearing Assessment. Needs processing.assessments:approve.",
+			tags: ["Processing"],
+		})
+		.input(DecideApprovalSchema)
+		.output(ProcessingItemSchema),
+	override: oc
+		.route({
+			method: "POST",
+			path: "/processing/items/{bookingItemId}/override",
+			summary: "Override a rejected item to cleared",
+			description:
+				"PRC-3: clears a rejected item with a mandatory reason; audited with the before and after state. Needs processing.assessments:approve.",
+			tags: ["Processing"],
+		})
+		.input(OverrideItemSchema)
 		.output(ProcessingItemSchema),
 }

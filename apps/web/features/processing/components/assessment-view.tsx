@@ -22,7 +22,13 @@ import {
 	useRecordAssessmentMutation,
 } from "@/features/processing/api/processing.hooks"
 import {
+	OverridePanel,
+	PendingApprovalPanel,
+} from "@/features/processing/components/approval-panels"
+import {
+	canDecideApproval,
 	canOpen,
+	canOverride,
 	correctionsFromRows,
 	itemStatusLabel,
 	outcomeLabel,
@@ -82,12 +88,20 @@ function issuesOnClear(item: ProcessingItem): boolean {
  * Hydration-safe: the server and the client's first render both show the
  * loading line, even when the client already holds a restored copy.
  */
-export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
+export function AssessmentView({
+	bookingItemId,
+	canApprove = false,
+}: {
+	bookingItemId: number
+	/** PRC-3: the caller holds processing.assessments:approve. */
+	canApprove?: boolean
+}) {
 	const item = useProcessingItemQuery(bookingItemId)
+	// Hydration-safe: loading on the server and on the client's first render,
+	// even when a restored copy is already there, so the two renders agree.
 	const isQueryLoading = useIsQueryLoading()
 	const hydrated = useHydrated()
-
-	const loading = !hydrated || isQueryLoading(item)
+	const loading = !hydrated || isQueryLoading(item) || (!item.isError && !item.data)
 
 	return (
 		<section className="flex w-full flex-col gap-6">
@@ -109,13 +123,13 @@ export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
 					{item.error.message}
 				</p>
 			) : item.data ? (
-				<AssessmentBody item={item.data} />
+				<AssessmentBody item={item.data} canApprove={canApprove} />
 			) : null}
 		</section>
 	)
 }
 
-function AssessmentBody({ item }: { item: ProcessingItem }) {
+function AssessmentBody({ item, canApprove }: { item: ProcessingItem; canApprove: boolean }) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
 
@@ -210,6 +224,10 @@ function AssessmentBody({ item }: { item: ProcessingItem }) {
 					</div>
 				) : item.status === "in_assessment" ? (
 					<AssessmentForm item={item} />
+				) : canDecideApproval(item.status) ? (
+					<PendingApprovalPanel item={item} canApprove={canApprove} />
+				) : canOverride(item.status) && canApprove ? (
+					<OverridePanel item={item} />
 				) : null}
 
 				{item.document ? (
@@ -238,7 +256,7 @@ function AssessmentBody({ item }: { item: ProcessingItem }) {
 											<Badge
 												variant={assessment.outcome === "rejected" ? "destructive" : "secondary"}
 											>
-												{outcomeLabel(assessment.outcome)}
+												{outcomeLabel(assessment.outcome, assessment.kind)}
 											</Badge>
 											<span className="text-muted-foreground text-xs">
 												{assessment.staffName} · {dateTimeFormatter.format(assessment.createdAt)}

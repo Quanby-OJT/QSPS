@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest"
 import type { PermissionName } from "@repo/contracts"
 
 import { canAccess, permissionAvailability, type AccessProfile } from "./access"
-import { getAccessibleNavItems, getDashboardRouteTitle, navItems } from "./nav-items"
+import {
+	getAccessibleNavItems,
+	getActiveNavHref,
+	getDashboardRouteTitle,
+	navItems,
+} from "./nav-items"
 
 const noAccess: AccessProfile = {
 	roles: [],
@@ -112,6 +117,11 @@ describe("navItems", () => {
 					requiredPermission: "processing.queue:read",
 				}),
 				expect.objectContaining({
+					label: "Approvals",
+					href: "/processing/approvals",
+					requiredPermission: "processing.assessments:approve",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -190,6 +200,14 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Processing"])
 
+		// PRC-3: Approvals needs processing.assessments:approve (Module Admin), not the officer keys.
+		expect(
+			getAccessibleNavItems({
+				roles: [],
+				permissions: ["processing.queue:read", "processing.assessments:approve"],
+			}).map(item => item.label)
+		).toEqual(["Dashboard", "Processing", "Approvals"])
+
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:create"] }).map(
 				item => item.label
@@ -228,6 +246,7 @@ describe("navItems", () => {
 			"Book an appointment",
 			"My documents",
 			"Processing",
+			"Approvals",
 			"User Management",
 			"Locations",
 			"Services",
@@ -257,6 +276,15 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
+		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
+	})
+
+	it("marks only the most specific link active (PRC-3)", () => {
+		const hrefs = ["/dashboard", "/processing", "/processing/approvals"]
+		expect(getActiveNavHref("/processing/approvals", hrefs)).toBe("/processing/approvals")
+		expect(getActiveNavHref("/processing/44", hrefs)).toBe("/processing")
+		expect(getActiveNavHref("/processing", hrefs)).toBe("/processing")
+		expect(getActiveNavHref("/book", hrefs)).toBeUndefined()
 	})
 })

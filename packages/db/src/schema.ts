@@ -570,6 +570,17 @@ export const assessments = createTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "restrict" }),
 		outcome: t.text("outcome").notNull().$type<"cleared" | "returned" | "rejected">(),
+		/**
+		 * Who decided (PRC-3): `assessment` by the Processing Officer, `approval`
+		 * by the head approving (`cleared`) or sending back (`returned`) a
+		 * `pending_head_approval` item, `override` by the head clearing a
+		 * rejected item. `notes` holds the override reason.
+		 */
+		kind: t
+			.text("kind")
+			.notNull()
+			.default("assessment")
+			.$type<"assessment" | "approval" | "override">(),
 		notes: t.text("notes"),
 		/** Field name to corrected value, as recorded by staff. */
 		corrections: t.jsonb("corrections").$type<Record<string, string>>().notNull().default({}),
