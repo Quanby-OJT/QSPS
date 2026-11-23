@@ -203,6 +203,8 @@ export function useRecordAssessmentMutation(bookingItemId: number) {
 export interface DecideApprovalRequest {
 	decision: ApprovalDecision
 	notes: string
+	/** Certificate details, when this makes the item cleared and the Service auto-issues (CRT-1a). */
+	document?: IcvIssueDetails | null
 	/** One per decision, so a double click records one decision, not two. */
 	idempotencyKey: string
 }
@@ -222,6 +224,8 @@ export function useDecideApprovalMutation(bookingItemId: number) {
 		onSuccess: item => {
 			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
 			void queryClient.invalidateQueries({ queryKey: ["processing", "approvals"] })
+			// CRT-1a: approving or overriding may have just issued a document.
+			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
 			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
 		},
 	})
@@ -229,6 +233,8 @@ export function useDecideApprovalMutation(bookingItemId: number) {
 
 export interface OverrideItemRequest {
 	reason: string
+	/** Certificate details, when this makes the item cleared and the Service auto-issues (CRT-1a). */
+	document?: IcvIssueDetails | null
 	idempotencyKey: string
 }
 
@@ -236,17 +242,19 @@ export interface OverrideItemRequest {
 export function useOverrideItemMutation(bookingItemId: number) {
 	const queryClient = useQueryClient()
 	return useMutation({
-		mutationFn: async ({ idempotencyKey, reason }: OverrideItemRequest) =>
+		mutationFn: async ({ idempotencyKey, ...body }: OverrideItemRequest) =>
 			toItem(
 				await apiFetch<ItemJson>(`/processing/items/${bookingItemId}/override`, {
 					method: "POST",
 					headers: { "Idempotency-Key": idempotencyKey },
-					body: JSON.stringify({ reason }),
+					body: JSON.stringify(body),
 				})
 			),
 		onSuccess: item => {
 			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
 			void queryClient.invalidateQueries({ queryKey: ["processing", "approvals"] })
+			// CRT-1a: approving or overriding may have just issued a document.
+			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
 			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
 		},
 	})

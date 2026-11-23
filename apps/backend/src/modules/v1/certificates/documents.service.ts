@@ -64,7 +64,7 @@ export function documentVerifyUrl(token: string): string {
 
 export interface IssueRequest {
 	bookingItemId: number
-	/** The officer issuing; for auto-issue, the officer who cleared the item. */
+	/** The officer issuing; for auto-issue, whoever made the item cleared (officer, approver or override). */
 	actorId: string
 	details: IcvIssueDetails
 	now?: Date
