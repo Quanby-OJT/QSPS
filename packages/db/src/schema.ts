@@ -419,6 +419,8 @@ export const scheduleSlots = createTable(
 		bookedCount: t.integer("booked_count").notNull().default(0),
 		/** A disabled slot takes no new bookings; existing bookings stay. */
 		isDisabled: t.boolean("is_disabled").notNull().default(false),
+		/** SCH-2: reason recorded when a date is blocked. */
+		disabledReason: t.text("disabled_reason"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),

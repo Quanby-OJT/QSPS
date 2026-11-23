@@ -129,7 +129,7 @@ export type {
 	DocumentVerification,
 } from "./modules/v1/certificates/certificates.schema.js"
 
-// Schedule slot contracts + schemas
+// Schedule slot contracts + schemas (SCH-1, SCH-2)
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
 	MAX_GENERATE_DAYS,
@@ -143,6 +143,12 @@ export {
 	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 	SetSlotDisabledRequestSchema,
+	BulkUpdateCapacityRequestSchema,
+	BulkUpdateCapacityResponseSchema,
+	BlockScheduleDateRequestSchema,
+	BlockScheduleDateResponseSchema,
+	UnblockScheduleDateRequestSchema,
+	UnblockScheduleDateResponseSchema,
 	DeleteSlotResponseSchema,
 	SlotAvailabilitySchema,
 } from "./modules/v1/schedules/schedules.schema.js"
@@ -154,6 +160,12 @@ export type {
 	ListSlotsRequest,
 	UpdateSlotCapacityRequest,
 	SetSlotDisabledRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
+	BlockScheduleDateRequest,
+	BlockScheduleDateResponse,
+	UnblockScheduleDateRequest,
+	UnblockScheduleDateResponse,
 	SlotAvailability,
 } from "./modules/v1/schedules/schedules.schema.js"
 
