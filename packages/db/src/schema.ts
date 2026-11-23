@@ -858,6 +858,105 @@ export const notifications = createTable(
 )
 
 // ============================================================================
+// FORMS (FRM-1)
+// ============================================================================
+
+/** Field types a questionnaire supports. Same list as FORM_FIELD_TYPES in @repo/contracts. */
+export type FormFieldType =
+	| "text"
+	| "number"
+	| "date"
+	| "single_choice"
+	| "multiple_choice"
+	| "yes_no"
+	| "file"
+
+/**
+ * One version of the questionnaire a client answers for a Service (FRM-1).
+ *
+ * A Service has at most one `draft` and one `published` version at a time;
+ * publishing retires the previous published version, which is kept so older
+ * Form Submissions still display against the fields they answered. A
+ * published version is never edited: changing it creates the next version
+ * as a draft. `is_active` disables or re-enables a version without deleting
+ * it (the fallback when a template with submissions cannot be deleted).
+ */
+export const formTemplates = createTable(
+	"form_templates",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		serviceId: t
+			.integer("service_id")
+			.notNull()
+			.references(() => services.id, { onDelete: "restrict" }),
+		/** 1, 2, 3… per Service, in the order versions were created. */
+		version: t.integer("version").notNull(),
+		status: t.text("status").notNull().default("draft").$type<"draft" | "published" | "retired">(),
+		isActive: t.boolean("is_active").notNull().default(true),
+		publishedAt: t.timestamp("published_at"),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("form_templates_service_version_uq").on(t.serviceId, t.version),
+		// At most one draft and one published version per Service.
+		uniqueIndex("form_templates_one_draft_per_service_uq")
+			.on(t.serviceId)
+			.where(sql`${t.status} = 'draft'`),
+		uniqueIndex("form_templates_one_published_per_service_uq")
+			.on(t.serviceId)
+			.where(sql`${t.status} = 'published'`),
+	]
+)
+
+/** One question in a Form Template version. Replaced as a whole while the version is a draft. */
+export const formFields = createTable(
+	"form_fields",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		formTemplateId: t
+			.integer("form_template_id")
+			.notNull()
+			.references(() => formTemplates.id, { onDelete: "cascade" }),
+		type: t.text("type").notNull().$type<FormFieldType>(),
+		label: t.text("label").notNull(),
+		required: t.boolean("required").notNull().default(false),
+		/** The choices for single_choice and multiple_choice fields; null for every other type. */
+		options: t.jsonb("options").$type<string[] | null>(),
+		/** 0-based order within the version. */
+		position: t.integer("position").notNull(),
+	}),
+	t => [uniqueIndex("form_fields_template_position_uq").on(t.formTemplateId, t.position)]
+)
+
+/**
+ * A client's answers to one Form Template version for one Booking Item.
+ * Filled by FRM-2; created here because FRM-1's versioning and delete rules
+ * depend on whether a version has submissions. Points at the exact version
+ * answered, so an edited form never changes how old answers display.
+ */
+export const formSubmissions = createTable(
+	"form_submissions",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingItemId: t
+			.integer("booking_item_id")
+			.notNull()
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		formTemplateId: t
+			.integer("form_template_id")
+			.notNull()
+			.references(() => formTemplates.id, { onDelete: "restrict" }),
+		answers: t.jsonb("answers").notNull().$type<Record<string, unknown>>(),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("form_submissions_template_idx").on(t.formTemplateId),
+		index("form_submissions_booking_item_idx").on(t.bookingItemId),
+	]
+)
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const relations = defineRelations(
@@ -890,6 +989,9 @@ export const relations = defineRelations(
 		policyDocuments,
 		policyAcceptances,
 		notifications,
+		formTemplates,
+		formFields,
+		formSubmissions,
 	},
 	r => ({
 		users: {
@@ -1126,6 +1228,9 @@ export const schema = Object.assign(
 		policyDocuments,
 		policyAcceptances,
 		notifications,
+		formTemplates,
+		formFields,
+		formSubmissions,
 	},
 	relations
 )

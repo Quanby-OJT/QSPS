@@ -4,6 +4,7 @@ import { env } from "@/config/env.config"
 
 import { BookingsModule } from "./bookings/bookings.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
+import { FormsModule } from "./forms/forms.module"
 import { HealthModule } from "./health/health.module"
 import { LocationsModule } from "./locations/locations.module"
 import { MeModule } from "./me/me.module"
@@ -21,6 +22,7 @@ import { SupportModule } from "./support/support.module"
 		HealthModule,
 		LocationsModule,
 		MeModule,
+		FormsModule,
 		PaymentsModule,
 		PoliciesModule,
 		SupportModule,

@@ -263,3 +263,22 @@ that marks a Payment `succeeded`. Receipts are never stored as files:
 
 `PdfService` (`src/common/pdf/`) renders PDFs with `pdfkit` and QR codes with
 `qrcode`; the certificates epic reuses it.
+
+## Service questionnaires (FRM-1)
+
+`FormsModule` (`src/modules/v1/forms`) manages the questionnaire a client answers for each Service (TOR §VIII.3). Every route needs `forms.templates:manage` (403 and a denied audit entry without it) and works inside the caller's Scope by Service Category.
+
+| Route                                           | What it does                                                                                         |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET /v1/forms/services`                        | Services in Scope with their published and draft version                                             |
+| `GET /v1/forms/services/{serviceId}/templates`  | Every version of one Service's form, newest first                                                    |
+| `GET /v1/forms/templates/{templateId}`          | One version with its questions                                                                       |
+| `POST /v1/forms/services/{serviceId}/draft`     | The Service's draft; created (copying the published questions) when there is none                    |
+| `PUT /v1/forms/templates/{templateId}/fields`   | Replace a draft's questions. On a published version, creates the next version as a draft instead     |
+| `POST /v1/forms/templates/{templateId}/publish` | Publish a draft; the previous published version is retired and kept                                  |
+| `PATCH /v1/forms/templates/{templateId}/active` | Disable or re-enable a published or retired version                                                  |
+| `DELETE /v1/forms/templates/{templateId}`       | Delete a version with no submissions; one with submissions answers 409 with `{ submissionCount, canDisable }` |
+
+Question types: `text`, `number`, `date`, `single_choice`, `multiple_choice`, `yes_no`, `file`. The field schema lives in `packages/contracts` (`FormFieldInputSchema`) so web, mobile and the API apply the same rules. Audit actions: `form_template.version.create`, `form_template.fields.update`, `form_template.publish`, `form_template.enable`, `form_template.disable`, `form_template.delete` (questions only; never answers).
+
+`form_submissions` is created here so the version and delete rules can count answers; FRM-2 writes the rows.

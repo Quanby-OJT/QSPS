@@ -48,6 +48,40 @@ export type {
 	CreateBookingInput,
 } from "./modules/v1/bookings/bookings.schema.js"
 
+// Form Template contracts + schemas (FRM-1)
+export { formsContract } from "./modules/v1/forms/forms.contract.js"
+export {
+	FORM_FIELD_TYPES,
+	FormFieldTypeSchema,
+	CHOICE_FIELD_TYPES,
+	FORM_TEMPLATE_STATUSES,
+	FormTemplateStatusSchema,
+	MAX_FORM_FIELDS,
+	MAX_FIELD_OPTIONS,
+	FormFieldInputSchema,
+	FormFieldsInputSchema,
+	FormFieldSchema,
+	FormTemplateSummarySchema,
+	FormTemplateSchema,
+	FormServiceSummarySchema,
+	FormServiceIdParamSchema,
+	FormTemplateIdParamSchema,
+	SaveFormFieldsSchema,
+	SetFormTemplateActiveSchema,
+	DeleteFormTemplateResultSchema,
+} from "./modules/v1/forms/forms.schema.js"
+export type {
+	FormFieldType,
+	FormTemplateStatus,
+	FormFieldInput,
+	FormField,
+	FormTemplateSummary,
+	FormTemplate,
+	FormServiceSummary,
+	SaveFormFieldsInput,
+	SetFormTemplateActiveInput,
+} from "./modules/v1/forms/forms.schema.js"
+
 // Payment contracts + schemas
 export { paymentsContract } from "./modules/v1/payments/payments.contract.js"
 export {
