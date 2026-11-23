@@ -1,10 +1,10 @@
 {
+  "id": "8e958b77-8765-4ccb-bfde-e94d32411610",
+  "prevIds": [
+    "78d54381-a9f2-4cc5-8b97-647dd0738da7"
+  ],
   "version": "8",
   "dialect": "postgres",
-  "id": "88d8702d-2643-45e4-8b73-f06ef1bc2514",
-  "prevIds": [
-    "9a60173a-b68e-43c9-add8-d62ab8566f17"
-  ],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -433,6 +433,19 @@
       "generated": null,
       "identity": null,
       "name": "outcome",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "assessments"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'assessment'",
+      "generated": null,
+      "identity": null,
+      "name": "kind",
       "entityType": "columns",
       "schema": "public",
       "table": "assessments"
