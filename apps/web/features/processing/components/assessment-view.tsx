@@ -25,6 +25,7 @@ import {
 	OverridePanel,
 	PendingApprovalPanel,
 } from "@/features/processing/components/approval-panels"
+import { CertificateFields } from "@/features/processing/components/certificate-fields"
 import {
 	canDecideApproval,
 	canOpen,
@@ -387,66 +388,11 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 			</fieldset>
 
 			{needsCertificate ? (
-				<fieldset className="flex flex-col gap-3 rounded-lg border p-3">
-					<legend className="px-1 text-sm font-medium">Certificate details</legend>
-					<p className="text-muted-foreground text-xs">
-						Clearing this item issues the client&apos;s vaccination certificate at once. Fields
-						marked * are required.
-					</p>
-					<div className="grid items-start gap-x-3 gap-y-4 sm:grid-cols-2">
-						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="certificate-batch">Batch/lot number *</Label>
-							<Input
-								id="certificate-batch"
-								placeholder="e.g. YF-24A"
-								value={certificate.batchNumber}
-								maxLength={50}
-								onChange={event => setCertificateField("batchNumber", event.target.value)}
-								aria-invalid={!certificate.batchNumber.trim() || undefined}
-							/>
-						</div>
-						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="certificate-vaccinator">Vaccinator *</Label>
-							<Input
-								id="certificate-vaccinator"
-								placeholder="e.g. Dr. Juan Reyes"
-								value={certificate.vaccinatorName}
-								maxLength={200}
-								onChange={event => setCertificateField("vaccinatorName", event.target.value)}
-								aria-invalid={!certificate.vaccinatorName.trim() || undefined}
-							/>
-						</div>
-						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="certificate-valid-from">Valid from *</Label>
-							<Input
-								id="certificate-valid-from"
-								type="date"
-								value={certificate.validFrom}
-								onChange={event => setCertificateField("validFrom", event.target.value)}
-							/>
-						</div>
-						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="certificate-valid-until">Valid until</Label>
-							<Input
-								id="certificate-valid-until"
-								type="date"
-								value={certificate.validUntil}
-								min={certificate.validFrom || undefined}
-								onChange={event => setCertificateField("validUntil", event.target.value)}
-							/>
-							<p className="text-muted-foreground text-xs">Leave blank if it does not expire.</p>
-						</div>
-						<div className="flex flex-col gap-1.5 sm:col-span-2">
-							<Label htmlFor="certificate-passport">Passport/ID number</Label>
-							<Input
-								id="certificate-passport"
-								value={certificate.passportOrIdNumber}
-								maxLength={50}
-								onChange={event => setCertificateField("passportOrIdNumber", event.target.value)}
-							/>
-						</div>
-					</div>
-				</fieldset>
+				<CertificateFields
+					value={certificate}
+					onChange={setCertificateField}
+					description="Clearing this item issues the client's vaccination certificate at once."
+				/>
 			) : null}
 
 			<div className="flex flex-col gap-2">
