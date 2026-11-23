@@ -709,3 +709,8 @@ describe("ProcessingService", () => {
 		})
 	})
 })
+
+// FRM-2: answers are read by form-answers-display, tested in its own spec.
+jest.mock("@/modules/v1/forms/form-answers-display", () => ({
+	readableAnswers: jest.fn().mockResolvedValue({}),
+}))

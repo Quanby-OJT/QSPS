@@ -37,6 +37,7 @@ import {
 	scopeCondition,
 	type ResolvedScope,
 } from "@/common/scope/scope-match"
+import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { DocumentService } from "../certificates/documents.service"
@@ -729,8 +730,8 @@ export class ProcessingService {
 				gender: row.clientGender,
 				nationality: row.clientNationality,
 			},
-			// `form_submissions` arrives with the forms epic; until then there is nothing to show.
-			formAnswers: {},
+			// FRM-2: the client's answers, labelled by question, in question order.
+			formAnswers: await readableAnswers(db, bookingItemId),
 			assessments: history,
 		}
 	}

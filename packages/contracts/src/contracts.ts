@@ -389,3 +389,34 @@ export type {
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
 export * from "./common/privacy-notice.js"
+
+// FRM-2: answering a Service's questionnaire while booking.
+export {
+	checkFormAnswers,
+	FORM_UPLOAD_CONTENT_TYPES,
+	FORM_UPLOAD_KEY_PATTERN,
+	FORM_UPLOAD_MAX_BYTES,
+	FORM_UPLOAD_TYPES,
+	FormAnswersSchema,
+	FormAnswerValueSchema,
+	MAX_TEXT_ANSWER_LENGTH,
+	type AnswerCheck,
+	type CheckedField,
+	type FormAnswers,
+	type FormAnswerValue,
+	type FormUploadContentType,
+} from "./modules/v1/forms/form-answers.js"
+export {
+	BookingFormRequestSchema,
+	BookingFormSchema,
+	BookingItemFormInputSchema,
+	FormSubmissionSchema,
+	FormUploadInputSchema,
+	FormUploadSchema,
+	UpdateBookingItemFormSchema,
+	type BookingForm,
+	type BookingItemFormInput,
+	type FormSubmission,
+	type FormUpload,
+	type UpdateBookingItemFormInput,
+} from "./modules/v1/bookings/bookings.schema.js"

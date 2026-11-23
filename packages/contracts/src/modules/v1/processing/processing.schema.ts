@@ -141,8 +141,7 @@ export const ProcessingItemSchema = z.object({
 		nationality: z.string().nullable(),
 	}),
 	/**
-	 * Form Submission answers for this item. Always empty until the forms epic
-	 * adds `form_submissions`; the screen already shows them when present.
+	 * FRM-2: the client's Form Submission answers, question label to answer, in question order. Empty when the item has no submission.
 	 */
 	formAnswers: z.record(z.string(), z.unknown()),
 	/** Newest first. */
