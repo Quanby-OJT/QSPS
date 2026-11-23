@@ -35,8 +35,8 @@ const METHODS: ReadonlyArray<{ value: TwoFactorMethod; label: string; hint: stri
 	},
 	{
 		value: "otp",
-		label: "Email code",
-		hint: "We will email a 6-digit code to your account address. It expires after 5 minutes.",
+		label: "Email / SMS code",
+		hint: "We will send a 6-digit code to your configured email or verified mobile number. It expires after 5 minutes.",
 	},
 	{
 		value: "backup_code",
@@ -116,7 +116,7 @@ export function TwoFactorChallengeForm({ className, ...props }: React.ComponentP
 											disabled={isBusy}
 											onClick={() => choose(entry.value)}
 											className={cn(
-												"min-h-10 rounded-md px-2 text-xs leading-tight font-semibold transition-colors hover:cursor-pointer sm:text-sm",
+												"min-h-10 rounded-md px-2 text-xs font-semibold leading-tight transition-colors hover:cursor-pointer sm:text-sm",
 												selected
 													? "bg-background text-foreground shadow-sm"
 													: "text-muted-foreground hover:text-foreground"
@@ -175,11 +175,11 @@ export function TwoFactorChallengeForm({ className, ...props }: React.ComponentP
 											? "Sending..."
 											: sendCode.isSuccess
 												? "Send a new code"
-												: "Email me a code"}
+												: "Send me a code"}
 									</Button>
 									{sendCode.isSuccess && (
 										<FieldDescription className="text-success" role="status">
-											Code sent. Check your inbox, including the spam folder.
+											Code sent. Check your email or text messages.
 										</FieldDescription>
 									)}
 								</Field>

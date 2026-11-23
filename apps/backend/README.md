@@ -264,6 +264,27 @@ that marks a Payment `succeeded`. Receipts are never stored as files:
 `PdfService` (`src/common/pdf/`) renders PDFs with `pdfkit` and QR codes with
 `qrcode`; the certificates epic reuses it.
 
+### Local SMS testing (NTF-2)
+
+Run `node --env-file=.env scripts/dev-sms-catcher.mjs` from `apps/backend`
+after setting the following **local** environment values. Restart the backend
+after editing `.env`.
+
+```env
+SMS_PROVIDER=http
+SMS_API_URL=http://127.0.0.1:8026/send
+SMS_API_TOKEN=local-test-token
+SMS_SENDER_NAME=BOQ
+```
+
+Open `http://127.0.0.1:8026` to inspect the development-only SMS inbox. Use
+fictional test numbers. It never forwards SMS and expires messages in memory.
+In the Account page, verify a mobile number, enable SMS booking notifications,
+and (after enrolling AUTH-2) select SMS for sign-in codes. A real contracted
+HTTPS gateway must implement the adapter's `{to, from, text}` JSON contract;
+the registered BOQ sender and token are deployment settings. No provider is
+enabled by default, and real delivery cannot be claimed until it is configured.
+
 ## Service questionnaires (FRM-1)
 
 `FormsModule` (`src/modules/v1/forms`) manages the questionnaire a client answers for each Service (TOR §VIII.3). Every route needs `forms.templates:manage` (403 and a denied audit entry without it) and works inside the caller's Scope by Service Category.

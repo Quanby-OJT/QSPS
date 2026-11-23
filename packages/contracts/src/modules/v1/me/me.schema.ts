@@ -65,3 +65,45 @@ export const ClientProfileSchema = z.object({
 
 export type UpdateClientProfileInput = z.infer<typeof UpdateClientProfileSchema>
 export type ClientProfile = z.infer<typeof ClientProfileSchema>
+
+// ============================================================================
+// MOBILE NUMBER AND SMS (NTF-2)
+// ============================================================================
+
+/** Where the AUTH-2 one-time sign-in code is sent. */
+export const SmsChannelSchema = z.enum(["email", "sms"])
+
+export const SmsSettingsSchema = z.object({
+	mobile: z.string().nullable(),
+	/** Set when the client confirms a code sent to `mobile`; null means not verified. */
+	mobileVerifiedAt: z.coerce.date().nullable(),
+	smsNotificationsEnabled: z.boolean(),
+	mfaOtpChannel: SmsChannelSchema,
+	twoFactorEnabled: z.boolean(),
+})
+
+export const RequestSmsCodeSchema = z.object({
+	mobile: z.string().trim().min(10, "Enter your mobile number").max(30, "That number is too long"),
+})
+
+export const VerifySmsCodeSchema = z.object({
+	code: z
+		.string()
+		.trim()
+		.regex(/^\d{6}$/, "Enter the 6-digit code"),
+})
+
+export const UpdateSmsPreferencesSchema = z.object({
+	smsNotificationsEnabled: z.boolean(),
+	mfaOtpChannel: SmsChannelSchema,
+	/** Required when `mfaOtpChannel` changes. */
+	password: z.string().max(256).optional(),
+})
+
+export const SmsCodeSentSchema = z.object({ ok: z.literal(true) })
+
+export type SmsChannel = z.infer<typeof SmsChannelSchema>
+export type SmsSettings = z.infer<typeof SmsSettingsSchema>
+export type RequestSmsCodeInput = z.infer<typeof RequestSmsCodeSchema>
+export type VerifySmsCodeInput = z.infer<typeof VerifySmsCodeSchema>
+export type UpdateSmsPreferencesInput = z.infer<typeof UpdateSmsPreferencesSchema>

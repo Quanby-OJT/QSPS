@@ -12,7 +12,7 @@ export interface AuthPluginOptions {
 	 * the real mailer. Left out in tests and the schema CLI, where no code is
 	 * ever sent.
 	 */
-	sendTwoFactorOtp?: (input: { email: string; otp: string }) => Promise<void>
+	sendTwoFactorOtp?: (input: { userId: string; email: string; otp: string }) => Promise<void>
 }
 
 /**
@@ -35,8 +35,9 @@ export function buildAuthPlugins(docsEnabled: boolean, options: AuthPluginOption
 			issuer: MFA_ISSUER,
 			otpOptions: {
 				period: MFA_EMAIL_CODE_MINUTES,
+				storeOTP: "encrypted",
 				sendOTP: async ({ user, otp }) => {
-					await options.sendTwoFactorOtp?.({ email: user.email, otp })
+					await options.sendTwoFactorOtp?.({ userId: user.id, email: user.email, otp })
 				},
 			},
 			backupCodeOptions: { amount: 10, length: 10 },

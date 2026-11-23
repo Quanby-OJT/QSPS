@@ -1,18 +1,19 @@
 import type { Metadata } from "next"
-import { AccountSetting01Icon } from "@hugeicons/core-free-icons"
 
-import { ComingSoonPage } from "@/features/dashboard/components/coming-soon-page"
+import { SmsSettings } from "@/features/auth/two-factor/components/sms-settings"
 
-export const metadata: Metadata = {
-	title: "Account",
-}
+export const metadata: Metadata = { title: "Account" }
 
+/** Account settings: mobile number and text messages (NTF-2). */
 export default function AccountPage() {
 	return (
-		<ComingSoonPage
-			title="Account"
-			description="Profile and account settings will be available here soon."
-			icon={AccountSetting01Icon}
-		/>
+		<div className="flex flex-col gap-6">
+			<div className="flex flex-col gap-1.5">
+				<span aria-hidden="true" className="bg-gold h-[3px] w-10" />
+				<h1 className="text-2xl font-extrabold tracking-tight">Account</h1>
+				<p className="text-muted-foreground">Your mobile number and text message settings.</p>
+			</div>
+			<SmsSettings />
+		</div>
 	)
 }

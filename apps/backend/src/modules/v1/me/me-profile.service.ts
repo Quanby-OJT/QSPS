@@ -61,15 +61,26 @@ export class MeProfileService {
 	 */
 	async updateProfile(userId: string, input: UpdateClientProfileInput): Promise<ClientProfile> {
 		return db.transaction(async tx => {
-			const [current] = await tx.select(profileColumns).from(users).where(eq(users.id, userId))
+			const [current] = await tx
+				.select({ ...profileColumns, mfaOtpChannel: users.mfaOtpChannel })
+				.from(users)
+				.where(eq(users.id, userId))
+				.for("update")
 			if (!current) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
 
+			const mobileChanged = current.mobile !== input.mobile
+			if (mobileChanged && current.mfaOtpChannel === "sms")
+				throw new ORPCError("CONFLICT", {
+					message:
+						"Switch sign-in codes to email in Account settings before changing your mobile number.",
+				})
 			const now = new Date()
 			const [row] = await tx
 				.update(users)
 				.set({
 					name: input.name,
 					mobile: input.mobile,
+					...(mobileChanged ? { mobileVerifiedAt: null, smsNotificationsEnabled: false } : {}),
 					birthDate: input.birthDate,
 					nationality: input.nationality,
 					gender: input.gender,

@@ -163,7 +163,7 @@ export type {
 	DocumentVerification,
 } from "./modules/v1/certificates/certificates.schema.js"
 
-// Schedule slot contracts + schemas
+// Schedule slot contracts + schemas (SCH-1, SCH-2)
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
 	MAX_GENERATE_DAYS,
@@ -177,6 +177,12 @@ export {
 	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 	SetSlotDisabledRequestSchema,
+	BulkUpdateCapacityRequestSchema,
+	BulkUpdateCapacityResponseSchema,
+	BlockScheduleDateRequestSchema,
+	BlockScheduleDateResponseSchema,
+	UnblockScheduleDateRequestSchema,
+	UnblockScheduleDateResponseSchema,
 	DeleteSlotResponseSchema,
 	SlotAvailabilitySchema,
 } from "./modules/v1/schedules/schedules.schema.js"
@@ -188,6 +194,12 @@ export type {
 	ListSlotsRequest,
 	UpdateSlotCapacityRequest,
 	SetSlotDisabledRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
+	BlockScheduleDateRequest,
+	BlockScheduleDateResponse,
+	UnblockScheduleDateRequest,
+	UnblockScheduleDateResponse,
 	SlotAvailability,
 } from "./modules/v1/schedules/schedules.schema.js"
 
@@ -320,18 +332,29 @@ export type {
 	ExportAuditLogResponse,
 } from "./modules/v1/rbac/rbac.schema.js"
 
-// Current-user access schemas
+// Current-user access, profile and SMS settings schemas (AUTH-1, NTF-2)
 export { meContract } from "./modules/v1/me/me.contract.js"
 export {
 	MePermissionsSchema,
 	ClientProfileSchema,
 	UpdateClientProfileSchema,
 	GENDER_OPTIONS,
+	SmsChannelSchema,
+	SmsSettingsSchema,
+	RequestSmsCodeSchema,
+	VerifySmsCodeSchema,
+	UpdateSmsPreferencesSchema,
+	SmsCodeSentSchema,
 } from "./modules/v1/me/me.schema.js"
 export type {
 	MePermissions,
 	ClientProfile,
 	UpdateClientProfileInput,
+	SmsChannel,
+	SmsSettings,
+	RequestSmsCodeInput,
+	VerifySmsCodeInput,
+	UpdateSmsPreferencesInput,
 } from "./modules/v1/me/me.schema.js"
 
 // Future versions:

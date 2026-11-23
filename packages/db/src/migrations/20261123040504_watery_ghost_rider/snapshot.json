@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d7e4b079-259e-4ad3-bf6f-738ee3ef92d9",
+  "id": "a576a788-aefa-49c8-aa9d-cc394a4d31ef",
   "prevIds": [
-    "72a44fc9-aef4-446d-b189-24e4111f5034"
+    "a907c34e-de82-4f5e-b76c-32a2b0b090c3"
   ],
   "ddl": [
     {
@@ -50,24 +50,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "form_fields",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "form_submissions",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "form_templates",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "idempotency_keys",
       "entityType": "tables",
       "schema": "public"
@@ -75,6 +57,12 @@
     {
       "isRlsEnabled": false,
       "name": "locations",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "mobile_verification_challenges",
       "entityType": "tables",
       "schema": "public"
     },
@@ -165,6 +153,12 @@
     {
       "isRlsEnabled": false,
       "name": "sessions",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "sms_code_limits",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1213,266 +1207,6 @@
       "table": "documents"
     },
     {
-      "type": "serial",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "form_template_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "type",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "label",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "required",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "options",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "position",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "type": "serial",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "booking_item_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "form_template_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "answers",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "type": "serial",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "service_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "version",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'draft'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "true",
-      "generated": null,
-      "identity": null,
-      "name": "is_active",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "published_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -1640,6 +1374,71 @@
       "entityType": "columns",
       "schema": "public",
       "table": "locations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "mobile_verification_challenges"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "mobile",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "mobile_verification_challenges"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "code_digest",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "mobile_verification_challenges"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "mobile_verification_challenges"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "failed_attempts",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "mobile_verification_challenges"
     },
     {
       "type": "serial",
@@ -2695,6 +2494,19 @@
       "table": "schedule_slots"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "disabled_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "schedule_slots"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -3014,6 +2826,45 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sms_code_limits"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "window_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sms_code_limits"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sms_code_limits"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -3314,6 +3165,45 @@
       "generated": null,
       "identity": null,
       "name": "mobile",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "mobile_verified_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "sms_notifications_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'email'",
+      "generated": null,
+      "identity": null,
+      "name": "mfa_otp_channel",
       "entityType": "columns",
       "schema": "public",
       "table": "users"
@@ -3916,146 +3806,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "documents"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "form_template_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "position",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_fields_template_position_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "form_template_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_submissions_template_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "booking_item_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_submissions_booking_item_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "service_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "version",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_templates_service_version_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "service_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"status\" = 'draft'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_templates_one_draft_per_service_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_templates"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "service_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"status\" = 'published'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "form_templates_one_published_per_service_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "form_templates"
     },
     {
       "nameExplicit": true,
@@ -4802,70 +4552,19 @@
     {
       "nameExplicit": false,
       "columns": [
-        "form_template_id"
+        "user_id"
       ],
       "schemaTo": "public",
-      "tableTo": "form_templates",
+      "tableTo": "users",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "form_fields_form_template_id_form_templates_id_fkey",
+      "name": "mobile_verification_challenges_user_id_users_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "form_fields"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "booking_item_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "booking_items",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "form_submissions_booking_item_id_booking_items_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "form_template_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "form_templates",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "form_submissions_form_template_id_form_templates_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "form_submissions"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "service_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "services",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "form_templates_service_id_services_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "form_templates"
+      "table": "mobile_verification_challenges"
     },
     {
       "nameExplicit": false,
@@ -5378,39 +5077,19 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "form_fields_pkey",
-      "schema": "public",
-      "table": "form_fields",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "form_submissions_pkey",
-      "schema": "public",
-      "table": "form_submissions",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "form_templates_pkey",
-      "schema": "public",
-      "table": "form_templates",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "locations_pkey",
       "schema": "public",
       "table": "locations",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "user_id"
+      ],
+      "nameExplicit": false,
+      "name": "mobile_verification_challenges_pkey",
+      "schema": "public",
+      "table": "mobile_verification_challenges",
       "entityType": "pks"
     },
     {
@@ -5551,6 +5230,16 @@
       "name": "sessions_pkey",
       "schema": "public",
       "table": "sessions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "sms_code_limits_pkey",
+      "schema": "public",
+      "table": "sms_code_limits",
       "entityType": "pks"
     },
     {

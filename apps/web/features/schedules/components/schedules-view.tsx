@@ -9,8 +9,11 @@ import type { ScheduleSlot } from "@repo/contracts"
 import { PageHeader } from "@/core/components/page-header"
 import { Button } from "@/core/components/ui/button"
 import { Label } from "@/core/components/ui/label"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { useLocationsQuery } from "@/features/locations/api/locations.hooks"
 import { useScheduleSlotsQuery } from "@/features/schedules/api/schedules.hooks"
+import { BulkScheduleActions } from "@/features/schedules/components/bulk-schedule-actions"
 import { GenerateSlotsDialog } from "@/features/schedules/components/generate-slots-dialog"
 import { SlotDialog } from "@/features/schedules/components/slot-dialog"
 import {
@@ -26,7 +29,7 @@ import {
 import { useServicesQuery } from "@/features/services/api/services.hooks"
 
 const selectClassName =
-	"border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-lg border px-3 text-sm focus-visible:ring-[3px]"
+	"border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border px-3 text-sm focus-visible:ring-[3px] sm:w-auto"
 
 function slotButtonClassName(slot: ScheduleSlot): string {
 	const base =
@@ -49,20 +52,28 @@ function slotStatus(slot: ScheduleSlot): string {
 /**
  * Admin calendar for Schedule Slots (SCH-1): pick a service and a location,
  * see the month's slots, generate new ones, and edit, disable or delete a slot.
+ * SCH-2 adds bulk capacity changes and blocking a whole date.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds restored copies of the
+ * services, locations or slots.
  */
 export function SchedulesView() {
 	// ADM-2: the staff lists, which are limited to the caller's Scope, not the
 	// public pickers. Only active ones can take new slots.
 	const servicesQuery = useServicesQuery()
 	const locationsQuery = useLocationsQuery()
-	const serviceList = useMemo(
-		() => servicesQuery.data?.filter(item => item.isActive),
-		[servicesQuery.data]
-	)
-	const locationList = useMemo(
-		() => locationsQuery.data?.filter(item => item.isActive),
-		[locationsQuery.data]
-	)
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+
+	const isLoadingPickers =
+		!hydrated || isQueryLoading(servicesQuery) || isQueryLoading(locationsQuery)
+
+	// Nothing from the cache is used until the page has hydrated.
+	const servicesData = isLoadingPickers ? undefined : servicesQuery.data
+	const locationsData = isLoadingPickers ? undefined : locationsQuery.data
+	const serviceList = useMemo(() => servicesData?.filter(item => item.isActive), [servicesData])
+	const locationList = useMemo(() => locationsData?.filter(item => item.isActive), [locationsData])
 
 	const [chosenServiceId, setChosenServiceId] = useState<number | null>(null)
 	const [chosenLocationId, setChosenLocationId] = useState<number | null>(null)
@@ -77,12 +88,13 @@ export function SchedulesView() {
 	const location = locationList?.find(item => item.id === locationId)
 
 	const slots = useScheduleSlotsQuery({ serviceId, locationId, month })
-	const slotsByDate = useMemo(() => groupSlotsByDate(slots.data ?? []), [slots.data])
+	const slotsLoading = !hydrated || isQueryLoading(slots)
+	const slotsData = slotsLoading ? undefined : slots.data
+	const slotsByDate = useMemo(() => groupSlotsByDate(slotsData ?? []), [slotsData])
 	const weeks = useMemo(() => monthGrid(month), [month])
 	const today = manilaDateKey(new Date())
 
-	const isLoadingPickers = servicesQuery.isPending || locationsQuery.isPending
-	const pickerError = servicesQuery.error ?? locationsQuery.error
+	const pickerError = isLoadingPickers ? null : (servicesQuery.error ?? locationsQuery.error)
 	const hasNothingToSchedule =
 		!isLoadingPickers && !pickerError && (serviceId === null || locationId === null)
 
@@ -132,7 +144,7 @@ export function SchedulesView() {
 			) : (
 				<>
 					<div className="flex flex-wrap items-end gap-4">
-						<div className="grid gap-2">
+						<div className="grid w-full gap-2 sm:w-auto">
 							<Label htmlFor="schedule-service">Service</Label>
 							<select
 								id="schedule-service"
@@ -148,7 +160,7 @@ export function SchedulesView() {
 							</select>
 						</div>
 
-						<div className="grid gap-2">
+						<div className="grid w-full gap-2 sm:w-auto">
 							<Label htmlFor="schedule-location">Location</Label>
 							<select
 								id="schedule-location"
@@ -164,7 +176,7 @@ export function SchedulesView() {
 							</select>
 						</div>
 
-						<div className="ml-auto flex items-center gap-2">
+						<div className="flex w-full items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-start">
 							<Button
 								type="button"
 								variant="outline"
@@ -187,7 +199,16 @@ export function SchedulesView() {
 						</div>
 					</div>
 
-					{slots.isError ? (
+					{serviceId !== null && locationId !== null ? (
+						// Keyed so switching service or location clears the forms and results.
+						<BulkScheduleActions
+							key={`${serviceId}-${locationId}`}
+							serviceId={serviceId}
+							locationId={locationId}
+						/>
+					) : null}
+
+					{!slotsLoading && slots.isError ? (
 						<div className="border-destructive/30 bg-destructive/5 rounded-lg border p-4">
 							<p className="text-sm font-medium">Could not load the schedule.</p>
 							<p className="text-muted-foreground mt-1 text-sm">{slots.error.message}</p>
@@ -241,13 +262,18 @@ export function SchedulesView() {
 																		type="button"
 																		className={slotButtonClassName(slot)}
 																		onClick={() => setSelectedSlot(slot)}
-																		aria-label={`${slotTimeRange(slot)}, ${slot.bookedCount} of ${slot.capacity} booked, ${slotStatus(slot)}. Edit slot`}
+																		aria-label={`${slotTimeRange(slot)}, ${slot.bookedCount} of ${slot.capacity} booked, ${slotStatus(slot)}${slot.disabledReason ? `: ${slot.disabledReason}` : ""}. Edit slot`}
 																	>
 																		<span className="block font-medium">{slotTimeRange(slot)}</span>
 																		<span className="block">
 																			{slot.bookedCount}/{slot.capacity} booked
 																			{slotStatus(slot) === "Open" ? "" : ` · ${slotStatus(slot)}`}
 																		</span>
+																		{slot.disabledReason ? (
+																			<span className="block truncate" title={slot.disabledReason}>
+																				{slot.disabledReason}
+																			</span>
+																		) : null}
 																	</button>
 																))}
 															</div>
@@ -262,11 +288,11 @@ export function SchedulesView() {
 						</div>
 					)}
 
-					{slots.isPending ? (
+					{slotsLoading ? (
 						<p className="text-muted-foreground text-sm" role="status">
 							Loading slots…
 						</p>
-					) : slots.data?.length === 0 ? (
+					) : slotsData?.length === 0 ? (
 						<p className="text-muted-foreground text-sm">
 							No slots this month. Choose Generate slots to add some.
 						</p>
