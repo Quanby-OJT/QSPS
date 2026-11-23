@@ -4,6 +4,7 @@ import { documents, documentSequences } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import type { PdfService } from "@/common/pdf/pdf.service"
 
 import type { BookingService } from "../bookings/bookings.service"
@@ -109,6 +110,7 @@ describe("DocumentService", () => {
 
 	beforeEach(() => {
 		jest.clearAllMocks()
+		jest.spyOn(NotificationService, "enqueue").mockResolvedValue(undefined)
 		audit = { record: jest.fn().mockResolvedValue(undefined) }
 		bookingService = {
 			transitionItem: jest.fn().mockResolvedValue({ from: "cleared", to: "issued" }),

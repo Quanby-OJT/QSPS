@@ -16,6 +16,7 @@ import {
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import { PolicyService } from "@/common/policy/policy.service"
 import { loadPoliciesForService } from "@/modules/v1/policies/policy-document-rules"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
@@ -234,6 +235,14 @@ export class BookingService {
 				tx
 			)
 
+			if (booking.status === "pending_payment") {
+				await NotificationService.enqueue(
+					tx,
+					booking.id,
+					"booking_confirmed",
+					`booking:${booking.id}:created`
+				)
+			}
 			return {
 				id: booking.id,
 				referenceNumber: booking.referenceNumber,
@@ -395,6 +404,7 @@ export class BookingService {
 			.select({
 				id: bookingItems.id,
 				status: bookingItems.status,
+				bookingId: bookingItems.bookingId,
 				serviceId: bookingItems.serviceId,
 			})
 			.from(bookingItems)
@@ -437,6 +447,14 @@ export class BookingService {
 			tx
 		)
 
+		if (target === "returned" || target === "rejected") {
+			await NotificationService.enqueue(
+				tx,
+				item.bookingId,
+				target === "returned" ? "assessment_returned" : "assessment_rejected",
+				`booking-item:${item.id}:${target}:${now.toISOString()}`
+			)
+		}
 		return { from: item.status, to: target }
 	}
 
@@ -688,6 +706,12 @@ export class BookingService {
 				},
 			},
 			tx
+		)
+		await NotificationService.enqueue(
+			tx,
+			bookingId,
+			"booking_cancelled",
+			`booking:${bookingId}:cancelled`
 		)
 		return true
 	}

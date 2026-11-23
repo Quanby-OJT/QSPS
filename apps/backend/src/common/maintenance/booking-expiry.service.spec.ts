@@ -4,6 +4,7 @@ import {
 	bookingItems,
 	bookings,
 	locations,
+	notifications,
 	payments,
 	scheduleSlots,
 	serviceCategories,
@@ -67,6 +68,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 			"bookings",
 			"booking_items",
 			"payments",
+			"notifications",
 		],
 		database: db,
 	})
@@ -129,6 +131,8 @@ describe("BookingExpiryService (BKG-2)", () => {
 
 	afterEach(async () => {
 		if (!dbTests.ready) return
+		// Each cancellation queues a client email (NTF-1); those rows block deleting the user.
+		await db.delete(notifications).where(eq(notifications.userId, fixture.userId))
 		if (created.bookingIds.length) {
 			await db.delete(payments).where(inArray(payments.bookingId, created.bookingIds))
 			await db.delete(bookingItems).where(inArray(bookingItems.bookingId, created.bookingIds))

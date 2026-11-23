@@ -24,6 +24,7 @@ import {
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import { PdfService } from "@/common/pdf/pdf.service"
 import { env } from "@/config/env.config"
 
@@ -226,6 +227,12 @@ export class DocumentService {
 			tx
 		)
 
+		await NotificationService.enqueue(
+			tx,
+			item.bookingId,
+			"document_ready",
+			`document:${created.id}:issued`
+		)
 		return {
 			document: {
 				id: created.id,

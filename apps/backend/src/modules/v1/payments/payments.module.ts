@@ -22,6 +22,6 @@ import { ReceiptService } from "./receipts.service"
 	],
 	// Exported so the cashier flow (PAY-4) and the re-query job (PAY-6) call
 	// PaymentService instead of writing `payments` themselves.
-	exports: [PaymentService],
+	exports: [PaymentService, ReceiptService],
 })
 export class PaymentsModule {}

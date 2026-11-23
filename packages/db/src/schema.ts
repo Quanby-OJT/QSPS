@@ -838,6 +838,25 @@ export const policyAcceptances = createTable(
 	]
 )
 
+export const notifications = createTable(
+	"notifications",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		channel: t.text("channel").notNull().$type<"email" | "sms" | "push">(),
+		template: t.text("template").notNull(),
+		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
+		status: t.text("status").notNull().default("queued").$type<"queued" | "sent" | "failed">(),
+		attempts: t.integer("attempts").notNull().default(0),
+		dedupeKey: t.text("dedupe_key").notNull().unique(),
+		nextAttemptAt: t.timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [index("notifications_due_idx").on(t.channel, t.status, t.nextAttemptAt)]
+)
+
 // ============================================================================
 // RELATIONS
 // ============================================================================
@@ -870,6 +889,7 @@ export const relations = defineRelations(
 		policies,
 		policyDocuments,
 		policyAcceptances,
+		notifications,
 	},
 	r => ({
 		users: {
@@ -1105,6 +1125,7 @@ export const schema = Object.assign(
 		policies,
 		policyDocuments,
 		policyAcceptances,
+		notifications,
 	},
 	relations
 )

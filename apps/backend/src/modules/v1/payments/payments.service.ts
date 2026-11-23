@@ -13,6 +13,7 @@ import { bookings, paymentEvents, payments, receipts } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { NotificationService } from "@/common/notifications/notification.service"
 import { env } from "@/config/env.config"
 
 import { BookingService } from "../bookings/bookings.service"
@@ -437,7 +438,16 @@ export class PaymentService {
 				)
 			}
 
-			// The notifications epic enqueues the client's message here.
+			// NTF-1: the client always gets the e-Receipt. The booking QR goes only
+			// with a Booking that actually became paid; late money on a cancelled
+			// (or already paid) Booking gets the review message instead (D7).
+			await NotificationService.enqueue(
+				tx,
+				payment.bookingId,
+				bookingPaid ? "payment_received" : "payment_received_review",
+				`payment:${paymentId}:succeeded`,
+				{ paymentId }
+			)
 
 			await this.auditService.record(
 				{

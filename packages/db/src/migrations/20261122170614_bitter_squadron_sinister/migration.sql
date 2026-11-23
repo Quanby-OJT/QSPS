@@ -1,0 +1,1 @@
+ALTER TABLE "notifications" ALTER COLUMN "next_attempt_at" SET DATA TYPE timestamp with time zone USING "next_attempt_at"::timestamp with time zone;
