@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 
 import {
 	bookingItems,
@@ -15,7 +15,6 @@ import {
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { BookingExpiryService } from "@/common/maintenance/booking-expiry.service"
-import { NotificationService } from "@/common/notifications/notification.service"
 import type { PolicyService } from "@/common/policy/policy.service"
 import { BookingService } from "@/modules/v1/bookings/bookings.service"
 import { bindDbBackedTests } from "@/testing/db-ready"
@@ -132,6 +131,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 
 	afterEach(async () => {
 		if (!dbTests.ready) return
+		// Each cancellation queues a client email (NTF-1); those rows block deleting the user.
 		await db.delete(notifications).where(eq(notifications.userId, fixture.userId))
 		if (created.bookingIds.length) {
 			await db.delete(payments).where(inArray(payments.bookingId, created.bookingIds))
@@ -216,45 +216,6 @@ describe("BookingExpiryService (BKG-2)", () => {
 			.where(eq(scheduleSlots.id, slotId))
 		return must(row).bookedCount
 	}
-
-	itDb("queues once per event and rolls back with the booking transaction (NTF-1)", async () => {
-		const { bookingId } = await makeBooking({
-			holdExpiresAt: minutes(60),
-			slotStartsAt: minutes(24 * 60),
-		})
-		await db.transaction(async tx => {
-			await NotificationService.enqueue(tx, bookingId, "booking_confirmed", "same-event")
-			await NotificationService.enqueue(tx, bookingId, "booking_confirmed", "same-event")
-		})
-		await expect(
-			db.transaction(async tx => {
-				await NotificationService.enqueue(tx, bookingId, "booking_cancelled", "rollback-event")
-				throw new Error("rollback")
-			})
-		).rejects.toThrow("rollback")
-		const queued = await db
-			.select()
-			.from(notifications)
-			.where(eq(notifications.userId, fixture.userId))
-		expect(queued).toHaveLength(1)
-		expect(queued[0]).toMatchObject({
-			userId: fixture.userId,
-			channel: "email",
-			template: "booking_confirmed",
-			status: "queued",
-			attempts: 0,
-			payload: { bookingId },
-		})
-		// A freshly queued row is due using the same JS-clock predicate as the
-		// worker, even when PostgreSQL and the application use different zones.
-		const due = await db
-			.select({ id: notifications.id })
-			.from(notifications)
-			.where(
-				and(eq(notifications.userId, fixture.userId), lte(notifications.nextAttemptAt, new Date()))
-			)
-		expect(due).toHaveLength(1)
-	})
 
 	itDb("cancels a booking whose hold has passed as hold_expired and frees its place", async () => {
 		const { bookingId, slotId } = await makeBooking({

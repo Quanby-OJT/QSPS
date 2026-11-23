@@ -7,6 +7,7 @@ import type { Transaction } from "@/modules/v1/bookings/bookings.service"
 export type NotificationTemplate =
 	| "booking_confirmed"
 	| "payment_received"
+	| "payment_received_review"
 	| "booking_cancelled"
 	| "booking_rescheduled"
 	| "expedite_decision"
@@ -14,6 +15,15 @@ export type NotificationTemplate =
 	| "assessment_rejected"
 	| "document_ready"
 
+/**
+ * The notification outbox (NTF-1, DOMAIN-MODEL.md `notifications`).
+ *
+ * `enqueue` runs inside the caller's transaction, so a change that rolls back
+ * queues nothing. The recipient is the Booking's client (record ownership; no
+ * permission key). `dedupe_key` is channel, recipient, template and event id,
+ * so enqueuing the same event twice queues one message. Only the outbox worker
+ * changes `status`.
+ */
 export class NotificationService {
 	static async enqueue(
 		tx: Transaction,

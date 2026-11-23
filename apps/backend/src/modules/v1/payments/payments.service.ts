@@ -438,10 +438,13 @@ export class PaymentService {
 				)
 			}
 
+			// NTF-1: the client always gets the e-Receipt. The booking QR goes only
+			// with a Booking that actually became paid; late money on a cancelled
+			// (or already paid) Booking gets the review message instead (D7).
 			await NotificationService.enqueue(
 				tx,
 				payment.bookingId,
-				"payment_received",
+				bookingPaid ? "payment_received" : "payment_received_review",
 				`payment:${paymentId}:succeeded`,
 				{ paymentId }
 			)

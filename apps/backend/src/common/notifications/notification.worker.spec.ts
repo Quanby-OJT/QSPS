@@ -1,14 +1,15 @@
+import { Logger } from "@nestjs/common"
+
 import { db } from "@/common/database/database.client"
 import type { PdfService } from "@/common/pdf/pdf.service"
 import type { ReceiptService } from "@/modules/v1/payments/receipts.service"
 
-import type { TemplateEmailSender } from "./email.sender"
+import type { EmailSender } from "./email-sender.token"
 import { NotificationWorker } from "./notification.worker"
 
 jest.mock("@/common/database/database.client", () => ({ db: { transaction: jest.fn() } }))
 jest.mock("@/modules/v1/payments/receipts.service", () => ({ ReceiptService: jest.fn() }))
 jest.mock("@/common/pdf/pdf.service", () => ({ PdfService: jest.fn() }))
-jest.mock("./email.sender", () => ({ TemplateEmailSender: jest.fn() }))
 
 describe("NotificationWorker", () => {
 	const now = new Date("2026-11-23T00:00:00Z")
@@ -16,7 +17,7 @@ describe("NotificationWorker", () => {
 	const renderForOwner = jest.fn()
 	const qrPng = jest.fn()
 	const worker = new NotificationWorker(
-		{ send } as unknown as TemplateEmailSender,
+		{ send } as EmailSender,
 		{ renderForOwner } as unknown as ReceiptService,
 		{ qrPng } as unknown as PdfService
 	)
@@ -27,6 +28,7 @@ describe("NotificationWorker", () => {
 		attempts: 0,
 		payload: { paymentId: 20, referenceNumber: "QSPS-261123-ABC123" },
 	}
+	let warn: jest.SpyInstance
 
 	function transaction(rows: unknown[]) {
 		const lock = jest.fn().mockResolvedValue(rows)
@@ -49,7 +51,10 @@ describe("NotificationWorker", () => {
 		send.mockResolvedValue(undefined)
 		renderForOwner.mockResolvedValue({ fileName: "receipt.pdf", pdf: Buffer.from("PDF") })
 		qrPng.mockResolvedValue(Buffer.from("QR"))
+		warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined)
 	})
+
+	afterEach(() => warn.mockRestore())
 
 	it("locks a due row and sends the receipt and booking QR to its owner", async () => {
 		const { lock, set } = transaction([row])
@@ -69,15 +74,33 @@ describe("NotificationWorker", () => {
 		expect(set).toHaveBeenCalledWith({ status: "sent", attempts: 1 })
 	})
 
-	it("retries failure with increasing delay", async () => {
+	it("sends the receipt without the booking QR for a payment under review (D7)", async () => {
+		const { set } = transaction([{ ...row, template: "payment_received_review" }])
+		await expect(worker.processOne(now)).resolves.toBe(true)
+		expect(qrPng).not.toHaveBeenCalled()
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attachments: [
+					{ filename: "receipt.pdf", content: Buffer.from("PDF"), contentType: "application/pdf" },
+				],
+			})
+		)
+		expect(set).toHaveBeenCalledWith({ status: "sent", attempts: 1 })
+	})
+
+	it("retries failure with increasing delay and logs the reason without the address", async () => {
 		const { set } = transaction([{ ...row, attempts: 2 }])
-		send.mockRejectedValue(new Error("SMTP unavailable"))
+		send.mockRejectedValue(
+			Object.assign(new Error("550 <client@example.test> rejected"), { code: "EENVELOPE" })
+		)
 		await expect(worker.processOne(now)).resolves.toBe(true)
 		expect(set).toHaveBeenCalledWith({
 			status: "queued",
 			attempts: 3,
 			nextAttemptAt: new Date(now.getTime() + 240_000),
 		})
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("EENVELOPE"))
+		expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("client@example.test"))
 	})
 
 	it("marks the fifth failed delivery terminal", async () => {

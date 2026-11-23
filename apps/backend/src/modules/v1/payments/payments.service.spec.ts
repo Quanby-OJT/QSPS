@@ -318,6 +318,14 @@ describe("PaymentService", () => {
 				expect.objectContaining({ action: "payment.succeeded", targetId: "90" }),
 				expect.anything()
 			)
+			// NTF-1: receipt and booking QR, queued in the confirming transaction.
+			expect(NotificationService.enqueue).toHaveBeenCalledWith(
+				expect.anything(),
+				31,
+				"payment_received",
+				"payment:90:succeeded",
+				{ paymentId: 90 }
+			)
 		})
 
 		it("issues exactly one e-Receipt in the confirming transaction", async () => {
@@ -492,6 +500,29 @@ describe("PaymentService", () => {
 			)
 			// The money arrived, so the client still gets proof of payment.
 			expect(database.inserted.map(entry => entry.table)).toEqual([receipts])
+			// NTF-1: the receipt email, but not the "booking paid" one with the QR.
+			expect(NotificationService.enqueue).toHaveBeenCalledWith(
+				expect.anything(),
+				31,
+				"payment_received_review",
+				"payment:90:succeeded",
+				{ paymentId: 90 }
+			)
+			expect(NotificationService.enqueue).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"payment_received",
+				expect.anything(),
+				expect.anything()
+			)
+		})
+
+		it("queues no email when the payment had already succeeded", async () => {
+			fakeDatabase({ selects: [[{ ...savedPayment, status: "succeeded" }]] })
+
+			await makeService().confirm(90, { actorId: null }, NOW)
+
+			expect(NotificationService.enqueue).not.toHaveBeenCalled()
 		})
 
 		it("refuses to confirm a refunded payment", async () => {

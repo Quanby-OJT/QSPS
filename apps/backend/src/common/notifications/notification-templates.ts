@@ -9,6 +9,10 @@ const messages: Record<NotificationTemplate, [string, string]> = {
 		"Payment received",
 		"We have received your payment. Your electronic receipt and booking QR are attached.",
 	],
+	payment_received_review: [
+		"Payment received",
+		"We have received your payment, but it could not be applied to your booking. BOQ staff will review it and contact you. Your electronic receipt is attached.",
+	],
 	booking_cancelled: ["Booking cancelled", "Your booking has been cancelled."],
 	booking_rescheduled: [
 		"Booking rescheduled",
