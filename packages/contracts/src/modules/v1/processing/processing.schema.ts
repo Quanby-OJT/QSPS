@@ -84,9 +84,18 @@ export const RecordAssessmentSchema = BookingItemIdParamSchema.extend({
 	path: ["notes"],
 })
 
+/**
+ * Who made a decision (PRC-3): the Processing Officer's `assessment`, the
+ * head's `approval` of a pending item, or the head's `override` of a
+ * rejected one.
+ */
+export const ASSESSMENT_KINDS = ["assessment", "approval", "override"] as const
+export const AssessmentKindSchema = z.enum(ASSESSMENT_KINDS)
+
 export const AssessmentSchema = z.object({
 	id: z.number().int().positive(),
 	outcome: AssessmentOutcomeSchema,
+	kind: AssessmentKindSchema,
 	notes: z.string().nullable(),
 	corrections: z.record(z.string(), z.string()),
 	staffId: z.string(),
@@ -144,6 +153,60 @@ export const CheckInResponseSchema = z.object({
 	items: z.array(ProcessingItemSchema).min(1),
 })
 
+/** Shortest override reason staff may write (PRC-3: the reason is mandatory). */
+export const MIN_OVERRIDE_REASON_LENGTH = 10
+
+/** The two lists on the approvals screen (PRC-3). */
+export const APPROVAL_QUEUE_VIEWS = ["pending", "rejected"] as const
+export const ApprovalQueueViewSchema = z.enum(APPROVAL_QUEUE_VIEWS)
+
+export const ApprovalQueueRequestSchema = z.object({
+	/** `pending`: items waiting for head approval. `rejected`: items an approver may override. */
+	view: ApprovalQueueViewSchema.default("pending"),
+})
+
+export const ApprovalQueueItemSchema = z.object({
+	bookingItemId: z.number().int().positive(),
+	referenceNumber: ReferenceNumberSchema,
+	status: BookingItemStatusSchema,
+	clientName: z.string(),
+	serviceName: z.string(),
+	location: z.object({ id: z.number().int().positive(), name: z.string() }),
+	startsAt: dateField,
+	/** The officer whose Assessment put the item here, and when. */
+	assessedBy: z.string().nullable(),
+	assessedAt: dateField.nullable(),
+	/** The officer's notes on that Assessment. */
+	notes: z.string().nullable(),
+})
+
+export const ApprovalQueueSchema = z.object({
+	view: ApprovalQueueViewSchema,
+	items: z.array(ApprovalQueueItemSchema),
+})
+
+/** The head's decision on a `pending_head_approval` item. */
+export const APPROVAL_DECISIONS = ["approve", "return"] as const
+export const ApprovalDecisionSchema = z.enum(APPROVAL_DECISIONS)
+
+export const DecideApprovalSchema = BookingItemIdParamSchema.extend({
+	decision: ApprovalDecisionSchema,
+	notes: z.string().trim().max(MAX_ASSESSMENT_NOTES_LENGTH).default(""),
+}).refine(value => value.decision === "approve" || value.notes.length > 0, {
+	message: "Write a note telling the officer what to check again",
+	path: ["notes"],
+})
+
+export const OverrideItemSchema = BookingItemIdParamSchema.extend({
+	reason: z
+		.string()
+		.trim()
+		.min(MIN_OVERRIDE_REASON_LENGTH, {
+			message: `Write the reason for the override (at least ${MIN_OVERRIDE_REASON_LENGTH} characters)`,
+		})
+		.max(MAX_ASSESSMENT_NOTES_LENGTH),
+})
+
 export type AssessmentOutcome = z.infer<typeof AssessmentOutcomeSchema>
 export type QueuePaymentStatus = z.infer<typeof QueuePaymentStatusSchema>
 export type ProcessingQueueRequest = z.infer<typeof ProcessingQueueRequestSchema>
@@ -155,3 +218,11 @@ export type RecordAssessmentInput = z.infer<typeof RecordAssessmentSchema>
 export type Assessment = z.infer<typeof AssessmentSchema>
 export type ProcessingItem = z.infer<typeof ProcessingItemSchema>
 export type CheckInResponse = z.infer<typeof CheckInResponseSchema>
+export type AssessmentKind = z.infer<typeof AssessmentKindSchema>
+export type ApprovalQueueView = z.infer<typeof ApprovalQueueViewSchema>
+export type ApprovalQueueRequest = z.infer<typeof ApprovalQueueRequestSchema>
+export type ApprovalQueueItem = z.infer<typeof ApprovalQueueItemSchema>
+export type ApprovalQueue = z.infer<typeof ApprovalQueueSchema>
+export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>
+export type DecideApprovalInput = z.infer<typeof DecideApprovalSchema>
+export type OverrideItemInput = z.infer<typeof OverrideItemSchema>

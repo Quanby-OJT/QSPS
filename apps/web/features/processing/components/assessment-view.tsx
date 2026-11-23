@@ -13,14 +13,22 @@ import { Button, buttonVariants } from "@/core/components/ui/button"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Textarea } from "@/core/components/ui/textarea"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useOpenItemMutation,
 	useProcessingItemQuery,
 	useRecordAssessmentMutation,
 } from "@/features/processing/api/processing.hooks"
 import {
+	OverridePanel,
+	PendingApprovalPanel,
+} from "@/features/processing/components/approval-panels"
+import {
+	canDecideApproval,
 	canOpen,
+	canOverride,
 	correctionsFromRows,
 	itemStatusLabel,
 	outcomeLabel,
@@ -77,8 +85,20 @@ function issuesOnClear(item: ProcessingItem): boolean {
  * or reject the Booking Item. When clearing issues a document at once
  * (CRT-1), the form also asks for the certificate details.
  */
-export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
+export function AssessmentView({
+	bookingItemId,
+	canApprove = false,
+}: {
+	bookingItemId: number
+	/** PRC-3: the caller holds processing.assessments:approve. */
+	canApprove?: boolean
+}) {
 	const item = useProcessingItemQuery(bookingItemId)
+	// Hydration-safe: loading on the server and on the client's first render,
+	// even when a restored copy is already there, so the two renders agree.
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+	const loading = !hydrated || isQueryLoading(item) || (!item.isError && !item.data)
 
 	return (
 		<section className="flex w-full flex-col gap-6">
@@ -91,18 +111,20 @@ export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
 					</Link>
 				}
 			/>
-			{item.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading…</p>
+			{loading ? (
+				<p className="text-muted-foreground text-sm" role="status">
+					Loading…
+				</p>
 			) : item.error ? (
 				<p className="text-destructive text-sm">{item.error.message}</p>
-			) : (
-				<AssessmentBody item={item.data} />
-			)}
+			) : item.data ? (
+				<AssessmentBody item={item.data} canApprove={canApprove} />
+			) : null}
 		</section>
 	)
 }
 
-function AssessmentBody({ item }: { item: ProcessingItem }) {
+function AssessmentBody({ item, canApprove }: { item: ProcessingItem; canApprove: boolean }) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
 
@@ -197,6 +219,10 @@ function AssessmentBody({ item }: { item: ProcessingItem }) {
 					</div>
 				) : item.status === "in_assessment" ? (
 					<AssessmentForm item={item} />
+				) : canDecideApproval(item.status) ? (
+					<PendingApprovalPanel item={item} canApprove={canApprove} />
+				) : canOverride(item.status) && canApprove ? (
+					<OverridePanel item={item} />
 				) : null}
 
 				{item.document ? (
@@ -225,7 +251,7 @@ function AssessmentBody({ item }: { item: ProcessingItem }) {
 											<Badge
 												variant={assessment.outcome === "rejected" ? "destructive" : "secondary"}
 											>
-												{outcomeLabel(assessment.outcome)}
+												{outcomeLabel(assessment.outcome, assessment.kind)}
 											</Badge>
 											<span className="text-muted-foreground text-xs">
 												{assessment.staffName} · {dateTimeFormatter.format(assessment.createdAt)}

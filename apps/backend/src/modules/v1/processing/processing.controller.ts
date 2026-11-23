@@ -15,8 +15,9 @@ function actorId(session?: UserSession): string | null {
 }
 
 /**
- * BOQ staff assessment (PRC-1). RbacGuard checks the permission key (403 and
- * a denied Audit Entry without it); ProcessingService checks the Location.
+ * BOQ staff assessment (PRC-1) and head approval (PRC-3). RbacGuard checks
+ * the permission key (403 and a denied Audit Entry without it);
+ * ProcessingService checks Scope and the Location.
  *
  * These routes use the normal throttle, not the strict one: staff make three
  * calls per client (check in, open, assess), and every route already needs a
@@ -77,6 +78,34 @@ export class ProcessingController {
 	async assess(@Session() session?: UserSession) {
 		return implement(v1.processing.assess).handler(async ({ input }) =>
 			this.processingService.assess(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	// PRC-3: head approval. Only holders of processing.assessments:approve, and
+	// only for items inside their Scope.
+	@RequirePermissions("processing.assessments:approve")
+	@Implement(v1.processing.approvals)
+	async approvals(@Session() session?: UserSession) {
+		return implement(v1.processing.approvals).handler(async ({ input }) =>
+			this.processingService.approvals(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	@RequirePermissions("processing.assessments:approve")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.processing.decide)
+	async decide(@Session() session?: UserSession) {
+		return implement(v1.processing.decide).handler(async ({ input }) =>
+			this.processingService.decide(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	@RequirePermissions("processing.assessments:approve")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.processing.override)
+	async override(@Session() session?: UserSession) {
+		return implement(v1.processing.override).handler(async ({ input }) =>
+			this.processingService.override(input, actorId(session), await this.scopeOf(session))
 		)
 	}
 }

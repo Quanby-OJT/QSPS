@@ -3,10 +3,14 @@ import { ORPCError } from "@orpc/server"
 import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm"
 
 import type {
+	ApprovalQueue,
+	ApprovalQueueRequest,
 	BookingItemIdParam,
 	BookingStatus,
 	CheckInInput,
 	CheckInResponse,
+	DecideApprovalInput,
+	OverrideItemInput,
 	ProcessingItem,
 	ProcessingQueue,
 	ProcessingQueueRequest,
@@ -34,13 +38,18 @@ import {
 	type ResolvedScope,
 } from "@/common/scope/scope-match"
 
-import { BookingService } from "../bookings/bookings.service"
+import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { DocumentService } from "../certificates/documents.service"
 import { manilaDateOf, manilaDateTimeToUtc } from "../schedules/manila-time"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
 
 const MS_PER_DAY = 86_400_000
+
+/** Most items the approval queue lists at once (PRC-3). */
+const MAX_PENDING_APPROVALS = 200
+/** Most recently rejected items listed for override (PRC-3). */
+const MAX_REJECTED_FOR_OVERRIDE = 100
 
 /**
  * Bookings staff work on. A cancelled, rejected or refunded Booking has
@@ -145,7 +154,11 @@ export class ProcessingService {
 		scope: ResolvedScope = NATIONWIDE_SCOPE
 	): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
-		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.read", scope)
+		// PRC-3: reading needs only Scope, not a station, so a head whose Scope
+		// covers several Locations can open an item to approve it.
+		await this.requireItemInScope(input.bookingItemId, staffId, "booking_item.read", scope, {
+			requireStation: false,
+		})
 		return this.loadItem(input.bookingItemId)
 	}
 
@@ -308,6 +321,254 @@ export class ProcessingService {
 	}
 
 	/**
+	 * The head's approval queue (PRC-3): items waiting in
+	 * `pending_head_approval` (oldest appointment first), or recently rejected
+	 * items an approver may override. Limited to the caller's Scope.
+	 */
+	async approvals(
+		input: ApprovalQueueRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ApprovalQueue> {
+		requireActor(actorId)
+		const status = input.view === "pending" ? "pending_head_approval" : "rejected"
+
+		const rows = await db
+			.select({
+				bookingItemId: bookingItems.id,
+				status: bookingItems.status,
+				referenceNumber: bookings.referenceNumber,
+				clientName: users.name,
+				serviceName: services.name,
+				locationId: locations.id,
+				locationName: locations.name,
+				startsAt: scheduleSlots.startsAt,
+			})
+			.from(bookingItems)
+			.innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
+			.innerJoin(users, eq(users.id, bookings.clientId))
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
+			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
+			.where(
+				and(
+					eq(bookingItems.status, status),
+					scopeCondition(scope, {
+						serviceCategoryId: services.serviceCategoryId,
+						locationId: bookingItems.locationId,
+					})
+				)
+			)
+			.orderBy(
+				input.view === "pending" ? asc(scheduleSlots.startsAt) : desc(bookingItems.updatedAt),
+				asc(bookingItems.id)
+			)
+			.limit(input.view === "pending" ? MAX_PENDING_APPROVALS : MAX_REJECTED_FOR_OVERRIDE)
+
+		const latest = await this.latestAssessments(rows.map(row => row.bookingItemId))
+
+		return {
+			view: input.view,
+			items: rows.map(row => {
+				const assessed = latest.get(row.bookingItemId)
+				return {
+					bookingItemId: row.bookingItemId,
+					referenceNumber: row.referenceNumber,
+					status: row.status,
+					clientName: row.clientName,
+					serviceName: row.serviceName,
+					location: { id: row.locationId, name: row.locationName },
+					startsAt: row.startsAt,
+					assessedBy: assessed?.staffName ?? null,
+					assessedAt: assessed?.createdAt ?? null,
+					notes: assessed?.notes ?? null,
+				}
+			}),
+		}
+	}
+
+	/**
+	 * Head approval (PRC-3, Annex A). `approve` moves `pending_head_approval`
+	 * to `cleared`; `return` sends it back to `in_assessment` with notes. The
+	 * officer who cleared the item may not approve it (403, audited). The
+	 * decision row, the item's new status and the Audit Entries commit
+	 * together. Documents are issued afterwards through CRT-1, which needs the
+	 * item to be `cleared`.
+	 */
+	async decide(
+		input: DecideApprovalInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ProcessingItem> {
+		const approverId = requireActor(actorId)
+		const action = input.decision === "approve" ? "assessment.approve" : "assessment.send_back"
+		await this.requireItemInScope(input.bookingItemId, approverId, action, scope, {
+			requireStation: false,
+		})
+
+		const [cleared] = await db
+			.select({ staffId: assessments.staffId })
+			.from(assessments)
+			.where(
+				and(
+					eq(assessments.bookingItemId, input.bookingItemId),
+					eq(assessments.kind, "assessment"),
+					eq(assessments.outcome, "cleared")
+				)
+			)
+			.orderBy(desc(assessments.createdAt), desc(assessments.id))
+			.limit(1)
+		if (cleared?.staffId === approverId) {
+			await this.recordDenial(
+				approverId,
+				action,
+				"booking_item",
+				input.bookingItemId,
+				"own_assessment"
+			)
+			throw new ORPCError("FORBIDDEN", {
+				message: "You cleared this item yourself, so another approver must review it",
+			})
+		}
+
+		const to = input.decision === "approve" ? "cleared" : "in_assessment"
+		const outcome = input.decision === "approve" ? "cleared" : "returned"
+		const notes = input.notes.length > 0 ? input.notes : null
+
+		await db.transaction(async tx => {
+			const moved = await this.bookingService.transitionItem(tx, input.bookingItemId, to, {
+				actorId: approverId,
+				allowedFrom: ["pending_head_approval"],
+			})
+			const saved = await this.insertDecision(tx, {
+				bookingItemId: input.bookingItemId,
+				staffId: approverId,
+				outcome,
+				kind: "approval",
+				notes,
+			})
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_PROCESSING,
+					action,
+					actorId: approverId,
+					targetType: "booking_item",
+					targetId: String(input.bookingItemId),
+					oldValue: { status: moved.from },
+					newValue: { assessmentId: saved, decision: input.decision, status: moved.to, notes },
+				},
+				tx
+			)
+		})
+
+		return this.loadItem(input.bookingItemId)
+	}
+
+	/**
+	 * Override a rejected item to `cleared` (PRC-3, Annex A: the Module Admin
+	 * may override). The reason is mandatory; the override row, the item's
+	 * new status and the Audit Entries with the before and after state commit
+	 * together.
+	 */
+	async override(
+		input: OverrideItemInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<ProcessingItem> {
+		const approverId = requireActor(actorId)
+		await this.requireItemInScope(input.bookingItemId, approverId, "assessment.override", scope, {
+			requireStation: false,
+		})
+
+		await db.transaction(async tx => {
+			const moved = await this.bookingService.overrideItem(tx, input.bookingItemId, "cleared", {
+				actorId: approverId,
+				reason: input.reason,
+			})
+			const saved = await this.insertDecision(tx, {
+				bookingItemId: input.bookingItemId,
+				staffId: approverId,
+				outcome: "cleared",
+				kind: "override",
+				notes: input.reason,
+			})
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_PROCESSING,
+					action: "assessment.override",
+					actorId: approverId,
+					targetType: "booking_item",
+					targetId: String(input.bookingItemId),
+					oldValue: { status: moved.from },
+					newValue: { assessmentId: saved, status: moved.to },
+					reason: input.reason,
+				},
+				tx
+			)
+		})
+
+		return this.loadItem(input.bookingItemId)
+	}
+
+	/** Insert one decision row (PRC-3) and return its id. */
+	private async insertDecision(
+		tx: Transaction,
+		row: {
+			bookingItemId: number
+			staffId: string
+			outcome: "cleared" | "returned"
+			kind: "approval" | "override"
+			notes: string | null
+		}
+	): Promise<number> {
+		const [saved] = await tx
+			.insert(assessments)
+			.values({
+				...row,
+				corrections: {},
+				// Set here, in UTC, rather than by the database clock (DOMAIN-MODEL.md: timestamps are UTC).
+				createdAt: new Date(),
+			})
+			.returning({ id: assessments.id })
+		if (!saved) {
+			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "The decision could not be saved" })
+		}
+		return saved.id
+	}
+
+	/** The newest officer Assessment for each item, for the approval queue. */
+	private async latestAssessments(
+		bookingItemIds: number[]
+	): Promise<Map<number, { staffName: string; createdAt: Date; notes: string | null }>> {
+		const latest = new Map<number, { staffName: string; createdAt: Date; notes: string | null }>()
+		if (bookingItemIds.length === 0) return latest
+
+		const rows = await db
+			.select({
+				bookingItemId: assessments.bookingItemId,
+				staffName: users.name,
+				createdAt: assessments.createdAt,
+				notes: assessments.notes,
+			})
+			.from(assessments)
+			.innerJoin(users, eq(users.id, assessments.staffId))
+			.where(
+				and(inArray(assessments.bookingItemId, bookingItemIds), eq(assessments.kind, "assessment"))
+			)
+			.orderBy(desc(assessments.createdAt), desc(assessments.id))
+		for (const row of rows) {
+			if (!latest.has(row.bookingItemId)) {
+				latest.set(row.bookingItemId, {
+					staffName: row.staffName,
+					createdAt: row.createdAt,
+					notes: row.notes,
+				})
+			}
+		}
+		return latest
+	}
+
+	/**
 	 * The staff user's Location from `user_scopes`, or null when they have none.
 	 *
 	 * PRC-1 supports one Location per staff user: the first scope row that names
@@ -334,7 +595,8 @@ export class ProcessingService {
 		bookingItemId: number,
 		staffId: string,
 		action: string,
-		scope: ResolvedScope = NATIONWIDE_SCOPE
+		scope: ResolvedScope = NATIONWIDE_SCOPE,
+		options: { requireStation: boolean } = { requireStation: true }
 	): Promise<void> {
 		const [item] = await db
 			.select({
@@ -354,6 +616,9 @@ export class ProcessingService {
 			await this.recordDenial(staffId, action, "booking_item", bookingItemId, "outside_scope")
 			throw itemNotFound()
 		}
+		// Approvers and readers act on any item in Scope; officers' changes also
+		// need the item to be at their station (PRC-1).
+		if (!options.requireStation) return
 
 		const location = await this.staffLocation(staffId)
 		if (!location || location.id !== item.locationId) {
@@ -417,6 +682,7 @@ export class ProcessingService {
 			.select({
 				id: assessments.id,
 				outcome: assessments.outcome,
+				kind: assessments.kind,
 				notes: assessments.notes,
 				corrections: assessments.corrections,
 				staffId: assessments.staffId,
@@ -475,7 +741,7 @@ export class ProcessingService {
 		action: string,
 		targetType: "booking" | "booking_item",
 		targetId: number,
-		reason: "outside_scope" | "no_location" | "payment_required"
+		reason: "outside_scope" | "no_location" | "payment_required" | "own_assessment"
 	): Promise<void> {
 		await this.auditService.record({
 			domain: AUDIT_DOMAIN_PROCESSING,

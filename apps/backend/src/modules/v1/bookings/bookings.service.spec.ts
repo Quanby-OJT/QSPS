@@ -851,3 +851,75 @@ describe("BookingService.completeIfAllItemsFinal (CRT-1)", () => {
 		expect(sets).not.toHaveBeenCalled()
 	})
 })
+
+describe("BookingService.overrideItem (PRC-3)", () => {
+	let bookingService: BookingService
+	let auditService: { record: jest.Mock }
+
+	beforeEach(() => {
+		jest.clearAllMocks()
+		auditService = { record: jest.fn().mockResolvedValue(undefined) }
+		bookingService = new BookingService(
+			auditService as unknown as AuditService,
+			policies() as unknown as PolicyService
+		)
+	})
+
+	const options = { actorId: "head-1", reason: "Exemption letter verified by phone", now: NOW }
+
+	it("clears a rejected item under a lock and audits the before and after state with the reason", async () => {
+		const { tx, locks, sets } = itemTransaction([[{ id: 44, status: "rejected" }]])
+
+		await expect(bookingService.overrideItem(tx as never, 44, "cleared", options)).resolves.toEqual(
+			{
+				from: "rejected",
+				to: "cleared",
+			}
+		)
+
+		expect(locks).toHaveBeenCalledWith("update")
+		expect(sets).toHaveBeenCalledWith({ status: "cleared", updatedAt: NOW })
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking_item.override",
+				actorId: "head-1",
+				targetType: "booking_item",
+				targetId: "44",
+				oldValue: { status: "rejected" },
+				newValue: { status: "cleared" },
+				reason: "Exemption letter verified by phone",
+			}),
+			tx
+		)
+	})
+
+	it.each(["in_assessment", "pending_head_approval", "cleared", "issued", "no_show"])(
+		"refuses to override an item that is %s",
+		async status => {
+			const { tx, sets } = itemTransaction([[{ id: 44, status }]])
+
+			await expect(
+				bookingService.overrideItem(tx as never, 44, "cleared", options)
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(sets).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		}
+	)
+
+	it("refuses an override without a reason before reading the item", async () => {
+		const { tx } = itemTransaction([[{ id: 44, status: "rejected" }]])
+
+		await expect(
+			bookingService.overrideItem(tx as never, 44, "cleared", { ...options, reason: "   " })
+		).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		expect(tx.select).not.toHaveBeenCalled()
+	})
+
+	it("fails when the item does not exist", async () => {
+		const { tx } = itemTransaction([[]])
+
+		await expect(
+			bookingService.overrideItem(tx as never, 99, "cleared", options)
+		).rejects.toMatchObject({ code: "NOT_FOUND" })
+	})
+})

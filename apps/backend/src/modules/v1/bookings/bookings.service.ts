@@ -26,7 +26,7 @@ import {
 	PAYMENT_IN_FLIGHT_MINUTES,
 	type BookingCancelReason,
 } from "./booking-expiry"
-import { canTransitionItem, isTerminalItem } from "./booking-item-state"
+import { canOverrideItem, canTransitionItem, isTerminalItem } from "./booking-item-state"
 import { canTransition, initialStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
@@ -456,6 +456,59 @@ export class BookingService {
 			)
 		}
 		return { from: item.status, to: target }
+	}
+
+	/**
+	 * Override a Booking Item outside the normal state machine (PRC-3, Annex A:
+	 * the Module Admin may override). Only `rejected` to `cleared` is allowed.
+	 * Locks the item, writes it, and records the before and after state with
+	 * the mandatory reason in the caller's transaction.
+	 */
+	async overrideItem(
+		tx: Transaction,
+		bookingItemId: number,
+		to: BookingItemStatus,
+		options: { actorId: string; reason: string; now?: Date }
+	): Promise<{ from: BookingItemStatus; to: BookingItemStatus }> {
+		const now = options.now ?? new Date()
+		const reason = options.reason.trim()
+		if (!reason) {
+			throw new ORPCError("BAD_REQUEST", { message: "An override needs a reason" })
+		}
+
+		const [item] = await tx
+			.select({ id: bookingItems.id, status: bookingItems.status })
+			.from(bookingItems)
+			.where(eq(bookingItems.id, bookingItemId))
+			.for("update")
+		if (!item) {
+			throw new ORPCError("NOT_FOUND", { message: `Booking item "${bookingItemId}" was not found` })
+		}
+		if (!canOverrideItem(item.status, to)) {
+			throw new ORPCError("CONFLICT", {
+				message: `This item is ${item.status.replaceAll("_", " ")}; only a rejected item can be overridden to cleared`,
+			})
+		}
+
+		await tx
+			.update(bookingItems)
+			.set({ status: to, updatedAt: now })
+			.where(eq(bookingItems.id, item.id))
+
+		await this.auditService.record(
+			{
+				domain: AUDIT_DOMAIN_BOOKINGS,
+				action: "booking_item.override",
+				actorId: options.actorId,
+				targetType: "booking_item",
+				targetId: String(item.id),
+				oldValue: { status: item.status },
+				newValue: { status: to },
+				reason,
+			},
+			tx
+		)
+		return { from: item.status, to }
 	}
 
 	/**

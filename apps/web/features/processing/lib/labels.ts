@@ -1,4 +1,4 @@
-import type { AssessmentOutcome, BookingItemStatus } from "@repo/contracts"
+import type { AssessmentKind, AssessmentOutcome, BookingItemStatus } from "@repo/contracts"
 
 const ITEM_STATUS_LABELS: Record<BookingItemStatus, string> = {
 	booked: "Booked",
@@ -23,8 +23,27 @@ const OUTCOME_LABELS: Record<AssessmentOutcome, string> = {
 	rejected: "Rejected",
 }
 
-export function outcomeLabel(outcome: AssessmentOutcome): string {
+/**
+ * Plain words for one history entry. PRC-3: a head's approval or override
+ * reads differently from the officer's own assessment.
+ */
+export function outcomeLabel(
+	outcome: AssessmentOutcome,
+	kind: AssessmentKind = "assessment"
+): string {
+	if (kind === "approval") return outcome === "cleared" ? "Approved by head" : "Sent back by head"
+	if (kind === "override") return "Overridden to cleared"
 	return OUTCOME_LABELS[outcome]
+}
+
+/** PRC-3: a head may approve or send back an item in this status. */
+export function canDecideApproval(status: BookingItemStatus): boolean {
+	return status === "pending_head_approval"
+}
+
+/** PRC-3: a head may override an item in this status to cleared. */
+export function canOverride(status: BookingItemStatus): boolean {
+	return status === "rejected"
 }
 
 /** Staff may open an item for assessment from these statuses. */
