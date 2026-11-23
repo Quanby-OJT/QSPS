@@ -32,7 +32,9 @@ function refuse(
  * The active version is the Service's `published` version while it is
  * enabled. Answers are checked against that version with the same rules the
  * web uses (`checkFormAnswers`), and a file answer must be one of the
- * caller's own stored uploads.
+ * caller's own stored uploads. FRM-2b: a pending upload is confirmed (copied
+ * out of `pending/`) when the answers are prepared, and the prepared answers
+ * hold the confirmed key.
  */
 @Injectable()
 export class FormSubmissionService implements FormSubmissionPreparer {
@@ -112,9 +114,9 @@ export class FormSubmissionService implements FormSubmissionPreparer {
 		const check = checkFormAnswers(form.fields, args.form.answers)
 		if (!check.ok) refuse(args.serviceName, data, check.fieldErrors)
 
+		const fileFields = form.fields.filter(field => field.type === "file")
 		const fileErrors: Record<string, string> = {}
-		for (const field of form.fields) {
-			if (field.type !== "file") continue
+		for (const field of fileFields) {
 			const key = String(field.id)
 			const value = check.answers[key]
 			if (typeof value === "string" && !(await this.uploads.ownsUpload(value, args.actorId))) {
@@ -123,6 +125,16 @@ export class FormSubmissionService implements FormSubmissionPreparer {
 		}
 		if (Object.keys(fileErrors).length > 0) refuse(args.serviceName, data, fileErrors)
 
-		return { formTemplateId: form.formTemplateId, version: form.version, answers: check.answers }
+		// FRM-2b: only after every answer is valid, so a refused booking copies nothing.
+		const answers = { ...check.answers }
+		for (const field of fileFields) {
+			const key = String(field.id)
+			const value = answers[key]
+			if (typeof value === "string") {
+				answers[key] = await this.uploads.confirmUpload(value, args.actorId, executor)
+			}
+		}
+
+		return { formTemplateId: form.formTemplateId, version: form.version, answers }
 	}
 }

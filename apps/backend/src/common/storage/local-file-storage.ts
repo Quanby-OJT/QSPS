@@ -1,8 +1,22 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
+import {
+	copyFile,
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises"
 import { dirname, resolve, sep } from "node:path"
 
-import { assertStorageKey, type FileStorage } from "./file-storage"
+import {
+	assertStorageKey,
+	assertStoragePrefix,
+	type FileStorage,
+	type StoredFile,
+} from "./file-storage"
 
 function isNotFound(error: unknown): boolean {
 	return (
@@ -58,5 +72,47 @@ export class LocalFileStorage implements FileStorage {
 			if (isNotFound(error)) return null
 			throw error
 		}
+	}
+
+	async copy(from: string, to: string): Promise<void> {
+		const source = this.pathOf(from)
+		const target = this.pathOf(to)
+		await mkdir(dirname(target), { recursive: true })
+		const temporary = `${target}.${randomUUID()}.tmp`
+		await copyFile(source, temporary)
+		await rename(temporary, target)
+	}
+
+	async delete(key: string): Promise<void> {
+		try {
+			await unlink(this.pathOf(key))
+		} catch (error) {
+			if (!isNotFound(error)) throw error
+		}
+	}
+
+	async list(prefix: string): Promise<StoredFile[]> {
+		assertStoragePrefix(prefix)
+		const folder = this.pathOf(prefix.slice(0, -1))
+		let names: string[]
+		try {
+			names = await readdir(folder, { recursive: true })
+		} catch (error) {
+			if (isNotFound(error)) return []
+			throw error
+		}
+
+		const files: StoredFile[] = []
+		for (const name of names) {
+			try {
+				const info = await stat(resolve(folder, name))
+				if (!info.isFile()) continue
+				files.push({ key: prefix + name.split(sep).join("/"), lastModified: info.mtime })
+			} catch (error) {
+				// Deleted between the listing and the stat: nothing to report.
+				if (!isNotFound(error)) throw error
+			}
+		}
+		return files
 	}
 }

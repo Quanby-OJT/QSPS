@@ -20,11 +20,11 @@ export type FormUploadContentType = keyof typeof FORM_UPLOAD_TYPES
 export const FORM_UPLOAD_CONTENT_TYPES = Object.keys(FORM_UPLOAD_TYPES) as FormUploadContentType[]
 
 /**
- * Where an uploaded answer is stored: the uploader's user id, then a random
+ * Where an uploaded answer is stored: `pending/` until the answers are saved (FRM-2b), the uploader's user id, then a random
  * name. The API accepts a key only under the caller's own folder.
  */
 export const FORM_UPLOAD_KEY_PATTERN =
-	/^form-uploads\/[A-Za-z0-9_-]{1,64}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|png)$/
+	/^form-uploads\/(?:pending\/)?[A-Za-z0-9_-]{1,64}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|png)$/
 
 /** One answer as it travels: text, number, yes/no, the chosen options, a file key, or nothing. */
 export const FormAnswerValueSchema = z.union([
