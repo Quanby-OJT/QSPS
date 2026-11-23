@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest"
 
 import {
+	allowsExemption,
 	canDecideApproval,
 	canOpen,
 	canOverride,
 	correctionsFromRows,
+	documentTypeLabel,
 	itemStatusLabel,
+	needsIssuing,
 	outcomeLabel,
+	printCountLabel,
 } from "./labels"
 
 describe("processing labels", () => {
@@ -60,5 +64,29 @@ describe("head approval labels (PRC-3)", () => {
 		expect(canOverride("rejected")).toBe(true)
 		expect(canOverride("pending_head_approval")).toBe(false)
 		expect(canOverride("issued")).toBe(false)
+	})
+
+	it("names document types and print counts (CRT-3)", () => {
+		expect(documentTypeLabel("medical-exemption")).toBe("Medical Exemption Certificate")
+		expect(documentTypeLabel("icv-record")).toBe("International Certificate of Vaccination")
+		expect(documentTypeLabel("legacy-type")).toBe("legacy-type")
+		expect(printCountLabel(0)).toBe("Not printed yet")
+		expect(printCountLabel(1)).toBe("Printed once")
+		expect(printCountLabel(3)).toBe("Printed 3 times")
+	})
+
+	it("offers an exemption only for vaccinations (CRT-3)", () => {
+		expect(allowsExemption("icv-record")).toBe(true)
+		expect(allowsExemption(null)).toBe(false)
+	})
+
+	it("asks for issuing only on a cleared item that has no document yet", () => {
+		const service = { documentType: "icv-record" }
+		expect(needsIssuing({ status: "cleared", service, document: null })).toBe(true)
+		expect(needsIssuing({ status: "cleared", service, document: { id: 1 } })).toBe(false)
+		expect(needsIssuing({ status: "issued", service, document: null })).toBe(false)
+		expect(
+			needsIssuing({ status: "cleared", service: { documentType: null }, document: null })
+		).toBe(false)
 	})
 })

@@ -8,10 +8,21 @@ const dateField = z
 
 /**
  * Document types QSPS can issue (DOMAIN-MODEL.md section 4, "Document types").
- * CRT-1 adds the first one; CRT-3 to CRT-10 add the rest.
+ * CRT-1 adds the vaccination record; CRT-3 adds the Medical Exemption
+ * Certificate; CRT-5 to CRT-10 add the rest.
  */
-export const DOCUMENT_TYPES = ["icv-record"] as const
+export const DOCUMENT_TYPES = ["icv-record", "medical-exemption"] as const
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
+
+/**
+ * The types a Service can be set to issue (CRT-3). A Medical Exemption is not
+ * a Service of its own: staff issue it instead of the vaccination record of
+ * a vaccination Service when the client is medically exempt.
+ */
+export const SERVICE_DOCUMENT_TYPES = ["icv-record"] as const
+
+/** The document types that exempt a client from a vaccine (CRT-3). */
+export const VACCINATION_DOCUMENT_TYPES: readonly string[] = ["icv-record"]
 
 export const DocumentStatusSchema = z.enum(["valid", "revoked", "superseded"])
 
@@ -43,11 +54,48 @@ export const IcvIssueDetailsSchema = z
 		path: ["validUntil"],
 	})
 
-/** Staff issue a document for a cleared Booking Item (services with auto-issue off). */
-export const IssueDocumentSchema = z.object({
-	bookingItemId: z.coerce.number().int().positive(),
-	details: IcvIssueDetailsSchema,
-})
+/** Longest reason staff may write on a Medical Exemption Certificate. */
+export const MAX_EXEMPTION_REASON_LENGTH = 500
+
+/**
+ * What staff record when a client is medically exempt from the vaccine of a
+ * vaccination Service (CRT-3, TOR §VIII.3). Assumed fields, per Sir Sean,
+ * until BOQ gives its template: the medical reason and the examining
+ * physician; an exemption may be temporary, so it can carry an end date.
+ */
+export const MedicalExemptionDetailsSchema = z
+	.object({
+		reason: z
+			.string()
+			.trim()
+			.min(1, "Enter the medical reason for the exemption")
+			.max(MAX_EXEMPTION_REASON_LENGTH),
+		physicianName: z.string().trim().min(1, "Enter the examining physician's name").max(200),
+		validFrom: BusinessDateSchema,
+		/** Blank means the exemption does not expire. */
+		validUntil: BusinessDateSchema.nullish().transform(value => value ?? null),
+		passportOrIdNumber: optionalText(50),
+	})
+	.refine(value => value.validUntil === null || value.validUntil >= value.validFrom, {
+		message: "Valid until cannot be before valid from",
+		path: ["validUntil"],
+	})
+
+/**
+ * Staff issue a document for a cleared Booking Item (services with auto-issue
+ * off, or after head approval). Give `details` for the vaccination record, or
+ * `exemption` for a Medical Exemption Certificate (CRT-3), never both.
+ */
+export const IssueDocumentSchema = z
+	.object({
+		bookingItemId: z.coerce.number().int().positive(),
+		details: IcvIssueDetailsSchema.nullish().transform(value => value ?? null),
+		exemption: MedicalExemptionDetailsSchema.nullish().transform(value => value ?? null),
+	})
+	.refine(value => (value.details === null) !== (value.exemption === null), {
+		message: "Enter the vaccination details or the exemption details, not both",
+		path: ["details"],
+	})
 
 /** One document as listed to its owner or shown to staff. */
 export const DocumentSummarySchema = z.object({
@@ -127,6 +175,7 @@ export const DocumentVerificationSchema = z.object({
 export type DocumentType = z.infer<typeof DocumentTypeSchema>
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>
 export type IcvIssueDetails = z.infer<typeof IcvIssueDetailsSchema>
+export type MedicalExemptionDetails = z.infer<typeof MedicalExemptionDetailsSchema>
 export type IssueDocumentInput = z.infer<typeof IssueDocumentSchema>
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>

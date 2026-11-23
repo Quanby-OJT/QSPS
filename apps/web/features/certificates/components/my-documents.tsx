@@ -17,6 +17,8 @@ const issuedFormatter = new Intl.DateTimeFormat("en-PH", {
 
 const DOCUMENT_TITLES: Record<DocumentSummary["documentType"], string> = {
 	"icv-record": "International Certificate of Vaccination",
+	// CRT-3: issued instead of the vaccination record when the client is medically exempt.
+	"medical-exemption": "Medical Exemption Certificate",
 }
 
 const STATUS_LABELS: Record<DocumentSummary["status"], string> = {

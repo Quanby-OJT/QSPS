@@ -66,3 +66,41 @@ export function correctionsFromRows(
 	}
 	return corrections
 }
+
+/** Names staff see for each document type (CRT-1, CRT-3). An unknown type shows as stored. */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+	"icv-record": "International Certificate of Vaccination",
+	"medical-exemption": "Medical Exemption Certificate",
+}
+
+export function documentTypeLabel(type: string): string {
+	return DOCUMENT_TYPE_LABELS[type] ?? type
+}
+
+/** "Not printed yet" / "Printed once" / "Printed 3 times" (CRT-3). */
+export function printCountLabel(printCount: number): string {
+	if (printCount <= 0) return "Not printed yet"
+	if (printCount === 1) return "Printed once"
+	return `Printed ${printCount} times`
+}
+
+/**
+ * CRT-3: whether a vaccination Service, so an exempt client can get a
+ * Medical Exemption Certificate instead. Same list as
+ * `VACCINATION_DOCUMENT_TYPES` in @repo/contracts.
+ */
+export function allowsExemption(serviceDocumentType: string | null): boolean {
+	return serviceDocumentType === "icv-record"
+}
+
+/**
+ * CRT-1, CRT-3: a cleared item whose Service issues a document but has none
+ * yet (auto-issue off, or cleared after head approval) is issued from the item.
+ */
+export function needsIssuing(item: {
+	status: BookingItemStatus
+	service: { documentType: string | null }
+	document: unknown
+}): boolean {
+	return item.status === "cleared" && item.service.documentType !== null && item.document === null
+}

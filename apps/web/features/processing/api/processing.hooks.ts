@@ -8,7 +8,9 @@ import type {
 	ApprovalQueueView,
 	AssessmentOutcome,
 	CheckInResponse,
+	DocumentSummary,
 	IcvIssueDetails,
+	MedicalExemptionDetails,
 	ProcessingItem,
 	ProcessingQueue,
 } from "@repo/contracts"
@@ -176,6 +178,8 @@ export interface RecordAssessmentRequest {
 	corrections: Record<string, string>
 	/** Certificate details, sent when clearing an item whose Service auto-issues (CRT-1). */
 	document?: IcvIssueDetails | null
+	/** CRT-3: the client is medically exempt; a Medical Exemption Certificate is issued instead. */
+	exemption?: MedicalExemptionDetails | null
 	/** One per submit attempt, so a double click adds one Assessment, not two. */
 	idempotencyKey: string
 }
@@ -205,6 +209,8 @@ export interface DecideApprovalRequest {
 	notes: string
 	/** Certificate details, when this makes the item cleared and the Service auto-issues (CRT-1a). */
 	document?: IcvIssueDetails | null
+	/** CRT-3: the client is medically exempt; the Medical Exemption Certificate is issued instead. */
+	exemption?: MedicalExemptionDetails | null
 	/** One per decision, so a double click records one decision, not two. */
 	idempotencyKey: string
 }
@@ -235,6 +241,8 @@ export interface OverrideItemRequest {
 	reason: string
 	/** Certificate details, when this makes the item cleared and the Service auto-issues (CRT-1a). */
 	document?: IcvIssueDetails | null
+	/** CRT-3: the client is medically exempt; the Medical Exemption Certificate is issued instead. */
+	exemption?: MedicalExemptionDetails | null
 	idempotencyKey: string
 }
 
@@ -256,6 +264,86 @@ export function useOverrideItemMutation(bookingItemId: number) {
 			// CRT-1a: approving or overriding may have just issued a document.
 			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
 			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+		},
+	})
+}
+
+export interface IssueDocumentRequest {
+	/** The vaccination record's details, or null when issuing an exemption. */
+	details: IcvIssueDetails | null
+	/** CRT-3: issue a Medical Exemption Certificate instead of the vaccination record. */
+	exemption: MedicalExemptionDetails | null
+	idempotencyKey: string
+}
+
+/**
+ * Issue the document for a cleared item as a separate step (CRT-1, CRT-3):
+ * Services with auto-issue off, and items cleared after head approval.
+ */
+export function useIssueDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ idempotencyKey, ...body }: IssueDocumentRequest) =>
+			apiFetch<DocumentSummary>(`/certificates/items/${bookingItemId}/documents`, {
+				method: "POST",
+				headers: { "Idempotency-Key": idempotencyKey },
+				body: JSON.stringify(body),
+			}),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: processingKeys.item(bookingItemId) })
+			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
+		},
+	})
+}
+
+/**
+ * Print a document (CRT-3). Every call is counted and audited, so this is a
+ * POST; the PDF comes back as bytes and opens in a new tab, where the
+ * browser's print dialog sends it to the card printer. The vaccination
+ * record comes laid out for the pre-printed yellow card.
+ *
+ * Open the tab before awaiting, from the click itself, or pop-up blockers
+ * refuse it.
+ */
+export function usePrintDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({
+			documentId,
+			target,
+		}: {
+			documentId: number
+			/** A tab opened by the click; the PDF is shown there. */
+			target: Window | null
+		}): Promise<{ printCount: number }> => {
+			const response = await fetch(`${API_BASE}/certificates/documents/${documentId}/print`, {
+				method: "POST",
+				credentials: "include",
+			})
+			if (!response.ok) {
+				target?.close()
+				let message = `Print failed (${response.status})`
+				try {
+					const body = (await response.json()) as { message?: string }
+					if (body?.message) message = body.message
+				} catch {
+					// Error bodies may be empty or non-JSON.
+				}
+				throw new ApiError(response.status, message)
+			}
+			const url = URL.createObjectURL(await response.blob())
+			if (target) {
+				target.location.href = url
+			} else {
+				window.open(url, "_blank")
+			}
+			// Let the tab load the PDF before the address is released.
+			setTimeout(() => URL.revokeObjectURL(url), 60_000)
+			return { printCount: Number(response.headers.get("X-Print-Count") ?? 0) }
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: processingKeys.item(bookingItemId) })
 		},
 	})
 }

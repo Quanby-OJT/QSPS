@@ -49,6 +49,12 @@ describe("Certificates permissions", () => {
 		).toEqual(["certificates.own:read"])
 	})
 
+	it("requires certificates.documents:print to print (CRT-3)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, DocumentPdfController.prototype.print)
+		).toEqual(["certificates.documents:print"])
+	})
+
 	it("makes only the two verify routes public, with no permission key (CRT-2)", () => {
 		const { anonymousRoutes } = jest.requireMock<{ anonymousRoutes: string[] }>(
 			"@thallesp/nestjs-better-auth"
@@ -78,5 +84,43 @@ describe("Certificates permissions", () => {
 			'inline; filename="ICV-MNL-2026-000001.pdf"'
 		)
 		expect(response.end).toHaveBeenCalledWith(Buffer.from("%PDF-1.3"))
+	})
+
+	it("prints in the caller's Scope and returns the print count (CRT-3)", async () => {
+		const printForStaff = jest.fn().mockResolvedValue({
+			fileName: "ICV-MNL-2026-000001.pdf",
+			pdf: Buffer.from("%PDF-1.3"),
+			printCount: 2,
+		})
+		const scope = { nationwide: false, entries: [{ serviceCategoryId: 1, locationId: 2 }] }
+		const resolver = { resolve: jest.fn().mockResolvedValue(scope) }
+		const controller = new DocumentPdfController(
+			{ printForStaff } as unknown as DocumentService,
+			resolver
+		)
+		const response = { setHeader: jest.fn(), end: jest.fn() }
+
+		await controller.print(5, response as never, { user: { id: "staff-1" } } as never)
+
+		expect(resolver.resolve).toHaveBeenCalledWith("staff-1")
+		expect(printForStaff).toHaveBeenCalledWith(5, "staff-1", scope)
+		expect(response.setHeader).toHaveBeenCalledWith("X-Print-Count", "2")
+		expect(response.setHeader).toHaveBeenCalledWith("Cache-Control", "private, no-store")
+		expect(response.end).toHaveBeenCalledWith(Buffer.from("%PDF-1.3"))
+	})
+
+	it("prints with no Scope when no resolver is wired in, so it fails closed", async () => {
+		const printForStaff = jest.fn().mockResolvedValue({
+			fileName: "x.pdf",
+			pdf: Buffer.from("%PDF-1.3"),
+			printCount: 1,
+		})
+		const controller = new DocumentPdfController({ printForStaff } as unknown as DocumentService)
+		await controller.print(
+			5,
+			{ setHeader: jest.fn(), end: jest.fn() } as never,
+			{ user: { id: "staff-1" } } as never
+		)
+		expect(printForStaff).toHaveBeenCalledWith(5, "staff-1", { nationwide: false, entries: [] })
 	})
 })

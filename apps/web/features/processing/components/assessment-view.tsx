@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 
-import type { AssessmentOutcome, IcvIssueDetails, ProcessingItem } from "@repo/contracts"
+import type { AssessmentOutcome, ProcessingItem } from "@repo/contracts"
 
 import { BoqLoader } from "@/core/components/boq-loader"
 import { PageHeader } from "@/core/components/page-header"
@@ -26,13 +26,21 @@ import {
 	OverridePanel,
 	PendingApprovalPanel,
 } from "@/features/processing/components/approval-panels"
-import { CertificateFields } from "@/features/processing/components/certificate-fields"
 import {
+	DocumentDetailsFields,
+	IssuedDocumentPanel,
+	IssueDocumentPanel,
+	useDocumentDetailsForm,
+} from "@/features/processing/components/document-panels"
+import {
+	allowsExemption,
 	canDecideApproval,
 	canOpen,
 	canOverride,
 	correctionsFromRows,
+	documentTypeLabel,
 	itemStatusLabel,
+	needsIssuing,
 	outcomeLabel,
 } from "@/features/processing/lib/labels"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
@@ -85,7 +93,9 @@ function issuesOnClear(item: ProcessingItem): boolean {
  * Assessment screen (PRC-1, TOR §VIII.3): the client's profile and Form
  * Submission answers, the assessment history, and the form to clear, return
  * or reject the Booking Item. When clearing issues a document at once
- * (CRT-1), the form also asks for the certificate details.
+ * (CRT-1), the form also asks for the certificate details, or, for a
+ * vaccination, the medical exemption (CRT-3). An issued document can be
+ * printed from here, the vaccination record onto the yellow card (CRT-3).
  *
  * Hydration-safe: the server and the client's first render both show the
  * loading line, even when the client already holds a restored copy.
@@ -93,10 +103,16 @@ function issuesOnClear(item: ProcessingItem): boolean {
 export function AssessmentView({
 	bookingItemId,
 	canApprove = false,
+	canIssue = false,
+	canPrint = false,
 }: {
 	bookingItemId: number
 	/** PRC-3: the caller holds processing.assessments:approve. */
 	canApprove?: boolean
+	/** CRT-3: the caller holds certificates.documents:issue. */
+	canIssue?: boolean
+	/** CRT-3: the caller holds certificates.documents:print. */
+	canPrint?: boolean
 }) {
 	const item = useProcessingItemQuery(bookingItemId)
 	// Hydration-safe: loading on the server and on the client's first render,
@@ -125,13 +141,28 @@ export function AssessmentView({
 					{item.error.message}
 				</p>
 			) : item.data ? (
-				<AssessmentBody item={item.data} canApprove={canApprove} />
+				<AssessmentBody
+					item={item.data}
+					canApprove={canApprove}
+					canIssue={canIssue}
+					canPrint={canPrint}
+				/>
 			) : null}
 		</section>
 	)
 }
 
-function AssessmentBody({ item, canApprove }: { item: ProcessingItem; canApprove: boolean }) {
+function AssessmentBody({
+	item,
+	canApprove,
+	canIssue,
+	canPrint,
+}: {
+	item: ProcessingItem
+	canApprove: boolean
+	canIssue: boolean
+	canPrint: boolean
+}) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
 
@@ -251,15 +282,12 @@ function AssessmentBody({ item, canApprove }: { item: ProcessingItem; canApprove
 				) : null}
 
 				{item.document ? (
-					<div className="bg-card flex flex-col gap-2 rounded-xl border p-4">
-						<h2 className="font-semibold">Document issued</h2>
-						<p className="text-sm">
-							<span className="font-mono">{item.document.documentNumber}</span>
-						</p>
-						<p className="text-muted-foreground text-xs">
-							The client can download it from My Documents.
-						</p>
-					</div>
+					<IssuedDocumentPanel item={{ ...item, document: item.document }} canPrint={canPrint} />
+				) : needsIssuing(item) && canIssue ? (
+					<IssueDocumentPanel
+						item={item}
+						allowExemption={allowsExemption(item.service.documentType)}
+					/>
 				) : null}
 
 				<div className="bg-card flex flex-col gap-4 rounded-xl border p-4">
@@ -308,39 +336,17 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 	const [outcome, setOutcome] = useState<AssessmentOutcome>("cleared")
 	const [notes, setNotes] = useState("")
 	const [rows, setRows] = useState(() => [emptyRow()])
-	const [certificate, setCertificate] = useState({
-		batchNumber: "",
-		vaccinatorName: "",
-		validFrom: manilaDateKey(new Date()),
-		validUntil: "",
-		passportOrIdNumber: "",
-	})
+	const documentForm = useDocumentDetailsForm()
 	// One key per decision, so a double click adds one Assessment, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
 
 	const needsNote = outcome !== "cleared"
 	const noteMissing = needsNote && notes.trim().length === 0
 	const needsCertificate = outcome === "cleared" && issuesOnClear(item)
-	const certificateMissing =
-		needsCertificate &&
-		(certificate.batchNumber.trim().length === 0 ||
-			certificate.vaccinatorName.trim().length === 0 ||
-			certificate.validFrom.length === 0)
-
-	function certificateDetails(): IcvIssueDetails | null {
-		if (!needsCertificate) return null
-		return {
-			batchNumber: certificate.batchNumber.trim(),
-			vaccinatorName: certificate.vaccinatorName.trim(),
-			validFrom: certificate.validFrom,
-			validUntil: certificate.validUntil || null,
-			passportOrIdNumber: certificate.passportOrIdNumber.trim() || null,
-		}
-	}
-
-	function setCertificateField(field: keyof typeof certificate, value: string) {
-		setCertificate(current => ({ ...current, [field]: value }))
-	}
+	// CRT-3: an exempt client gets a Medical Exemption Certificate instead.
+	const allowExemption = allowsExemption(item.service.documentType)
+	const exempt = needsCertificate && allowExemption && documentForm.mode === "exempt"
+	const certificateMissing = needsCertificate && documentForm.missing
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
@@ -350,13 +356,14 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 				outcome,
 				notes: notes.trim(),
 				corrections: correctionsFromRows(rows),
-				document: certificateDetails(),
+				document: needsCertificate && !exempt ? documentForm.details() : null,
+				exemption: exempt ? documentForm.exemptionDetails() : null,
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
 			toast.success(
 				saved.document
-					? `Cleared. Document ${saved.document.documentNumber} issued.`
+					? `Cleared. ${documentTypeLabel(saved.document.documentType)} ${saved.document.documentNumber} issued.`
 					: `Assessment saved: ${itemStatusLabel(saved.status).toLowerCase()}`
 			)
 		} catch (error) {
@@ -407,10 +414,11 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 			</fieldset>
 
 			{needsCertificate ? (
-				<CertificateFields
-					value={certificate}
-					onChange={setCertificateField}
-					description="Clearing this item issues the client's vaccination certificate at once."
+				<DocumentDetailsFields
+					form={documentForm}
+					allowExemption={allowExemption}
+					idPrefix="certificate"
+					intro="Clearing this item issues the client's certificate at once."
 				/>
 			) : null}
 
@@ -489,9 +497,11 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 			>
 				{record.isPending
 					? "Saving…"
-					: needsCertificate
-						? "Clear and issue certificate"
-						: "Save assessment"}
+					: exempt
+						? "Clear and issue exemption certificate"
+						: needsCertificate
+							? "Clear and issue certificate"
+							: "Save assessment"}
 			</Button>
 		</form>
 	)

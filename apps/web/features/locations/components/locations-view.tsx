@@ -5,7 +5,7 @@ import { Add01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
 
-import type { CreateLocationInput, Location } from "@repo/contracts"
+import { MAX_CARD_OFFSET_MM, type CreateLocationInput, type Location } from "@repo/contracts"
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
@@ -38,9 +38,30 @@ import {
 	useUpdateLocationMutation,
 } from "@/features/locations/api/locations.hooks"
 
-type LocationForm = CreateLocationInput
+/** The card print offsets are typed as text, so a half-typed "-" or "1." is allowed. */
+type LocationForm = CreateLocationInput & { cardOffsetXMm: string; cardOffsetYMm: string }
 
-const emptyForm: LocationForm = { code: "", name: "", address: "", region: "" }
+const emptyForm: LocationForm = {
+	code: "",
+	name: "",
+	address: "",
+	region: "",
+	cardOffsetXMm: "0",
+	cardOffsetYMm: "0",
+}
+
+/** A typed offset in millimetres, or null when it is not a number in range. */
+function parseOffset(text: string): number | null {
+	const value = Number(text.trim())
+	if (text.trim() === "" || !Number.isFinite(value)) return null
+	if (Math.abs(value) > MAX_CARD_OFFSET_MM) return null
+	return value
+}
+
+/** "+1.5 mm" / "-2 mm" / "0 mm". */
+function formatOffset(value: number): string {
+	return `${value > 0 ? "+" : ""}${value} mm`
+}
 
 /**
  * BOQ Locations admin (ADM-5).
@@ -76,6 +97,8 @@ export function LocationsView() {
 			name: location.name,
 			address: location.address,
 			region: location.region,
+			cardOffsetXMm: String(location.cardOffsetXMm),
+			cardOffsetYMm: String(location.cardOffsetYMm),
 		})
 		setDialogOpen(true)
 	}
@@ -84,15 +107,30 @@ export function LocationsView() {
 		event.preventDefault()
 		try {
 			if (editing) {
+				const cardOffsetXMm = parseOffset(form.cardOffsetXMm)
+				const cardOffsetYMm = parseOffset(form.cardOffsetYMm)
+				if (cardOffsetXMm === null || cardOffsetYMm === null) {
+					toast.error(
+						`Card offsets must be numbers between -${MAX_CARD_OFFSET_MM} and ${MAX_CARD_OFFSET_MM} mm`
+					)
+					return
+				}
 				await updateLocation.mutateAsync({
 					code: editing.code,
 					name: form.name,
 					address: form.address,
 					region: form.region,
+					cardOffsetXMm,
+					cardOffsetYMm,
 				})
 				toast.success("Location updated")
 			} else {
-				await createLocation.mutateAsync(form)
+				await createLocation.mutateAsync({
+					code: form.code,
+					name: form.name,
+					address: form.address,
+					region: form.region,
+				})
 				toast.success("Location added")
 			}
 			setDialogOpen(false)
@@ -153,6 +191,7 @@ export function LocationsView() {
 								<TableHead>Name</TableHead>
 								<TableHead>Address</TableHead>
 								<TableHead>Region</TableHead>
+								<TableHead>Card offset</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
@@ -164,6 +203,10 @@ export function LocationsView() {
 									<TableCell>{location.name}</TableCell>
 									<TableCell className="max-w-72 whitespace-normal">{location.address}</TableCell>
 									<TableCell>{location.region}</TableCell>
+									<TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+										X {formatOffset(location.cardOffsetXMm)} · Y{" "}
+										{formatOffset(location.cardOffsetYMm)}
+									</TableCell>
 									<TableCell>
 										<Badge variant={location.isActive ? "default" : "secondary"}>
 											{location.isActive ? "Active" : "Disabled"}
@@ -244,6 +287,36 @@ export function LocationsView() {
 									maxLength={120}
 								/>
 							</div>
+							{editing ? (
+								<fieldset className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+									<legend className="mb-1 text-sm font-medium">Card print offsets</legend>
+									<p className="text-muted-foreground text-xs sm:col-span-2">
+										Moves everything printed on the yellow vaccination card at this office, in
+										millimetres. Positive X moves right; positive Y moves down. Print a test card,
+										measure how far it is off, and enter that here.
+									</p>
+									<div className="grid gap-2">
+										<Label htmlFor="location-offset-x">Horizontal (X, mm)</Label>
+										<Input
+											id="location-offset-x"
+											inputMode="decimal"
+											value={form.cardOffsetXMm}
+											onChange={event => setForm({ ...form, cardOffsetXMm: event.target.value })}
+											required
+										/>
+									</div>
+									<div className="grid gap-2">
+										<Label htmlFor="location-offset-y">Vertical (Y, mm)</Label>
+										<Input
+											id="location-offset-y"
+											inputMode="decimal"
+											value={form.cardOffsetYMm}
+											onChange={event => setForm({ ...form, cardOffsetYMm: event.target.value })}
+											required
+										/>
+									</div>
+								</fieldset>
+							) : null}
 						</div>
 						<DialogFooter>
 							<Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>

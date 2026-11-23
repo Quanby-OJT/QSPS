@@ -13,27 +13,39 @@ import {
 	useDecideApprovalMutation,
 	useOverrideItemMutation,
 } from "@/features/processing/api/processing.hooks"
+import { issuesDocument } from "@/features/processing/components/certificate-fields"
 import {
-	CertificateFields,
-	emptyCertificate,
-	isCertificateComplete,
-	issuesDocument,
-	toIssueDetails,
-	type CertificateDraft,
-} from "@/features/processing/components/certificate-fields"
-import { itemStatusLabel } from "@/features/processing/lib/labels"
+	DocumentDetailsFields,
+	useDocumentDetailsForm,
+} from "@/features/processing/components/document-panels"
+import {
+	allowsExemption,
+	documentTypeLabel,
+	itemStatusLabel,
+} from "@/features/processing/lib/labels"
 
 function newKey(): string {
 	return crypto.randomUUID()
 }
 
-/** The certificate draft for one form, and a setter for one field. */
-function useCertificateDraft() {
-	const [certificate, setCertificate] = useState<CertificateDraft>(emptyCertificate)
-	function setField(field: keyof CertificateDraft, value: string) {
-		setCertificate(current => ({ ...current, [field]: value }))
+/**
+ * The document a clearing action issues at once (CRT-1a), with CRT-3's choice
+ * between the vaccination details and a medical exemption.
+ */
+function useClearingDocument(item: ProcessingItem) {
+	const form = useDocumentDetailsForm()
+	const needsCertificate = issuesDocument(item)
+	const allowExemption = allowsExemption(item.service.documentType)
+	const exempt = needsCertificate && allowExemption && form.mode === "exempt"
+	return {
+		form,
+		needsCertificate,
+		allowExemption,
+		exempt,
+		missing: needsCertificate && form.missing,
+		document: () => (needsCertificate && !exempt ? form.details() : null),
+		exemption: () => (exempt ? form.exemptionDetails() : null),
 	}
-	return { certificate, setField, reset: () => setCertificate(emptyCertificate()) }
 }
 
 /**
@@ -62,24 +74,22 @@ export function PendingApprovalPanel({
 
 /**
  * PRC-3 approval. CRT-1a: when the Service issues its document automatically,
- * approving issues it at once, so the approver enters the certificate details.
+ * approving issues it at once, so the approver enters the certificate details,
+ * or, for a vaccination, records the medical exemption (CRT-3).
  */
 function ApprovalForm({ item }: { item: ProcessingItem }) {
 	const decide = useDecideApprovalMutation(item.bookingItemId)
 	const [notes, setNotes] = useState("")
-	const { certificate, setField, reset } = useCertificateDraft()
+	const clearing = useClearingDocument(item)
 	// One key per decision, so a double click records one decision, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
-
-	const needsCertificate = issuesDocument(item)
-	const certificateMissing = needsCertificate && !isCertificateComplete(certificate)
 
 	async function submit(decision: "approve" | "return") {
 		if (decision === "return" && notes.trim().length === 0) {
 			toast.error("Write a note telling the officer what to check again")
 			return
 		}
-		if (decision === "approve" && certificateMissing) {
+		if (decision === "approve" && clearing.missing) {
 			toast.error("Enter the certificate details before approving")
 			return
 		}
@@ -87,17 +97,17 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 			const saved = await decide.mutateAsync({
 				decision,
 				notes: notes.trim(),
-				document: decision === "approve" && needsCertificate ? toIssueDetails(certificate) : null,
+				document: decision === "approve" ? clearing.document() : null,
+				exemption: decision === "approve" ? clearing.exemption() : null,
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
 			setNotes("")
-			reset()
 			toast.success(
 				decision === "return"
 					? `Sent back to the officer: ${itemStatusLabel(saved.status).toLowerCase()}`
 					: saved.document
-						? `Approved. Document ${saved.document.documentNumber} issued.`
+						? `Approved. ${documentTypeLabel(saved.document.documentType)} ${saved.document.documentNumber} issued.`
 						: "Approved: the item is cleared"
 			)
 		} catch (error) {
@@ -108,23 +118,25 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 	return (
 		<div className="bg-card flex flex-col gap-4 rounded-xl border p-4">
 			{decide.isPending ? (
-				<BoqLoader label={needsCertificate ? "Issuing the certificate" : "Processing request"} />
+				<BoqLoader
+					label={clearing.needsCertificate ? "Issuing the certificate" : "Processing request"}
+				/>
 			) : null}
 			<div className="flex flex-col gap-1">
 				<h2 className="font-semibold">Head approval</h2>
 				<p className="text-muted-foreground text-sm">
 					The officer cleared this item.{" "}
-					{needsCertificate
+					{clearing.needsCertificate
 						? "Approving issues the client's certificate at once."
 						: "Approve it, or send it back with a note."}
 				</p>
 			</div>
-			{needsCertificate ? (
-				<CertificateFields
-					value={certificate}
-					onChange={setField}
-					idPrefix="approval-certificate"
-					description="Needed only to approve; sending back ignores them."
+			{clearing.needsCertificate ? (
+				<DocumentDetailsFields
+					form={clearing.form}
+					allowExemption={clearing.allowExemption}
+					idPrefix="approval"
+					intro="Needed only to approve; sending back ignores them."
 				/>
 			) : null}
 			<div className="flex flex-col gap-2">
@@ -140,14 +152,16 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 			<div className="flex flex-wrap gap-2">
 				<Button
 					type="button"
-					disabled={decide.isPending || certificateMissing}
+					disabled={decide.isPending || clearing.missing}
 					onClick={() => void submit("approve")}
 				>
 					{decide.isPending
 						? "Saving…"
-						: needsCertificate
-							? "Approve and issue certificate"
-							: "Approve"}
+						: clearing.exempt
+							? "Approve and issue exemption certificate"
+							: clearing.needsCertificate
+								? "Approve and issue certificate"
+								: "Approve"}
 				</Button>
 				<Button
 					type="button"
@@ -165,33 +179,31 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 /**
  * PRC-3: an approver may override a rejected item to cleared, with a reason.
  * CRT-1a: when the Service issues its document automatically, the override
- * issues it at once, so the approver enters the certificate details.
+ * issues it at once: the vaccination details, or a medical exemption (CRT-3).
  */
 export function OverridePanel({ item }: { item: ProcessingItem }) {
 	const override = useOverrideItemMutation(item.bookingItemId)
 	const [reason, setReason] = useState("")
-	const { certificate, setField, reset } = useCertificateDraft()
+	const clearing = useClearingDocument(item)
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
 
 	const tooShort = reason.trim().length < MIN_OVERRIDE_REASON_LENGTH
-	const needsCertificate = issuesDocument(item)
-	const certificateMissing = needsCertificate && !isCertificateComplete(certificate)
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
-		if (tooShort || certificateMissing) return
+		if (tooShort || clearing.missing) return
 		try {
 			const saved = await override.mutateAsync({
 				reason: reason.trim(),
-				document: needsCertificate ? toIssueDetails(certificate) : null,
+				document: clearing.document(),
+				exemption: clearing.exemption(),
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
 			setReason("")
-			reset()
 			toast.success(
 				saved.document
-					? `Override saved. Document ${saved.document.documentNumber} issued.`
+					? `Override saved. ${documentTypeLabel(saved.document.documentType)} ${saved.document.documentNumber} issued.`
 					: "Override saved: the item is cleared"
 			)
 		} catch (error) {
@@ -205,22 +217,24 @@ export function OverridePanel({ item }: { item: ProcessingItem }) {
 			className="bg-card flex flex-col gap-4 rounded-xl border p-4"
 		>
 			{override.isPending ? (
-				<BoqLoader label={needsCertificate ? "Issuing the certificate" : "Processing request"} />
+				<BoqLoader
+					label={clearing.needsCertificate ? "Issuing the certificate" : "Processing request"}
+				/>
 			) : null}
 			<div className="flex flex-col gap-1">
 				<h2 className="font-semibold">Override rejection</h2>
 				<p className="text-muted-foreground text-sm">
 					Clear this rejected item. The reason is recorded in the audit log with the before and
 					after status.
-					{needsCertificate ? " The client's certificate is issued at once." : ""}
+					{clearing.needsCertificate ? " The client's certificate is issued at once." : ""}
 				</p>
 			</div>
-			{needsCertificate ? (
-				<CertificateFields
-					value={certificate}
-					onChange={setField}
-					idPrefix="override-certificate"
-					description="Overriding issues the client's vaccination certificate at once."
+			{clearing.needsCertificate ? (
+				<DocumentDetailsFields
+					form={clearing.form}
+					allowExemption={clearing.allowExemption}
+					idPrefix="override"
+					intro="Overriding issues the client's certificate at once."
 				/>
 			) : null}
 			<div className="flex flex-col gap-2">
@@ -238,14 +252,16 @@ export function OverridePanel({ item }: { item: ProcessingItem }) {
 			</div>
 			<Button
 				type="submit"
-				disabled={override.isPending || tooShort || certificateMissing}
+				disabled={override.isPending || tooShort || clearing.missing}
 				className="self-start"
 			>
 				{override.isPending
 					? "Saving…"
-					: needsCertificate
-						? "Override and issue certificate"
-						: "Override to cleared"}
+					: clearing.exempt
+						? "Override and issue exemption certificate"
+						: clearing.needsCertificate
+							? "Override and issue certificate"
+							: "Override to cleared"}
 			</Button>
 		</form>
 	)

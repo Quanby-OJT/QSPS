@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common"
 
 import { PdfModule } from "@/common/pdf/pdf.module"
+import { ScopeModule } from "@/common/scope/scope.module"
 
 import { BookingsModule } from "../bookings/bookings.module"
 import { CertificatesController } from "./certificates.controller"
@@ -9,7 +10,8 @@ import { DocumentService } from "./documents.service"
 
 @Module({
 	// Item and Booking status changes go through BookingService (DOMAIN-MODEL.md section 6).
-	imports: [BookingsModule, PdfModule],
+	// ScopeModule: staff print only documents in their Scope (CRT-3).
+	imports: [BookingsModule, PdfModule, ScopeModule],
 	controllers: [CertificatesController, DocumentPdfController],
 	providers: [DocumentService],
 	// Exported so processing can auto-issue inside the clearing transaction.

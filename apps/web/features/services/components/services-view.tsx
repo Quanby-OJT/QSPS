@@ -5,7 +5,7 @@ import { Add01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
 
-import { DOCUMENT_TYPES, type CreateServiceInput, type Service } from "@repo/contracts"
+import { SERVICE_DOCUMENT_TYPES, type CreateServiceInput, type Service } from "@repo/contracts"
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
@@ -39,15 +39,15 @@ import {
 } from "@/features/services/api/services.hooks"
 import { feeInPesos, parseFeeCentavos } from "@/features/services/lib/fee"
 
-type DocumentType = (typeof DOCUMENT_TYPES)[number]
+type DocumentType = (typeof SERVICE_DOCUMENT_TYPES)[number]
 
-/** Names shown to admins for each document type (CRT-1). */
+/** Names shown to admins for each document type a Service can issue (CRT-1, CRT-3). */
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 	"icv-record": "International Certificate of Vaccination",
 }
 
 function isDocumentType(value: string | null): value is DocumentType {
-	return value !== null && (DOCUMENT_TYPES as readonly string[]).includes(value)
+	return value !== null && (SERVICE_DOCUMENT_TYPES as readonly string[]).includes(value)
 }
 
 function documentTypeLabel(value: string | null): string {
@@ -371,7 +371,7 @@ export function ServicesView() {
 									aria-describedby="service-document-type-help"
 								>
 									<option value="">None</option>
-									{DOCUMENT_TYPES.map(type => (
+									{SERVICE_DOCUMENT_TYPES.map(type => (
 										<option key={type} value={type}>
 											{DOCUMENT_TYPE_LABELS[type]}
 										</option>

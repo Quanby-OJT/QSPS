@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common"
+import { ConflictException, NotFoundException } from "@nestjs/common"
 
 import { documents, documentSequences } from "@repo/db/schema"
 
@@ -8,7 +8,9 @@ import { NotificationService } from "@/common/notifications/notification.service
 import type { PdfService } from "@/common/pdf/pdf.service"
 
 import type { BookingService } from "../bookings/bookings.service"
+import { icvCardLayout } from "./document-types/icv-card"
 import { icvRecord } from "./document-types/icv-record"
+import { medicalExemption } from "./document-types/medical-exemption"
 import { DocumentService } from "./documents.service"
 
 // ADM-6: BookingService now reads PolicyService, which loads @repo/contracts
@@ -100,6 +102,13 @@ const details = {
 	validFrom: "2026-11-29",
 	validUntil: null,
 	passportOrIdNumber: null,
+}
+const exemption = {
+	reason: "Egg allergy (anaphylaxis)",
+	physicianName: "Dr. Santos",
+	validFrom: "2026-11-29",
+	validUntil: "2027-11-28",
+	passportOrIdNumber: "P1234567A",
 }
 
 describe("DocumentService", () => {
@@ -234,6 +243,76 @@ describe("DocumentService", () => {
 			expect(inserted).toEqual([])
 		})
 
+		it("issues a Medical Exemption Certificate, with its own number series, for an exempt client (CRT-3)", async () => {
+			const { tx, inserted } = fakeTransaction(
+				[[clearedItem], [], [context], [{ id: 10, nextNumber: 1 }]],
+				[[{ id: 7 }]]
+			)
+
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				exemption,
+				now: NOW,
+			})
+
+			expect(result.document).toMatchObject({
+				id: 7,
+				documentType: "medical-exemption",
+				documentNumber: "MEC-MNL-2026-000001",
+				validUntil: "2027-11-28",
+			})
+			// Its own sequence row: the type is part of the sequence key.
+			expect(inserted[0]?.values).toMatchObject({
+				documentType: "medical-exemption",
+				locationId: 2,
+			})
+			expect(inserted[1]?.values).toMatchObject({
+				documentType: "medical-exemption",
+				documentNumber: "MEC-MNL-2026-000001",
+				verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+				validUntil: "2027-11-28",
+				payload: expect.objectContaining({
+					exemptFrom: "Yellow fever vaccination",
+					reason: "Egg allergy (anaphylaxis)",
+					physicianName: "Dr. Santos",
+				}),
+			})
+			expect(bookingService.transitionItem).toHaveBeenCalledWith(
+				tx,
+				44,
+				"issued",
+				expect.anything()
+			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.issue",
+					newValue: expect.objectContaining({ documentType: "medical-exemption" }),
+				}),
+				tx
+			)
+		})
+
+		it("refuses an issue with neither vaccination nor exemption details", async () => {
+			const { tx, inserted } = fakeTransaction([[clearedItem], [], [context]])
+			await expect(
+				service.issue(tx as never, { bookingItemId: 44, actorId: "staff-1", now: NOW })
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(inserted).toEqual([])
+		})
+
+		it("never lets a Service issue the exemption as its own type (CRT-3)", async () => {
+			const { tx, inserted } = fakeTransaction([
+				[clearedItem],
+				[],
+				[{ ...context, documentType: "medical-exemption" }],
+			])
+			await expect(
+				service.issue(tx as never, { bookingItemId: 44, actorId: "staff-1", exemption, now: NOW })
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(inserted).toEqual([])
+		})
+
 		it("uses the next number in the sequence", async () => {
 			const { tx } = fakeTransaction(
 				[[clearedItem], [], [context], [{ id: 9, nextNumber: 124 }]],
@@ -271,6 +350,43 @@ describe("DocumentService", () => {
 			).rejects.toMatchObject({ code: "BAD_REQUEST" })
 		})
 
+		it("refuses an exemption when the service does not auto-issue, so it is never dropped (CRT-3)", async () => {
+			const { tx } = fakeTransaction([[{ autoIssue: false, documentType: "icv-record" }]])
+			await expect(
+				service.issueOnClearance(tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					exemption,
+					now: NOW,
+				})
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		})
+
+		it("issues the exemption instead of the record when one is given (CRT-3)", async () => {
+			const { tx, inserted } = fakeTransaction(
+				[
+					[{ autoIssue: true, documentType: "icv-record" }],
+					[clearedItem],
+					[],
+					[context],
+					[{ id: 10, nextNumber: 3 }],
+				],
+				[[{ id: 8 }]]
+			)
+			const result = await service.issueOnClearance(tx as never, {
+				bookingItemId: 44,
+				actorId: "officer-7",
+				details: null,
+				exemption,
+				now: NOW,
+			})
+			expect(result?.document.documentNumber).toBe("MEC-MNL-2026-000003")
+			expect(inserted[1]?.values).toMatchObject({
+				documentType: "medical-exemption",
+				issuedBy: "officer-7",
+			})
+		})
+
 		it("issues the document, recorded against the officer who cleared it", async () => {
 			const { tx, inserted } = fakeTransaction(
 				[
@@ -303,7 +419,7 @@ describe("DocumentService", () => {
 		it("answers 404 for an item at another Location and audits the denial", async () => {
 			dbSelects([{ id: 44, locationId: 2 }], [{ locationId: 9 }])
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details }, "staff-1")
+				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, "staff-1")
 			).rejects.toMatchObject({ code: "NOT_FOUND" })
 			expect(db.transaction).not.toHaveBeenCalled()
 			expect(audit.record).toHaveBeenCalledWith(
@@ -320,14 +436,14 @@ describe("DocumentService", () => {
 		it("answers 404 for a staff user with no Location", async () => {
 			dbSelects([{ id: 44, locationId: 2 }], [])
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details }, "staff-1")
+				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, "staff-1")
 			).rejects.toMatchObject({ code: "NOT_FOUND" })
 			expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ reason: "no_location" }))
 		})
 
 		it("refuses a request with no signed-in user", async () => {
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details }, null)
+				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, null)
 			).rejects.toMatchObject({ code: "UNAUTHORIZED" })
 		})
 	})
@@ -376,6 +492,161 @@ describe("DocumentService", () => {
 					reason: "not_owner",
 				})
 			)
+		})
+	})
+
+	describe("printForStaff", () => {
+		const MANILA_YF = {
+			nationwide: false,
+			entries: [{ serviceCategoryId: 1, locationId: 2 }],
+		} as const
+		const printRow = {
+			id: 5,
+			documentNumber: "ICV-MNL-2026-000001",
+			documentType: "icv-record",
+			status: "valid",
+			verificationToken: "AbCdEfGhIjKlMnOpQrSt_-",
+			payload: { holder: { name: "Test Three" } },
+			printCount: 0,
+			locationId: 2,
+			cardOffsetXMm: 1.5,
+			cardOffsetYMm: -2,
+			serviceCategoryId: 1,
+		}
+
+		/** db.select answers `rows`; the print transaction's update answers `counted`. */
+		function arrange(rows: unknown[], counted: unknown[] = [{ printCount: 1 }]) {
+			jest
+				.mocked(db.select)
+				.mockReset()
+				.mockReturnValueOnce(query(rows) as never)
+			const set = jest.fn(() => ({
+				where: () => ({ returning: () => Promise.resolve(counted) }),
+			}))
+			const tx = { update: jest.fn(() => ({ set })) }
+			jest
+				.mocked(db.transaction)
+				.mockReset()
+				.mockImplementation((async (run: (t: unknown) => unknown) => run(tx)) as never)
+			return { tx, set }
+		}
+
+		it("prints the vaccination record on the card layout, shifted by the Location's offsets, and counts it", async () => {
+			const { tx, set } = arrange([printRow])
+			const draw = jest.spyOn(icvCardLayout, "draw").mockImplementation(() => undefined)
+
+			const result = await service.printForStaff(5, "staff-1", MANILA_YF as never)
+
+			expect(result).toEqual({
+				fileName: "ICV-MNL-2026-000001.pdf",
+				pdf: Buffer.from("%PDF-1.3"),
+				printCount: 1,
+			})
+			expect(pdf.render).toHaveBeenCalledWith(
+				expect.objectContaining({ size: icvCardLayout.size, margin: 0 }),
+				expect.any(Function)
+			)
+			expect(draw).toHaveBeenCalledWith(
+				{},
+				printRow.payload,
+				expect.objectContaining({ documentNumber: "ICV-MNL-2026-000001" }),
+				{ xMm: 1.5, yMm: -2 }
+			)
+			expect(set).toHaveBeenCalledWith({ printCount: expect.anything() })
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					domain: "certificates",
+					action: "document.print",
+					actorId: "staff-1",
+					targetType: "document",
+					targetId: "5",
+					oldValue: { printCount: 0 },
+					newValue: expect.objectContaining({ layout: "card", printCount: 1, reprint: false }),
+				}),
+				tx
+			)
+			draw.mockRestore()
+		})
+
+		it("marks every print after the first as a reprint", async () => {
+			arrange([{ ...printRow, printCount: 2 }], [{ printCount: 3 }])
+			const draw = jest.spyOn(icvCardLayout, "draw").mockImplementation(() => undefined)
+
+			const result = await service.printForStaff(5, "staff-1", MANILA_YF as never)
+
+			expect(result.printCount).toBe(3)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.print",
+					newValue: expect.objectContaining({ printCount: 3, reprint: true }),
+				}),
+				expect.anything()
+			)
+			draw.mockRestore()
+		})
+
+		it("prints a Medical Exemption Certificate on A4", async () => {
+			arrange([
+				{ ...printRow, documentType: "medical-exemption", documentNumber: "MEC-MNL-2026-000001" },
+			])
+			const draw = jest.spyOn(medicalExemption, "draw").mockImplementation(() => undefined)
+
+			await service.printForStaff(5, "staff-1", MANILA_YF as never)
+
+			expect(pdf.render).toHaveBeenCalledWith(
+				{ title: "Medical Exemption Certificate MEC-MNL-2026-000001" },
+				expect.any(Function)
+			)
+			expect(draw).toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({ newValue: expect.objectContaining({ layout: "a4" }) }),
+				expect.anything()
+			)
+			draw.mockRestore()
+		})
+
+		it("answers 404 for a document outside the caller's Scope and audits the denial", async () => {
+			arrange([{ ...printRow, locationId: 9 }])
+
+			await expect(service.printForStaff(5, "staff-1", MANILA_YF as never)).rejects.toBeInstanceOf(
+				NotFoundException
+			)
+			expect(pdf.render).not.toHaveBeenCalled()
+			expect(db.transaction).not.toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.print",
+					outcome: "denied",
+					actorId: "staff-1",
+					targetId: "5",
+					reason: "outside_scope",
+				})
+			)
+		})
+
+		it("answers 404 without an audit entry when the document does not exist", async () => {
+			arrange([])
+			await expect(service.printForStaff(99, "staff-1")).rejects.toBeInstanceOf(NotFoundException)
+			expect(audit.record).not.toHaveBeenCalled()
+		})
+
+		it("refuses to print a revoked document, counting nothing", async () => {
+			arrange([{ ...printRow, status: "revoked" }])
+			await expect(service.printForStaff(5, "staff-1", MANILA_YF as never)).rejects.toBeInstanceOf(
+				ConflictException
+			)
+			expect(pdf.render).not.toHaveBeenCalled()
+			expect(db.transaction).not.toHaveBeenCalled()
+		})
+
+		it("counts nothing when the document was revoked after it was read", async () => {
+			arrange([printRow], [])
+			const draw = jest.spyOn(icvCardLayout, "draw").mockImplementation(() => undefined)
+			await expect(service.printForStaff(5, "staff-1", MANILA_YF as never)).rejects.toBeInstanceOf(
+				ConflictException
+			)
+			expect(audit.record).not.toHaveBeenCalled()
+			draw.mockRestore()
 		})
 	})
 })

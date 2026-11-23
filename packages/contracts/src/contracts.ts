@@ -171,14 +171,18 @@ export type {
 	OverrideItemInput,
 } from "./modules/v1/processing/processing.schema.js"
 
-// Certificates contracts + schemas (CRT-1, CRT-2)
+// Certificates contracts + schemas (CRT-1, CRT-2, CRT-3)
 export { certificatesContract } from "./modules/v1/certificates/certificates.contract.js"
 export {
 	DOCUMENT_TYPES,
+	SERVICE_DOCUMENT_TYPES,
+	VACCINATION_DOCUMENT_TYPES,
+	MAX_EXEMPTION_REASON_LENGTH,
 	VERIFICATION_CODE_LENGTH,
 	DocumentTypeSchema,
 	DocumentStatusSchema,
 	IcvIssueDetailsSchema,
+	MedicalExemptionDetailsSchema,
 	IssueDocumentSchema,
 	DocumentSummarySchema,
 	MyDocumentsSchema,
@@ -191,6 +195,7 @@ export type {
 	DocumentType,
 	DocumentStatus,
 	IcvIssueDetails,
+	MedicalExemptionDetails,
 	IssueDocumentInput,
 	DocumentSummary,
 	MyDocuments,
@@ -244,6 +249,7 @@ export * from "./modules/v1/rbac/rbac.catalog.js"
 // Location management contracts + schemas
 export { locationsContract } from "./modules/v1/locations/locations.contract.js"
 export {
+	MAX_CARD_OFFSET_MM,
 	LocationSchema,
 	CreateLocationSchema,
 	LocationCodeParamSchema,

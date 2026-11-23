@@ -13,7 +13,8 @@ import {
 /**
  * Documents (CRT-1, Flow D). The PDF itself is a plain route,
  * GET /api/v1/certificates/documents/{documentId}/pdf, because it answers
- * with PDF bytes. The two verify routes are public (CRT-2).
+ * with PDF bytes; so is staff printing (CRT-3), POST
+ * /api/v1/certificates/documents/{documentId}/print. The two verify routes are public (CRT-2).
  */
 export const certificatesContract = {
 	issue: oc
@@ -22,7 +23,7 @@ export const certificatesContract = {
 			path: "/certificates/items/{bookingItemId}/documents",
 			summary: "Issue the document for a cleared Booking Item",
 			description:
-				"For Services with auto-issue off. Creates one Document with the next number for its type and Location, moves the item to issued and completes the Booking when every item is final. Issuing twice returns the same Document. Needs certificates.documents:issue; an item at another Location answers 404.",
+				"For Services with auto-issue off, or after head approval. Send `details` for the Service's vaccination record, or `exemption` to issue a Medical Exemption Certificate instead (CRT-3). Creates one Document with the next number for its type and Location, moves the item to issued and completes the Booking when every item is final. Issuing twice returns the same Document. Needs certificates.documents:issue; an item at another Location answers 404.",
 			tags: ["Certificates"],
 		})
 		.input(IssueDocumentSchema)

@@ -316,6 +316,13 @@ export const locations = createTable("locations", t => ({
 	address: t.text("address").notNull(),
 	region: t.text("region").notNull(),
 	isActive: t.boolean("is_active").notNull().default(true),
+	/**
+	 * Vaccination card print offsets in millimetres (CRT-3): positive X moves
+	 * the print right, positive Y moves it down. Calibrated per station against
+	 * a physical card on its passbook printer.
+	 */
+	cardOffsetXMm: t.real("card_offset_x_mm").notNull().default(0),
+	cardOffsetYMm: t.real("card_offset_y_mm").notNull().default(0),
 	createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 }))
@@ -630,6 +637,8 @@ export const documents = createTable(
 		source: t.text("source").notNull().default("qsps").$type<"qsps" | "legacy">(),
 		/** Everything printed on the document, copied at issue time (shape set by the type registry). */
 		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
+		/** How many times staff printed it (CRT-3); above 1 means it was reprinted. */
+		printCount: t.integer("print_count").notNull().default(0),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),

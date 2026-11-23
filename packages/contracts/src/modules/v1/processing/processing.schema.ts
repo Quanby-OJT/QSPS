@@ -5,7 +5,10 @@ import {
 	BookingStatusSchema,
 	ReferenceNumberSchema,
 } from "../bookings/bookings.schema.js"
-import { IcvIssueDetailsSchema } from "../certificates/certificates.schema.js"
+import {
+	IcvIssueDetailsSchema,
+	MedicalExemptionDetailsSchema,
+} from "../certificates/certificates.schema.js"
 import { BusinessDateSchema } from "../schedules/schedules.schema.js"
 
 const dateField = z
@@ -79,10 +82,21 @@ export const RecordAssessmentSchema = BookingItemIdParamSchema.extend({
 	 * issues its document automatically; ignored otherwise.
 	 */
 	document: IcvIssueDetailsSchema.nullish(),
-}).refine(value => value.outcome === "cleared" || value.notes.length > 0, {
-	message: "Write a note telling the client why it was returned or rejected",
-	path: ["notes"],
+	/**
+	 * Medical exemption (CRT-3): the client is medically exempt from the
+	 * vaccine, so clearing issues a Medical Exemption Certificate instead of
+	 * the vaccination record. Give this or `document`, never both.
+	 */
+	exemption: MedicalExemptionDetailsSchema.nullish(),
 })
+	.refine(value => value.outcome === "cleared" || value.notes.length > 0, {
+		message: "Write a note telling the client why it was returned or rejected",
+		path: ["notes"],
+	})
+	.refine(value => !(value.document && value.exemption), {
+		message: "Enter the vaccination details or the exemption details, not both",
+		path: ["exemption"],
+	})
 
 /**
  * Who made a decision (PRC-3): the Processing Officer's `assessment`, the
@@ -124,8 +138,15 @@ export const ProcessingItemSchema = z.object({
 		/** Issue the document as soon as the item is cleared (CRT-1). */
 		autoIssue: z.boolean(),
 	}),
-	/** The item's valid document, once issued (CRT-1). */
-	document: z.object({ id: z.number().int().positive(), documentNumber: z.string() }).nullable(),
+	/** The item's valid document, once issued (CRT-1), and how often it was printed (CRT-3). */
+	document: z
+		.object({
+			id: z.number().int().positive(),
+			documentNumber: z.string(),
+			documentType: z.string(),
+			printCount: z.number().int().min(0),
+		})
+		.nullable(),
 	location: z.object({ id: z.number().int().positive(), name: z.string() }),
 	startsAt: dateField,
 	endsAt: dateField,
@@ -192,18 +213,32 @@ export const ApprovalQueueSchema = z.object({
 export const APPROVAL_DECISIONS = ["approve", "return"] as const
 export const ApprovalDecisionSchema = z.enum(APPROVAL_DECISIONS)
 
+/** Give the vaccination details or the medical exemption, never both (CRT-3). */
+const NOT_BOTH = {
+	message: "Enter the vaccination details or the exemption details, not both",
+	path: ["exemption"],
+}
+
 export const DecideApprovalSchema = BookingItemIdParamSchema.extend({
 	decision: ApprovalDecisionSchema,
 	notes: z.string().trim().max(MAX_ASSESSMENT_NOTES_LENGTH).default(""),
 	/**
-	 * Certificate details (CRT-1a). Required when this makes the item cleared and
-	 * its Service issues its document automatically; ignored otherwise.
+	 * Certificate details (CRT-1a). Required when approving makes the item cleared
+	 * and its Service issues its document automatically, unless `exemption` is
+	 * given; ignored otherwise.
 	 */
 	document: IcvIssueDetailsSchema.nullish(),
-}).refine(value => value.decision === "approve" || value.notes.length > 0, {
-	message: "Write a note telling the officer what to check again",
-	path: ["notes"],
+	/**
+	 * CRT-3 with CRT-1a: the client is medically exempt, so approving issues a
+	 * Medical Exemption Certificate instead of the vaccination record.
+	 */
+	exemption: MedicalExemptionDetailsSchema.nullish(),
 })
+	.refine(value => value.decision === "approve" || value.notes.length > 0, {
+		message: "Write a note telling the officer what to check again",
+		path: ["notes"],
+	})
+	.refine(value => !(value.document && value.exemption), NOT_BOTH)
 
 export const OverrideItemSchema = BookingItemIdParamSchema.extend({
 	reason: z
@@ -214,11 +249,14 @@ export const OverrideItemSchema = BookingItemIdParamSchema.extend({
 		})
 		.max(MAX_ASSESSMENT_NOTES_LENGTH),
 	/**
-	 * Certificate details (CRT-1a). Required when this makes the item cleared and
-	 * its Service issues its document automatically; ignored otherwise.
+	 * Certificate details (CRT-1a). Required when the override makes the item
+	 * cleared and its Service issues its document automatically, unless
+	 * `exemption` is given; ignored otherwise.
 	 */
 	document: IcvIssueDetailsSchema.nullish(),
-})
+	/** CRT-3 with CRT-1a: issue a Medical Exemption Certificate instead. */
+	exemption: MedicalExemptionDetailsSchema.nullish(),
+}).refine(value => !(value.document && value.exemption), NOT_BOTH)
 
 export type AssessmentOutcome = z.infer<typeof AssessmentOutcomeSchema>
 export type QueuePaymentStatus = z.infer<typeof QueuePaymentStatusSchema>

@@ -107,6 +107,9 @@ export class LocationsService {
 				name: input.name ?? current.name,
 				address: input.address ?? current.address,
 				region: input.region ?? current.region,
+				// CRT-3: the station's vaccination card print offsets.
+				cardOffsetXMm: input.cardOffsetXMm ?? current.cardOffsetXMm,
+				cardOffsetYMm: input.cardOffsetYMm ?? current.cardOffsetYMm,
 			}
 
 			const [updated] = await tx
@@ -225,6 +228,8 @@ export class LocationsService {
 			address: location.address,
 			region: location.region,
 			isActive: location.isActive,
+			cardOffsetXMm: location.cardOffsetXMm,
+			cardOffsetYMm: location.cardOffsetYMm,
 		}
 	}
 }

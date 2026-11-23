@@ -306,6 +306,16 @@ export class ProcessingService {
 					bookingItemId: input.bookingItemId,
 					actorId: staffId,
 					details: input.document ?? null,
+					exemption: input.exemption ?? null,
+				})
+			} else if (input.exemption) {
+				// CRT-3: never drop an exemption silently. An item waiting for head
+				// approval gets its certificate issued once it is cleared.
+				throw new ORPCError("BAD_REQUEST", {
+					message:
+						moved.to === "pending_head_approval"
+							? "This item needs head approval first. Issue the Medical Exemption Certificate once it is cleared."
+							: "A medical exemption is recorded only when the item is cleared.",
 				})
 			}
 
@@ -477,6 +487,7 @@ export class ProcessingService {
 					bookingItemId: input.bookingItemId,
 					actorId: approverId,
 					details: input.document ?? null,
+					exemption: input.exemption ?? null,
 				})
 			}
 			const saved = await this.insertDecision(tx, {
@@ -531,6 +542,7 @@ export class ProcessingService {
 					bookingItemId: input.bookingItemId,
 					actorId: approverId,
 					details: input.document ?? null,
+					exemption: input.exemption ?? null,
 				})
 			}
 			const saved = await this.insertDecision(tx, {
@@ -700,6 +712,8 @@ export class ProcessingService {
 				autoIssue: services.autoIssue,
 				documentId: documents.id,
 				documentNumber: documents.documentNumber,
+				issuedDocumentType: documents.documentType,
+				printCount: documents.printCount,
 				locationId: locations.id,
 				locationName: locations.name,
 				startsAt: scheduleSlots.startsAt,
@@ -761,8 +775,13 @@ export class ProcessingService {
 				autoIssue: row.autoIssue,
 			},
 			document:
-				row.documentId !== null && row.documentNumber !== null
-					? { id: row.documentId, documentNumber: row.documentNumber }
+				row.documentId !== null && row.documentNumber !== null && row.issuedDocumentType !== null
+					? {
+							id: row.documentId,
+							documentNumber: row.documentNumber,
+							documentType: row.issuedDocumentType,
+							printCount: row.printCount ?? 0,
+						}
 					: null,
 			location: { id: row.locationId, name: row.locationName },
 			startsAt: row.startsAt,
