@@ -975,7 +975,8 @@ export const formSubmissions = createTable(
 	}),
 	t => [
 		index("form_submissions_template_idx").on(t.formTemplateId),
-		index("form_submissions_booking_item_idx").on(t.bookingItemId),
+		// One answer set per Booking Item; FRM-2 writes it.
+		uniqueIndex("form_submissions_booking_item_uq").on(t.bookingItemId),
 	]
 )
 

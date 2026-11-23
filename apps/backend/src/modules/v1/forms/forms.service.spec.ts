@@ -200,6 +200,7 @@ describe("FormsService", () => {
 				selects: [
 					[template()],
 					[SERVICE],
+					[template()],
 					[fieldRow()],
 					...withFieldsReads([fieldRow(), fieldRow({ id: 101, ...travelField, position: 1 })]),
 				],
@@ -237,6 +238,7 @@ describe("FormsService", () => {
 				selects: [
 					[published],
 					[SERVICE],
+					[published],
 					[],
 					[{ version: 1 }],
 					...withFieldsReads([fieldRow({ formTemplateId: 12 })]),
@@ -263,8 +265,50 @@ describe("FormsService", () => {
 			)
 		})
 
+		it("re-reads the version after the lock: a draft published meanwhile is not edited in place", async () => {
+			// Read as a draft, but another admin published it while this save waited for the lock.
+			const database = fakeDatabase({
+				selects: [
+					[template()],
+					[SERVICE],
+					[template({ status: "published", publishedAt: NOW })],
+					[],
+					[{ version: 1 }],
+					...withFieldsReads([fieldRow({ formTemplateId: 12 })]),
+				],
+				inserts: [[template({ id: 12, version: 2 })]],
+			})
+
+			const saved = await service.saveFields(11, [nameField], "admin-1")
+
+			// The published version keeps its questions; the edit becomes version 2.
+			expect(database.deleted).toEqual([])
+			expect(database.inserted[0]).toEqual({
+				table: formTemplates,
+				values: { serviceId: 7, version: 2, status: "draft", isActive: true },
+			})
+			expect(saved).toMatchObject({ id: 12, version: 2, status: "draft" })
+		})
+
+		it("answers not found when the version was deleted while waiting for the lock", async () => {
+			const database = fakeDatabase({ selects: [[template()], [SERVICE], []] })
+
+			await expect(service.saveFields(11, [nameField], "admin-1")).rejects.toMatchObject({
+				code: "NOT_FOUND",
+			})
+			expect(database.deleted).toEqual([])
+			expect(database.inserted).toEqual([])
+		})
+
 		it("refuses to edit a published version while a draft already exists", async () => {
-			fakeDatabase({ selects: [[template({ status: "published" })], [SERVICE], [{ version: 2 }]] })
+			fakeDatabase({
+				selects: [
+					[template({ status: "published" })],
+					[SERVICE],
+					[template({ status: "published" })],
+					[{ version: 2 }],
+				],
+			})
 
 			await expect(service.saveFields(11, [nameField], "admin-1")).rejects.toMatchObject({
 				code: "CONFLICT",
@@ -272,7 +316,9 @@ describe("FormsService", () => {
 		})
 
 		it("refuses to edit a retired version", async () => {
-			fakeDatabase({ selects: [[template({ status: "retired" })], [SERVICE]] })
+			fakeDatabase({
+				selects: [[template({ status: "retired" })], [SERVICE], [template({ status: "retired" })]],
+			})
 
 			await expect(service.saveFields(11, [nameField], "admin-1")).rejects.toMatchObject({
 				code: "CONFLICT",
@@ -286,6 +332,7 @@ describe("FormsService", () => {
 				selects: [
 					[template({ id: 12, version: 2 })],
 					[SERVICE],
+					[template({ id: 12, version: 2 })],
 					[fieldRow()],
 					...withFieldsReads([fieldRow()]),
 				],
@@ -311,13 +358,19 @@ describe("FormsService", () => {
 		})
 
 		it("refuses a draft with no questions", async () => {
-			fakeDatabase({ selects: [[template()], [SERVICE], []] })
+			fakeDatabase({ selects: [[template()], [SERVICE], [template()], []] })
 
 			await expect(service.publish(11, "admin-1")).rejects.toMatchObject({ code: "BAD_REQUEST" })
 		})
 
 		it("refuses to publish a version that is not a draft", async () => {
-			fakeDatabase({ selects: [[template({ status: "published" })], [SERVICE]] })
+			fakeDatabase({
+				selects: [
+					[template({ status: "published" })],
+					[SERVICE],
+					[template({ status: "published" })],
+				],
+			})
 
 			await expect(service.publish(11, "admin-1")).rejects.toMatchObject({ code: "CONFLICT" })
 		})
@@ -326,7 +379,7 @@ describe("FormsService", () => {
 	describe("delete", () => {
 		it("removes a version nobody has answered", async () => {
 			const database = fakeDatabase({
-				selects: [[template()], [SERVICE], [{ total: 0 }], [fieldRow()]],
+				selects: [[template()], [SERVICE], [template()], [{ total: 0 }], [fieldRow()]],
 			})
 
 			await expect(service.delete(11, "admin-1")).resolves.toEqual({ deleted: true })
@@ -336,7 +389,12 @@ describe("FormsService", () => {
 
 		it("refuses a version with submissions and offers to disable it instead", async () => {
 			const database = fakeDatabase({
-				selects: [[template({ status: "published" })], [SERVICE], [{ total: 3 }]],
+				selects: [
+					[template({ status: "published" })],
+					[SERVICE],
+					[template({ status: "published" })],
+					[{ total: 3 }],
+				],
 			})
 
 			const error = await service.delete(11, "admin-1").catch((caught: unknown) => caught)
@@ -353,7 +411,13 @@ describe("FormsService", () => {
 	describe("setActive", () => {
 		it("disables a published version and audits the change", async () => {
 			const database = fakeDatabase({
-				selects: [[template({ status: "published" })], [SERVICE], [{ total: 2 }], [{ total: 0 }]],
+				selects: [
+					[template({ status: "published" })],
+					[SERVICE],
+					[template({ status: "published" })],
+					[{ total: 2 }],
+					[{ total: 0 }],
+				],
 				updates: [[template({ status: "published", isActive: false })]],
 			})
 
@@ -372,7 +436,7 @@ describe("FormsService", () => {
 		})
 
 		it("has nothing to disable on a draft", async () => {
-			fakeDatabase({ selects: [[template()], [SERVICE]] })
+			fakeDatabase({ selects: [[template()], [SERVICE], [template()]] })
 
 			await expect(service.setActive(11, false, "admin-1")).rejects.toMatchObject({
 				code: "CONFLICT",

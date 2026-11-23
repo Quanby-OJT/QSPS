@@ -504,8 +504,13 @@ export class FormsService {
 	}
 
 	/**
-	 * The version, checked against its Service's Scope. Writes lock the
-	 * Service row so two admins cannot create or publish versions at once.
+	 * The version, checked against its Service's Scope.
+	 *
+	 * Writes (`lock`) lock the Service row first, so two admins cannot create
+	 * or publish versions of one Service at once, then read the version again
+	 * under its own row lock. The first read may be stale: while this request
+	 * waited for the lock, another may have published or deleted the version,
+	 * and a draft that has since been published must never be edited in place.
 	 */
 	private async requireTemplate(
 		executor: Executor,
@@ -514,15 +519,15 @@ export class FormsService {
 		scope: ResolvedScope,
 		lock = false
 	): Promise<TemplateRow> {
+		const notFound = `Form template "${templateId}" was not found`
 		const [template] = await executor
 			.select()
 			.from(formTemplates)
 			.where(eq(formTemplates.id, templateId))
 			.limit(1)
 		if (!template) {
-			throw new ORPCError("NOT_FOUND", { message: `Form template "${templateId}" was not found` })
+			throw new ORPCError("NOT_FOUND", { message: notFound })
 		}
-		const notFound = `Form template "${templateId}" was not found`
 		const query = executor
 			.select({ serviceCategoryId: services.serviceCategoryId })
 			.from(services)
@@ -536,6 +541,16 @@ export class FormsService {
 				service ? { serviceCategoryId: service.serviceCategoryId } : undefined
 			)
 		}
-		return template
+		if (!lock) return template
+
+		const [current] = await executor
+			.select()
+			.from(formTemplates)
+			.where(eq(formTemplates.id, templateId))
+			.for("update")
+		if (!current) {
+			throw new ORPCError("NOT_FOUND", { message: notFound })
+		}
+		return current
 	}
 }

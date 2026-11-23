@@ -29,7 +29,7 @@ CREATE TABLE "form_templates" (
 --> statement-breakpoint
 CREATE UNIQUE INDEX "form_fields_template_position_uq" ON "form_fields" ("form_template_id","position");--> statement-breakpoint
 CREATE INDEX "form_submissions_template_idx" ON "form_submissions" ("form_template_id");--> statement-breakpoint
-CREATE INDEX "form_submissions_booking_item_idx" ON "form_submissions" ("booking_item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "form_submissions_booking_item_uq" ON "form_submissions" ("booking_item_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "form_templates_service_version_uq" ON "form_templates" ("service_id","version");--> statement-breakpoint
 CREATE UNIQUE INDEX "form_templates_one_draft_per_service_uq" ON "form_templates" ("service_id") WHERE "status" = 'draft';--> statement-breakpoint
 CREATE UNIQUE INDEX "form_templates_one_published_per_service_uq" ON "form_templates" ("service_id") WHERE "status" = 'published';--> statement-breakpoint

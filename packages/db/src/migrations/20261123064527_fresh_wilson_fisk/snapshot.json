@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "50d118c3-6b8e-468b-bd5e-3cad10ee447e",
+  "id": "9a60173a-b68e-43c9-add8-d62ab8566f17",
   "prevIds": [
     "a576a788-aefa-49c8-aa9d-cc394a4d31ef"
   ],
@@ -4145,12 +4145,12 @@
           "opclass": null
         }
       ],
-      "isUnique": false,
+      "isUnique": true,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "form_submissions_booking_item_idx",
+      "name": "form_submissions_booking_item_uq",
       "entityType": "indexes",
       "schema": "public",
       "table": "form_submissions"
