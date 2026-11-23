@@ -532,9 +532,16 @@ export class BookingService {
 
 	/**
 	 * Override a Booking Item outside the normal state machine (PRC-3, Annex A:
-	 * the Module Admin may override). Only `rejected` to `cleared` is allowed.
-	 * Locks the item, writes it, and records the before and after state with
-	 * the mandatory reason in the caller's transaction.
+	 * the Module Admin may override). Only `rejected` to `cleared` is allowed,
+	 * and only while the Booking is `paid` or `completed`: an item of a
+	 * cancelled, forfeited or refunded Booking stays rejected. A `completed`
+	 * Booking (every other item already final) is reopened to `paid`, so it
+	 * completes again once this item's document is issued.
+	 *
+	 * Locks the Booking, then the item (the same order as check-in and
+	 * document issuance, so they cannot deadlock), writes both, and records the
+	 * before and after state with the mandatory reason in the caller's
+	 * transaction.
 	 */
 	async overrideItem(
 		tx: Transaction,
@@ -547,18 +554,37 @@ export class BookingService {
 		if (!reason) {
 			throw new ORPCError("BAD_REQUEST", { message: "An override needs a reason" })
 		}
+		const notFound = `Booking item "${bookingItemId}" was not found`
 
+		const [found] = await tx
+			.select({ bookingId: bookingItems.bookingId })
+			.from(bookingItems)
+			.where(eq(bookingItems.id, bookingItemId))
+			.limit(1)
+		if (!found) {
+			throw new ORPCError("NOT_FOUND", { message: notFound })
+		}
+		const [booking] = await tx
+			.select({ id: bookings.id, status: bookings.status })
+			.from(bookings)
+			.where(eq(bookings.id, found.bookingId))
+			.for("update")
 		const [item] = await tx
 			.select({ id: bookingItems.id, status: bookingItems.status })
 			.from(bookingItems)
 			.where(eq(bookingItems.id, bookingItemId))
 			.for("update")
-		if (!item) {
-			throw new ORPCError("NOT_FOUND", { message: `Booking item "${bookingItemId}" was not found` })
+		if (!booking || !item) {
+			throw new ORPCError("NOT_FOUND", { message: notFound })
 		}
 		if (!canOverrideItem(item.status, to)) {
 			throw new ORPCError("CONFLICT", {
 				message: `This item is ${item.status.replaceAll("_", " ")}; only a rejected item can be overridden to cleared`,
+			})
+		}
+		if (booking.status !== "paid" && booking.status !== "completed") {
+			throw new ORPCError("CONFLICT", {
+				message: `This booking is ${booking.status.replaceAll("_", " ")}, so its items can no longer be overridden`,
 			})
 		}
 
@@ -566,7 +592,6 @@ export class BookingService {
 			.update(bookingItems)
 			.set({ status: to, updatedAt: now })
 			.where(eq(bookingItems.id, item.id))
-
 		await this.auditService.record(
 			{
 				domain: AUDIT_DOMAIN_BOOKINGS,
@@ -580,6 +605,27 @@ export class BookingService {
 			},
 			tx
 		)
+
+		// The item is open again, so a completed Booking is not complete any more.
+		if (booking.status === "completed") {
+			await tx
+				.update(bookings)
+				.set({ status: "paid", updatedAt: now })
+				.where(eq(bookings.id, booking.id))
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "booking.reopened",
+					actorId: options.actorId,
+					targetType: "booking",
+					targetId: String(booking.id),
+					oldValue: { status: "completed" },
+					newValue: { status: "paid" },
+					reason,
+				},
+				tx
+			)
+		}
 		return { from: item.status, to }
 	}
 

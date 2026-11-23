@@ -168,6 +168,7 @@ pending_approval ───┤                         (expedite only)
 | `pending_payment` → `paid` | Verified provider notification, or cashier confirmation | Amount matches total + convenience fee |
 | `pending_payment` → `cancelled` | Hold expires (`hold_expired`); arrival cutoff passes unpaid (`no_show`); client cancels (`client_cancelled`) | Slot capacity is released in the same transaction. The expiry job waits while a Payment is `initiated` or `pending` and younger than the payment timeout. System cancellations are audited with no actor. |
 | `paid` → `completed` | Every Booking Item is `issued`, `rejected`, or `no_show` |  |
+| `completed` → `paid` | An approver overrides a rejected Booking Item to `cleared` (PRC-3) | Only through `BookingService.overrideItem`, audited as `booking.reopened` with the reason. The Booking completes again once every item is final. Items of a cancelled, refund-requested, refunded or forfeited Booking cannot be overridden. |
 | `paid` → `forfeited` | Forfeiture Policy applies after a no-show | Refund Request of kind `forfeiture` approved |
 | `paid` → `refund_requested` → `refunded` | Refund Request approved, then marked settled | `payments.refunds:approve` |
 

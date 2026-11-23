@@ -1057,18 +1057,27 @@ describe("BookingService.overrideItem (PRC-3)", () => {
 
 	const options = { actorId: "head-1", reason: "Exemption letter verified by phone", now: NOW }
 
-	it("clears a rejected item under a lock and audits the before and after state with the reason", async () => {
-		const { tx, locks, sets } = itemTransaction([[{ id: 44, status: "rejected" }]])
+	/** The item lookup, then the locked Booking, then the locked item. */
+	function overrideTransaction(bookingStatus: string, itemStatus = "rejected") {
+		return itemTransaction([
+			[{ bookingId: 31 }],
+			[{ id: 31, status: bookingStatus }],
+			[{ id: 44, status: itemStatus }],
+		])
+	}
+
+	it("clears a rejected item of a paid booking under locks and audits the before and after state with the reason", async () => {
+		const { tx, locks, sets } = overrideTransaction("paid")
 
 		await expect(bookingService.overrideItem(tx as never, 44, "cleared", options)).resolves.toEqual(
-			{
-				from: "rejected",
-				to: "cleared",
-			}
+			{ from: "rejected", to: "cleared" }
 		)
 
+		// The Booking and then the item are locked, as check-in and issuance do.
+		expect(locks).toHaveBeenCalledTimes(2)
 		expect(locks).toHaveBeenCalledWith("update")
-		expect(sets).toHaveBeenCalledWith({ status: "cleared", updatedAt: NOW })
+		expect(sets.mock.calls).toEqual([[{ status: "cleared", updatedAt: NOW }]])
+		expect(auditService.record).toHaveBeenCalledTimes(1)
 		expect(auditService.record).toHaveBeenCalledWith(
 			expect.objectContaining({
 				action: "booking_item.override",
@@ -1083,10 +1092,46 @@ describe("BookingService.overrideItem (PRC-3)", () => {
 		)
 	})
 
+	it("reopens a completed booking to paid, so it completes again once the item is issued", async () => {
+		// Item A was issued and this item B rejected, so the Booking had completed.
+		const { tx, sets } = overrideTransaction("completed")
+
+		await bookingService.overrideItem(tx as never, 44, "cleared", options)
+
+		expect(sets.mock.calls).toEqual([
+			[{ status: "cleared", updatedAt: NOW }],
+			[{ status: "paid", updatedAt: NOW }],
+		])
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking.reopened",
+				targetType: "booking",
+				targetId: "31",
+				oldValue: { status: "completed" },
+				newValue: { status: "paid" },
+				reason: "Exemption letter verified by phone",
+			}),
+			tx
+		)
+	})
+
+	it.each(["cancelled", "pending_payment", "refund_requested", "refunded", "forfeited"])(
+		"refuses an override on a %s booking",
+		async status => {
+			const { tx, sets } = overrideTransaction(status)
+
+			await expect(
+				bookingService.overrideItem(tx as never, 44, "cleared", options)
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(sets).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		}
+	)
+
 	it.each(["in_assessment", "pending_head_approval", "cleared", "issued", "no_show"])(
 		"refuses to override an item that is %s",
 		async status => {
-			const { tx, sets } = itemTransaction([[{ id: 44, status }]])
+			const { tx, sets } = overrideTransaction("paid", status)
 
 			await expect(
 				bookingService.overrideItem(tx as never, 44, "cleared", options)
@@ -1097,7 +1142,7 @@ describe("BookingService.overrideItem (PRC-3)", () => {
 	)
 
 	it("refuses an override without a reason before reading the item", async () => {
-		const { tx } = itemTransaction([[{ id: 44, status: "rejected" }]])
+		const { tx } = itemTransaction([[{ bookingId: 31 }]])
 
 		await expect(
 			bookingService.overrideItem(tx as never, 44, "cleared", { ...options, reason: "   " })
