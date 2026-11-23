@@ -144,6 +144,10 @@ export const ProcessingItemSchema = z.object({
 	 * FRM-2: the client's Form Submission answers, question label to answer, in question order. Empty when the item has no submission.
 	 */
 	formAnswers: z.record(z.string(), z.unknown()),
+	/** FRM-2c: the answered file questions, by question id and the label used in `formAnswers`. Staff download each from GET /processing/items/{bookingItemId}/answers/{fieldId}/file. */
+	formFiles: z
+		.array(z.object({ fieldId: z.number().int().positive(), label: z.string() }))
+		.optional(),
 	/** Newest first. */
 	assessments: z.array(AssessmentSchema),
 })

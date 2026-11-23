@@ -259,3 +259,8 @@ export function useOverrideItemMutation(bookingItemId: number) {
 		},
 	})
 }
+
+/** FRM-2c: a client's uploaded answer file, for staff. Opened by the browser with the staff session cookie. */
+export function answerFileUrl(bookingItemId: number, fieldId: number): string {
+	return `${API_BASE}/processing/items/${bookingItemId}/answers/${fieldId}/file`
+}

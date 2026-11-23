@@ -14,6 +14,56 @@ export function displayAnswer(type: FormFieldType, value: unknown): string {
 	return String(value)
 }
 
+/** FRM-2c: an answered file question, by id and the label it has in `readableAnswers`. */
+export interface FileAnswer {
+	fieldId: number
+	label: string
+}
+
+interface LabelledAnswer {
+	fieldId: number
+	type: FormFieldType
+	label: string
+	value: unknown
+}
+
+/**
+ * Each question of the exact version answered, in question order, with a
+ * unique label (a repeated label gets " (2)", " (3)") and the stored answer.
+ * Empty when the item has no Form Submission.
+ */
+async function labelledAnswers(
+	executor: FormExecutor,
+	bookingItemId: number
+): Promise<LabelledAnswer[]> {
+	const [submission] = await executor
+		.select({ formTemplateId: formSubmissions.formTemplateId, answers: formSubmissions.answers })
+		.from(formSubmissions)
+		.where(eq(formSubmissions.bookingItemId, bookingItemId))
+		.limit(1)
+	if (!submission) return []
+
+	const fields = await executor
+		.select({ id: formFields.id, type: formFields.type, label: formFields.label })
+		.from(formFields)
+		.where(eq(formFields.formTemplateId, submission.formTemplateId))
+		.orderBy(asc(formFields.position))
+
+	const used = new Set<string>()
+	return fields.map(field => {
+		// Two questions may share a label; keep both.
+		let label = field.label
+		for (let copy = 2; used.has(label); copy++) label = `${field.label} (${copy})`
+		used.add(label)
+		return {
+			fieldId: field.id,
+			type: field.type,
+			label,
+			value: submission.answers[String(field.id)],
+		}
+	})
+}
+
 /**
  * FRM-2: a Booking Item's answers for the Assessment screen, keyed by the
  * question label of the exact version answered, in question order. Empty
@@ -23,25 +73,24 @@ export async function readableAnswers(
 	executor: FormExecutor,
 	bookingItemId: number
 ): Promise<Record<string, string>> {
-	const [submission] = await executor
-		.select({ formTemplateId: formSubmissions.formTemplateId, answers: formSubmissions.answers })
-		.from(formSubmissions)
-		.where(eq(formSubmissions.bookingItemId, bookingItemId))
-		.limit(1)
-	if (!submission) return {}
-
-	const fields = await executor
-		.select({ id: formFields.id, type: formFields.type, label: formFields.label })
-		.from(formFields)
-		.where(eq(formFields.formTemplateId, submission.formTemplateId))
-		.orderBy(asc(formFields.position))
-
 	const readable: Record<string, string> = {}
-	for (const field of fields) {
-		// Two questions may share a label; keep both.
-		let label = field.label
-		for (let copy = 2; label in readable; copy++) label = `${field.label} (${copy})`
-		readable[label] = displayAnswer(field.type, submission.answers[String(field.id)])
+	for (const answer of await labelledAnswers(executor, bookingItemId)) {
+		readable[answer.label] = displayAnswer(answer.type, answer.value)
 	}
 	return readable
+}
+
+/**
+ * FRM-2c: the file questions that have an answer, with the same labels as
+ * `readableAnswers`, so the Assessment screen can offer a download for each.
+ */
+export async function fileAnswers(
+	executor: FormExecutor,
+	bookingItemId: number
+): Promise<FileAnswer[]> {
+	return (await labelledAnswers(executor, bookingItemId))
+		.filter(
+			answer => answer.type === "file" && typeof answer.value === "string" && answer.value !== ""
+		)
+		.map(answer => ({ fieldId: answer.fieldId, label: answer.label }))
 }
