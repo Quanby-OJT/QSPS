@@ -64,7 +64,12 @@ function fakeExecutor(selects: unknown[][]) {
 }
 
 function setup(owns = true) {
-	const uploads = { ownsUpload: jest.fn().mockResolvedValue(owns) }
+	const uploads = {
+		confirmUpload: jest.fn((key: string) =>
+			Promise.resolve(key.replace("form-uploads/pending/", "form-uploads/"))
+		),
+		ownsUpload: jest.fn().mockResolvedValue(owns),
+	}
 	return { uploads, service: new FormSubmissionService(uploads as never) }
 }
 
@@ -111,6 +116,35 @@ describe("FormSubmissionService.prepare", () => {
 		expect(uploads.ownsUpload).toHaveBeenCalledWith(KEY, "user_1")
 	})
 
+	it("stores the confirmed key when the answer is a pending upload (FRM-2b)", async () => {
+		const { service, uploads } = setup()
+		const { executor } = fakeExecutor([[{ id: 11, version: 2 }], fieldRows])
+		const pending = KEY.replace("form-uploads/", "form-uploads/pending/")
+
+		const prepared = await service.prepare(executor, {
+			...base,
+			form: { formTemplateId: 11, answers: { "100": "Ana", "101": pending } },
+		})
+
+		expect(uploads.ownsUpload).toHaveBeenCalledWith(pending, "user_1")
+		expect(uploads.confirmUpload).toHaveBeenCalledWith(pending, "user_1", expect.anything())
+		expect(prepared?.answers).toEqual({ "100": "Ana", "101": KEY })
+	})
+
+	it("confirms no file when any answer is refused (FRM-2b)", async () => {
+		const { service, uploads } = setup()
+		const { executor } = fakeExecutor([[{ id: 11, version: 2 }], fieldRows])
+		const pending = KEY.replace("form-uploads/", "form-uploads/pending/")
+
+		await refusal(
+			service.prepare(executor, {
+				...base,
+				form: { formTemplateId: 11, answers: { "101": pending } },
+			})
+		)
+
+		expect(uploads.confirmUpload).not.toHaveBeenCalled()
+	})
 	it("refuses missing answers as a changed form, naming the slot", async () => {
 		const { service } = setup()
 		const { executor } = fakeExecutor([[{ id: 11, version: 2 }], fieldRows])

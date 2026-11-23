@@ -18,6 +18,9 @@ const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37
 
 function setup() {
 	const storage: jest.Mocked<FileStorage> = {
+		copy: jest.fn(),
+		delete: jest.fn(),
+		list: jest.fn(),
 		put: jest.fn().mockResolvedValue(undefined),
 		exists: jest.fn().mockResolvedValue(true),
 		read: jest.fn(),
@@ -34,7 +37,7 @@ describe("FormUploadService.upload", () => {
 
 		const result = await service.upload(file, "user_1")
 
-		expect(result.fileKey).toMatch(/^form-uploads\/user_1\/[0-9a-f-]{36}\.pdf$/)
+		expect(result.fileKey).toMatch(/^form-uploads\/pending\/user_1\/[0-9a-f-]{36}\.pdf$/)
 		expect(result).toMatchObject({
 			fileName: "passport.pdf",
 			contentType: "application/pdf",
