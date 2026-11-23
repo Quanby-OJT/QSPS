@@ -65,6 +65,7 @@ export const ScheduleSlotSchema = z.object({
 	capacity: z.number().int().min(0),
 	bookedCount: z.number().int().min(0),
 	isDisabled: z.boolean(),
+	/** SCH-2: set when a date block disabled the slot; null when disabled by hand or open. */
 	disabledReason: z.string().nullable().optional(),
 	createdAt: dateField,
 	updatedAt: dateField,
@@ -142,7 +143,7 @@ export const UpdateSlotCapacityRequestSchema = SlotIdParamSchema.extend({
 	capacity: CapacitySchema,
 })
 
-/** Bulk edit one Manila calendar day, Monday-based week, or calendar month. */
+/** SCH-2: bulk edit one Manila calendar day, Monday-to-Sunday week, or calendar month. */
 export const BulkUpdateCapacityRequestSchema = z.object({
 	serviceId: ServiceIdSchema,
 	locationId: LocationIdSchema,
@@ -150,34 +151,50 @@ export const BulkUpdateCapacityRequestSchema = z.object({
 	anchorDate: BusinessDateSchema,
 	capacity: CapacitySchema,
 })
+
 export const BulkUpdateCapacityResponseSchema = z.object({
+	/** Slots in the chosen period. */
 	selectedCount: z.number().int().min(0),
+	/** Slots that now have the new capacity. */
 	updatedCount: z.number().int().min(0),
-	skipped: z.array(z.object({
-		id: SlotIdSchema,
-		startsAt: dateField,
-		bookedCount: z.number().int().min(0),
-		capacity: z.number().int().min(0),
-	})),
+	/** Slots left unchanged because they already have more bookings than the new capacity. */
+	skipped: z.array(
+		z.object({
+			id: SlotIdSchema,
+			startsAt: dateField,
+			bookedCount: z.number().int().min(0),
+			capacity: z.number().int().min(0),
+		})
+	),
 })
+
+/** SCH-2: disable every slot of a service at a location on one Manila date. */
 export const BlockScheduleDateRequestSchema = z.object({
 	serviceId: ServiceIdSchema,
 	locationId: LocationIdSchema,
 	date: BusinessDateSchema,
-	reason: z.string().trim().min(1).max(500),
+	reason: z.string().trim().min(1, "Enter a reason").max(500, "Use 500 characters or fewer"),
 })
+
+export const BlockScheduleDateResponseSchema = z.object({
+	/** Slots this request disabled. Slots already disabled by hand are not counted. */
+	disabledCount: z.number().int().min(0),
+	/** Paid Bookings on that date, listed for follow-up; none is cancelled. */
+	paidBookings: z.array(
+		z.object({
+			referenceNumber: z.string(),
+			startsAt: dateField,
+		})
+	),
+})
+
+/** SCH-2: re-enable the slots a date block disabled on one Manila date. */
 export const UnblockScheduleDateRequestSchema = z.object({
 	serviceId: ServiceIdSchema,
 	locationId: LocationIdSchema,
 	date: BusinessDateSchema,
 })
-export const BlockScheduleDateResponseSchema = z.object({
-	disabledCount: z.number().int().min(0),
-	paidBookings: z.array(z.object({
-		referenceNumber: z.string(),
-		startsAt: dateField,
-	})),
-})
+
 export const UnblockScheduleDateResponseSchema = z.object({
 	enabledCount: z.number().int().min(0),
 })
@@ -211,6 +228,8 @@ export type UpdateSlotCapacityRequest = z.infer<typeof UpdateSlotCapacityRequest
 export type BulkUpdateCapacityRequest = z.infer<typeof BulkUpdateCapacityRequestSchema>
 export type BulkUpdateCapacityResponse = z.infer<typeof BulkUpdateCapacityResponseSchema>
 export type BlockScheduleDateRequest = z.infer<typeof BlockScheduleDateRequestSchema>
+export type BlockScheduleDateResponse = z.infer<typeof BlockScheduleDateResponseSchema>
 export type UnblockScheduleDateRequest = z.infer<typeof UnblockScheduleDateRequestSchema>
+export type UnblockScheduleDateResponse = z.infer<typeof UnblockScheduleDateResponseSchema>
 export type SetSlotDisabledRequest = z.infer<typeof SetSlotDisabledRequestSchema>
 export type SlotAvailability = z.infer<typeof SlotAvailabilitySchema>

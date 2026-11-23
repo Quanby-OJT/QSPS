@@ -2,9 +2,13 @@ import { scheduleSlots } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
+import { denyOutsideScope } from "@/common/scope/scope-denial"
+import { inScope, type ResolvedScope } from "@/common/scope/scope-match"
+import type * as ScopeMatch from "@/common/scope/scope-match"
 
 import {
 	MAX_SLOTS_PER_REQUEST,
+	scheduleDateRange,
 	SchedulesService,
 	slotAvailability,
 	slotTimesFor,
@@ -28,8 +32,27 @@ jest.mock("@/common/database/database.client", () => ({
 	},
 }))
 
+// The real Scope rules, wrapped so a test can play a user outside the Scope.
+jest.mock("@/common/scope/scope-match", () => {
+	const actual = jest.requireActual<typeof ScopeMatch>("@/common/scope/scope-match")
+	return { ...actual, inScope: jest.fn(actual.inScope) }
+})
+
+// ADM-2: outside the Scope answers like a missing record.
+jest.mock("@/common/scope/scope-denial", () => ({
+	denyOutsideScope: jest.fn(() => {
+		const { ORPCError } = jest.requireMock<{
+			ORPCError: new (code: string, options: { message: string }) => Error
+		}>("@orpc/server")
+		return Promise.reject(new ORPCError("NOT_FOUND", { message: 'Location "2" was not found' }))
+	}),
+}))
+
 /** Tuesday 1 December 2026, 09:00 in Manila. */
 const NOW = new Date("2026-12-01T01:00:00.000Z")
+
+/** A staff user limited to some Locations; `inScope` is set per test. */
+const LIMITED_SCOPE = { nationwide: false } as unknown as ResolvedScope
 
 const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 	id: 7,
@@ -40,7 +63,7 @@ const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 	capacity: 20,
 	bookedCount: 0,
 	isDisabled: false,
-		disabledReason: null,
+	disabledReason: null,
 	createdAt: new Date("2026-11-17T00:00:00.000Z"),
 	updatedAt: new Date("2026-11-17T00:00:00.000Z"),
 	...overrides,
@@ -48,6 +71,8 @@ const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 
 const activeService = { id: 1, name: "Yellow fever vaccination", isActive: true }
 const activeLocation = { id: 2, name: "Manila", isActive: true }
+/** What the bulk actions read first: the service's category, for the Scope check. */
+const serviceCategory = { serviceCategoryId: 3 }
 
 /** Wednesday 2 December and Monday 7 December, two windows each: four slots. */
 const generateInput = {
@@ -78,11 +103,38 @@ const selectLocked = (rows: unknown[], lock = jest.fn()) => ({
 		}),
 	}),
 })
+/** select().from().where().orderBy().for("update") resolving to rows. */
+const selectLockedOrdered = (rows: unknown[], lock = jest.fn()) => ({
+	from: () => ({
+		where: () => ({
+			orderBy: () => ({
+				for: (mode: string) => {
+					lock(mode)
+					return Promise.resolve(rows)
+				},
+			}),
+		}),
+	}),
+})
+/** select().from().innerJoin()….where().orderBy() resolving to rows. */
+const selectJoined = (rows: unknown[]) => {
+	const innerJoin = jest.fn()
+	const chain = { innerJoin, where: () => ({ orderBy: () => Promise.resolve(rows) }) }
+	innerJoin.mockReturnValue(chain)
+	return { from: () => chain }
+}
 /** update().set().where().returning() resolving to rows. */
 const updateReturning = (rows: unknown[], set = jest.fn()) => ({
 	set: (values: unknown) => {
 		set(values)
 		return { where: () => ({ returning: () => Promise.resolve(rows) }) }
+	},
+})
+/** update().set().where() resolving with nothing. */
+const updateAll = (set = jest.fn()) => ({
+	set: (values: unknown) => {
+		set(values)
+		return { where: () => Promise.resolve(undefined) }
 	},
 })
 
@@ -176,6 +228,40 @@ describe("slotAvailability", () => {
 			remainingCapacity: 0,
 			isAvailable: false,
 		})
+	})
+})
+
+describe("scheduleDateRange (SCH-2)", () => {
+	it("covers one Manila day", () => {
+		const range = scheduleDateRange("2026-12-02", "day")
+		expect(range.startDate).toBe("2026-12-02")
+		expect(range.lastDate).toBe("2026-12-02")
+		// Manila midnight is 16:00 UTC the day before.
+		expect(range.start.toISOString()).toBe("2026-12-01T16:00:00.000Z")
+		expect(range.end.toISOString()).toBe("2026-12-02T16:00:00.000Z")
+	})
+
+	it("covers Monday to Sunday for a date in the middle of the week", () => {
+		// Wednesday 2 December 2026.
+		const range = scheduleDateRange("2026-12-02", "week")
+		expect(range.startDate).toBe("2026-11-30")
+		expect(range.lastDate).toBe("2026-12-06")
+		expect(range.start.toISOString()).toBe("2026-11-29T16:00:00.000Z")
+		expect(range.end.toISOString()).toBe("2026-12-06T16:00:00.000Z")
+	})
+
+	it("counts a Sunday as the end of its week, not the start of the next", () => {
+		const range = scheduleDateRange("2026-12-06", "week")
+		expect(range.startDate).toBe("2026-11-30")
+		expect(range.lastDate).toBe("2026-12-06")
+	})
+
+	it("covers the whole calendar month, including across a year end", () => {
+		const range = scheduleDateRange("2026-12-15", "month")
+		expect(range.startDate).toBe("2026-12-01")
+		expect(range.lastDate).toBe("2026-12-31")
+		expect(range.start.toISOString()).toBe("2026-11-30T16:00:00.000Z")
+		expect(range.end.toISOString()).toBe("2026-12-31T16:00:00.000Z")
 	})
 })
 
@@ -361,6 +447,321 @@ describe("SchedulesService", () => {
 		})
 	})
 
+	describe("bulkUpdateCapacity (SCH-2)", () => {
+		const bulkInput = {
+			serviceId: 1,
+			locationId: 2,
+			period: "week" as const,
+			anchorDate: "2026-12-02",
+			capacity: 10,
+		}
+
+		it("updates every slot in the period, lists back the ones with more bookings, and audits counts", async () => {
+			const slots = [
+				makeSlot({ id: 7, bookedCount: 5 }),
+				makeSlot({
+					id: 8,
+					bookedCount: 12,
+					startsAt: new Date("2026-12-03T00:00:00.000Z"),
+				}),
+				makeSlot({ id: 9, bookedCount: 0 }),
+			]
+			const lock = jest.fn()
+			const set = jest.fn()
+			const update = jest.fn().mockReturnValue(updateAll(set))
+			const tx = mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(selectLockedOrdered(slots, lock)),
+				update,
+			})
+
+			await expect(service.bulkUpdateCapacity(bulkInput, "staff-1")).resolves.toEqual({
+				selectedCount: 3,
+				updatedCount: 2,
+				skipped: [
+					{
+						id: 8,
+						startsAt: new Date("2026-12-03T00:00:00.000Z"),
+						bookedCount: 12,
+						capacity: 20,
+					},
+				],
+			})
+
+			// Locked so a booking cannot slip in between the check and the update.
+			expect(lock).toHaveBeenCalledWith("update")
+			// One statement for every slot that can take the new capacity.
+			expect(update).toHaveBeenCalledTimes(1)
+			expect(set).toHaveBeenCalledWith(expect.objectContaining({ capacity: 10 }))
+			expect(set.mock.calls[0]?.[0]).not.toHaveProperty("bookedCount")
+			expect(auditService.record).toHaveBeenCalledTimes(1)
+			expect(auditService.record).toHaveBeenCalledWith(
+				{
+					domain: "schedules",
+					action: "schedule.slots.capacity.bulk_update",
+					actorId: "staff-1",
+					targetType: "schedule_slot",
+					targetId: null,
+					oldValue: null,
+					newValue: {
+						serviceId: 1,
+						locationId: 2,
+						period: "week",
+						startDate: "2026-11-30",
+						endDate: "2026-12-06",
+						capacity: 10,
+						selectedCount: 3,
+						updatedCount: 2,
+						skippedCount: 1,
+					},
+				},
+				tx
+			)
+		})
+
+		it("allows a new capacity equal to the booked count", async () => {
+			mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(selectLockedOrdered([makeSlot({ bookedCount: 10 })])),
+				update: jest.fn().mockReturnValue(updateAll()),
+			})
+
+			await expect(service.bulkUpdateCapacity(bulkInput, "staff-1")).resolves.toMatchObject({
+				updatedCount: 1,
+				skipped: [],
+			})
+		})
+
+		it("changes nothing when every slot already has more bookings, and still audits", async () => {
+			const update = jest.fn()
+			mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(
+						selectLockedOrdered([
+							makeSlot({ id: 7, bookedCount: 11 }),
+							makeSlot({ id: 8, bookedCount: 15 }),
+						])
+					),
+				update,
+			})
+
+			await expect(service.bulkUpdateCapacity(bulkInput, "staff-1")).resolves.toMatchObject({
+				selectedCount: 2,
+				updatedCount: 0,
+			})
+			expect(update).not.toHaveBeenCalled()
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					newValue: expect.objectContaining({ updatedCount: 0, skippedCount: 2 }),
+				}),
+				expect.anything()
+			)
+		})
+
+		it("returns not found for an unknown service and reads no slots", async () => {
+			const select = jest.fn().mockReturnValueOnce(selectRows([]))
+			const update = jest.fn()
+			mockTransaction({ select, update })
+
+			await expect(service.bulkUpdateCapacity(bulkInput, "staff-1")).rejects.toMatchObject({
+				code: "NOT_FOUND",
+			})
+			expect(select).toHaveBeenCalledTimes(1)
+			expect(update).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		})
+
+		it("refuses a user outside the Scope before reading any slot, even on an empty period", async () => {
+			jest.mocked(inScope).mockReturnValueOnce(false)
+			const select = jest.fn().mockReturnValueOnce(selectRows([serviceCategory]))
+			const update = jest.fn()
+			mockTransaction({ select, update })
+
+			await expect(
+				service.bulkUpdateCapacity(bulkInput, "staff-1", LIMITED_SCOPE)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+			expect(denyOutsideScope).toHaveBeenCalledWith(
+				auditService,
+				"staff-1",
+				expect.objectContaining({ type: "location", id: 2 }),
+				{ serviceCategoryId: 3, locationId: 2 }
+			)
+			expect(select).toHaveBeenCalledTimes(1)
+			expect(update).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("blockDate (SCH-2)", () => {
+		const blockInput = { serviceId: 1, locationId: 2, date: "2026-12-02", reason: "Holiday" }
+
+		it("disables the date's slots with the reason and lists paid bookings once, without cancelling them", async () => {
+			const slots = [
+				makeSlot({ id: 7 }),
+				// Disabled by hand: left alone so a later unblock keeps it disabled.
+				makeSlot({ id: 8, isDisabled: true, disabledReason: null }),
+				// Blocked before: its reason is updated.
+				makeSlot({ id: 9, isDisabled: true, disabledReason: "Typhoon" }),
+			]
+			const paidRows = [
+				{ referenceNumber: "QSPS-261202-AAAAAA", startsAt: new Date("2026-12-02T00:00:00.000Z") },
+				// The same booking with a second item later that day.
+				{ referenceNumber: "QSPS-261202-AAAAAA", startsAt: new Date("2026-12-02T02:00:00.000Z") },
+				{ referenceNumber: "QSPS-261202-BBBBBB", startsAt: new Date("2026-12-02T02:00:00.000Z") },
+			]
+			const set = jest.fn()
+			const update = jest.fn().mockReturnValue(updateAll(set))
+			const tx = mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(selectLockedOrdered(slots))
+					.mockReturnValueOnce(selectJoined(paidRows)),
+				update,
+			})
+
+			await expect(service.blockDate(blockInput, "staff-1")).resolves.toEqual({
+				disabledCount: 2,
+				paidBookings: [
+					{ referenceNumber: "QSPS-261202-AAAAAA", startsAt: new Date("2026-12-02T00:00:00.000Z") },
+					{ referenceNumber: "QSPS-261202-BBBBBB", startsAt: new Date("2026-12-02T02:00:00.000Z") },
+				],
+			})
+
+			// One update, on schedule_slots only: no booking is cancelled or changed.
+			expect(update).toHaveBeenCalledTimes(1)
+			expect(update).toHaveBeenCalledWith(scheduleSlots)
+			expect(set).toHaveBeenCalledWith(
+				expect.objectContaining({ isDisabled: true, disabledReason: "Holiday" })
+			)
+			expect(auditService.record).toHaveBeenCalledWith(
+				{
+					domain: "schedules",
+					action: "schedule.date.block",
+					actorId: "staff-1",
+					targetType: "schedule_date",
+					targetId: "1:2:2026-12-02",
+					oldValue: null,
+					newValue: {
+						serviceId: 1,
+						locationId: 2,
+						date: "2026-12-02",
+						reason: "Holiday",
+						slotCount: 3,
+						disabledCount: 2,
+						paidBookingCount: 2,
+					},
+				},
+				tx
+			)
+		})
+
+		it("does nothing but audit when the date has no slots", async () => {
+			const select = jest
+				.fn()
+				.mockReturnValueOnce(selectRows([serviceCategory]))
+				.mockReturnValueOnce(selectLockedOrdered([]))
+			const update = jest.fn()
+			mockTransaction({ select, update })
+
+			await expect(service.blockDate(blockInput, "staff-1")).resolves.toEqual({
+				disabledCount: 0,
+				paidBookings: [],
+			})
+			// No paid-bookings query when there are no slots to look in.
+			expect(select).toHaveBeenCalledTimes(2)
+			expect(update).not.toHaveBeenCalled()
+			expect(auditService.record).toHaveBeenCalledTimes(1)
+		})
+
+		it("refuses a user outside the Scope before reading any slot", async () => {
+			jest.mocked(inScope).mockReturnValueOnce(false)
+			const select = jest.fn().mockReturnValueOnce(selectRows([serviceCategory]))
+			const update = jest.fn()
+			mockTransaction({ select, update })
+
+			await expect(service.blockDate(blockInput, "staff-1", LIMITED_SCOPE)).rejects.toMatchObject({
+				code: "NOT_FOUND",
+			})
+			expect(select).toHaveBeenCalledTimes(1)
+			expect(update).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("unblockDate (SCH-2)", () => {
+		const unblockInput = { serviceId: 1, locationId: 2, date: "2026-12-02" }
+
+		it("re-enables only the slots a date block disabled, and audits the count", async () => {
+			// The query keeps only slots with a reason; slots disabled by hand never come back.
+			const lock = jest.fn()
+			const set = jest.fn()
+			const update = jest.fn().mockReturnValue(updateAll(set))
+			const tx = mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(selectLockedOrdered([{ id: 7 }, { id: 9 }], lock)),
+				update,
+			})
+
+			await expect(service.unblockDate(unblockInput, "staff-1")).resolves.toEqual({
+				enabledCount: 2,
+			})
+
+			expect(lock).toHaveBeenCalledWith("update")
+			expect(update).toHaveBeenCalledTimes(1)
+			expect(set).toHaveBeenCalledWith(
+				expect.objectContaining({ isDisabled: false, disabledReason: null })
+			)
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "schedule.date.unblock",
+					targetType: "schedule_date",
+					targetId: "1:2:2026-12-02",
+					newValue: expect.objectContaining({ enabledCount: 2 }),
+				}),
+				tx
+			)
+		})
+
+		it("changes nothing when the date has no blocked slots", async () => {
+			const update = jest.fn()
+			mockTransaction({
+				select: jest
+					.fn()
+					.mockReturnValueOnce(selectRows([serviceCategory]))
+					.mockReturnValueOnce(selectLockedOrdered([])),
+				update,
+			})
+
+			await expect(service.unblockDate(unblockInput, "staff-1")).resolves.toEqual({
+				enabledCount: 0,
+			})
+			expect(update).not.toHaveBeenCalled()
+		})
+
+		it("refuses a user outside the Scope", async () => {
+			jest.mocked(inScope).mockReturnValueOnce(false)
+			const update = jest.fn()
+			mockTransaction({
+				select: jest.fn().mockReturnValueOnce(selectRows([serviceCategory])),
+				update,
+			})
+
+			await expect(
+				service.unblockDate(unblockInput, "staff-1", LIMITED_SCOPE)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+			expect(update).not.toHaveBeenCalled()
+		})
+	})
+
 	describe("updateSlotCapacity", () => {
 		it("changes the capacity under a row lock and audits old and new values", async () => {
 			const current = makeSlot({ capacity: 20, bookedCount: 5 })
@@ -448,6 +849,8 @@ describe("SchedulesService", () => {
 
 			expect(set).toHaveBeenCalledWith(expect.objectContaining({ isDisabled: true }))
 			expect(set.mock.calls[0]?.[0]).not.toHaveProperty("bookedCount")
+			// Disabling by hand never writes a reason, so a date unblock leaves it disabled.
+			expect(set.mock.calls[0]?.[0]).not.toHaveProperty("disabledReason")
 			expect(auditService.record).toHaveBeenCalledWith(
 				expect.objectContaining({
 					action: "schedule.slot.disable",
@@ -459,17 +862,29 @@ describe("SchedulesService", () => {
 			)
 		})
 
-		it("re-enables a slot and audits it as schedule.slot.enable", async () => {
-			const current = makeSlot({ isDisabled: true })
+		it("re-enables a slot, clears any date-block reason, and audits it as schedule.slot.enable", async () => {
+			const current = makeSlot({ isDisabled: true, disabledReason: "Holiday" })
+			const set = jest.fn()
 			const tx = mockTransaction({
 				select: jest.fn().mockReturnValue(selectRows([current])),
-				update: jest.fn().mockReturnValue(updateReturning([{ ...current, isDisabled: false }])),
+				update: jest
+					.fn()
+					.mockReturnValue(
+						updateReturning([{ ...current, isDisabled: false, disabledReason: null }], set)
+					),
 			})
 
 			await service.setSlotDisabled({ id: 7, isDisabled: false }, "staff-1")
 
+			expect(set).toHaveBeenCalledWith(
+				expect.objectContaining({ isDisabled: false, disabledReason: null })
+			)
 			expect(auditService.record).toHaveBeenCalledWith(
-				expect.objectContaining({ action: "schedule.slot.enable" }),
+				expect.objectContaining({
+					action: "schedule.slot.enable",
+					oldValue: expect.objectContaining({ disabledReason: "Holiday" }),
+					newValue: expect.objectContaining({ disabledReason: null }),
+				}),
 				tx
 			)
 		})

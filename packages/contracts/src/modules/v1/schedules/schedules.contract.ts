@@ -13,9 +13,9 @@ import {
 	ScheduleSlotSchema,
 	SetSlotDisabledRequestSchema,
 	SlotAvailabilitySchema,
+	SlotIdParamSchema,
 	UnblockScheduleDateRequestSchema,
 	UnblockScheduleDateResponseSchema,
-	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 } from "./schedules.schema.js"
 
@@ -61,7 +61,8 @@ export const schedulesContract = {
 			method: "PUT",
 			path: "/schedules/slots/capacity/bulk",
 			summary: "Bulk update schedule capacity",
-			description: "Update capacity across one day, week, or month. Slots whose booked count exceeds the requested capacity are returned unchanged.",
+			description:
+				"Update capacity across one day, week, or month. Slots whose booked count exceeds the requested capacity are returned unchanged.",
 			tags: ["Schedules"],
 		})
 		.input(BulkUpdateCapacityRequestSchema)
@@ -72,7 +73,8 @@ export const schedulesContract = {
 			method: "POST",
 			path: "/schedules/dates/block",
 			summary: "Block a schedule date",
-			description: "Disable all slots for a service and location on a Manila date, returning paid bookings for follow-up.",
+			description:
+				"Disable all slots for a service and location on a Manila date, returning paid bookings for follow-up.",
 			tags: ["Schedules"],
 		})
 		.input(BlockScheduleDateRequestSchema)
