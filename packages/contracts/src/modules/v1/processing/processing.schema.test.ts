@@ -82,6 +82,26 @@ describe("RecordAssessmentSchema", () => {
 				.success
 		).toBe(false)
 	})
+
+	it("records a medical exemption, but not together with the vaccination details (CRT-3)", () => {
+		const exemption = {
+			reason: "Egg allergy",
+			physicianName: "Dr. Santos",
+			validFrom: "2026-11-19",
+		}
+		const document = { batchNumber: "YF-24A", vaccinatorName: "Dr. Reyes", validFrom: "2026-11-19" }
+		expect(
+			RecordAssessmentSchema.parse({ bookingItemId: 44, outcome: "cleared", exemption }).exemption
+		).toMatchObject({ reason: "Egg allergy", validUntil: null })
+		expect(
+			RecordAssessmentSchema.safeParse({
+				bookingItemId: 44,
+				outcome: "cleared",
+				exemption,
+				document,
+			}).success
+		).toBe(false)
+	})
 })
 
 describe("ApprovalQueueRequestSchema (PRC-3)", () => {

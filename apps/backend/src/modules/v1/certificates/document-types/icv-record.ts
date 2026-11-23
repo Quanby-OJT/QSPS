@@ -3,7 +3,9 @@ import type { IcvIssueDetails } from "@repo/contracts"
 import type { PdfDocument } from "@/common/pdf/pdf.service"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
+import { formatCalendarDate } from "./calendar-date"
 import type { DocumentTypeDefinition, IssueContext, PdfExtras } from "./document-type"
+import { icvCardLayout } from "./icv-card"
 
 /**
  * International Certificate of Vaccination or Prophylaxis record (CRT-1,
@@ -47,17 +49,8 @@ export function buildIcvPayload(context: IssueContext, details: IcvIssueDetails)
 	}
 }
 
-/** "2026-11-19" → "November 19, 2026". Dates are calendar dates, so no timezone shift. */
-export function formatCalendarDate(date: string | null): string {
-	if (!date) return "-"
-	const [year, month, day] = date.split("-").map(Number)
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone: "UTC",
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-	}).format(new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1)))
-}
+// Kept exported from here so existing imports keep working (CRT-3 moved it out).
+export { formatCalendarDate } from "./calendar-date"
 
 const LABEL_COLOR = "#555555"
 const RULE_COLOR = "#cccccc"
@@ -167,4 +160,6 @@ export const icvRecord: DocumentTypeDefinition<IcvIssueDetails> = {
 	buildPayload: (context, details) => ({ ...buildIcvPayload(context, details) }),
 	validUntil: details => details.validUntil ?? null,
 	draw: (doc, payload, extras) => drawIcvRecord(doc, payload as unknown as IcvPayload, extras),
+	// CRT-3: staff print this record onto the pre-printed yellow card (the "icv-card" layout).
+	card: icvCardLayout,
 }

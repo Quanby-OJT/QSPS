@@ -19,12 +19,20 @@ export default async function AssessmentPage({
 	if (!Number.isInteger(id) || id <= 0) notFound()
 
 	// PRC-3: show Approve, Send back and Override only to approvers. The API
-	// still checks the key and Scope on every call.
+	// still checks every key and the Scope on every call.
 	const access = await getAccess()
-	const canApprove = canAccess(
-		{ roles: access.roles, permissions: access.permissions },
-		{ requiredPermission: "processing.assessments:approve" }
-	)
+	const holder = { roles: access.roles, permissions: access.permissions }
+	const canApprove = canAccess(holder, { requiredPermission: "processing.assessments:approve" })
+	// CRT-3: show Issue document and Print only to staff who hold the keys.
+	const canIssue = canAccess(holder, { requiredPermission: "certificates.documents:issue" })
+	const canPrint = canAccess(holder, { requiredPermission: "certificates.documents:print" })
 
-	return <AssessmentView bookingItemId={id} canApprove={canApprove} />
+	return (
+		<AssessmentView
+			bookingItemId={id}
+			canApprove={canApprove}
+			canIssue={canIssue}
+			canPrint={canPrint}
+		/>
+	)
 }

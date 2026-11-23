@@ -28,6 +28,8 @@ const location: Location = {
 	address: "Port Area, Manila",
 	region: "NCR",
 	isActive: true,
+	cardOffsetXMm: 0,
+	cardOffsetYMm: 0,
 	createdAt: new Date("2026-01-01"),
 	updatedAt: new Date("2026-01-01"),
 }

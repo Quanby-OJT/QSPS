@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { DOCUMENT_TYPES } from "../certificates/certificates.schema.js"
+import { SERVICE_DOCUMENT_TYPES } from "../certificates/certificates.schema.js"
 
 const dateField = z
 	.union([z.date(), z.string()])
@@ -27,7 +27,7 @@ const StoredDocumentTypeSchema = z.string().trim().min(1).max(100).nullable()
 
 /** Document a service issues when cleared (CRT-1): one QSPS knows how to issue, or null. */
 const DocumentTypeInputSchema = z
-	.enum(DOCUMENT_TYPES, { error: "Choose a document type QSPS can issue" })
+	.enum(SERVICE_DOCUMENT_TYPES, { error: "Choose a document type QSPS can issue" })
 	.nullable()
 
 export const ServiceCategorySchema = z.object({

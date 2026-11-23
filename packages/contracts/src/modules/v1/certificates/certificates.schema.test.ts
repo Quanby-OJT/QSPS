@@ -4,7 +4,10 @@ import {
 	DocumentTokenParamSchema,
 	DocumentVerificationSchema,
 	IcvIssueDetailsSchema,
+	IssueDocumentSchema,
 	ManualVerificationSchema,
+	MedicalExemptionDetailsSchema,
+	SERVICE_DOCUMENT_TYPES,
 } from "./certificates.schema.js"
 
 const TOKEN = "AbCdEfGhIjKlMnOpQrSt_-"
@@ -84,6 +87,60 @@ describe("certificate schemas", () => {
 				passportOrIdNumber: "P1234567",
 			})
 			expect(parsed).not.toHaveProperty("passportOrIdNumber")
+		})
+	})
+
+	describe("medical exemption (CRT-3)", () => {
+		const exemption = {
+			reason: "  Egg allergy  ",
+			physicianName: "Dr. Santos",
+			validFrom: "2026-11-19",
+		}
+
+		it("needs a reason and a physician, trims them, and defaults to no end date", () => {
+			expect(MedicalExemptionDetailsSchema.parse(exemption)).toEqual({
+				reason: "Egg allergy",
+				physicianName: "Dr. Santos",
+				validFrom: "2026-11-19",
+				validUntil: null,
+				passportOrIdNumber: null,
+			})
+			expect(MedicalExemptionDetailsSchema.safeParse({ ...exemption, reason: " " }).success).toBe(
+				false
+			)
+			expect(
+				MedicalExemptionDetailsSchema.safeParse({ ...exemption, physicianName: "" }).success
+			).toBe(false)
+		})
+
+		it("refuses an end date before the start", () => {
+			expect(
+				MedicalExemptionDetailsSchema.safeParse({ ...exemption, validUntil: "2026-11-18" }).success
+			).toBe(false)
+		})
+
+		it("refuses a reason longer than 500 characters", () => {
+			expect(
+				MedicalExemptionDetailsSchema.safeParse({ ...exemption, reason: "x".repeat(501) }).success
+			).toBe(false)
+		})
+
+		it("issues either the vaccination details or the exemption, never both or neither", () => {
+			const details = {
+				batchNumber: "YF-24A",
+				vaccinatorName: "Dr. Reyes",
+				validFrom: "2026-11-19",
+			}
+			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44, details }).success).toBe(true)
+			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44, exemption }).success).toBe(true)
+			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44, details, exemption }).success).toBe(
+				false
+			)
+			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44 }).success).toBe(false)
+		})
+
+		it("is never a type a Service can be set to issue", () => {
+			expect(SERVICE_DOCUMENT_TYPES).toEqual(["icv-record"])
 		})
 	})
 })

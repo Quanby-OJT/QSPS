@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common"
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import { timingSafeEqual } from "node:crypto"
 import { ORPCError } from "@orpc/server"
 import { and, desc, eq, sql, type SQL } from "drizzle-orm"
@@ -9,6 +9,7 @@ import type {
 	IcvIssueDetails,
 	IssueDocumentInput,
 	ManualVerificationInput,
+	MedicalExemptionDetails,
 	MyDocuments,
 } from "@repo/contracts"
 import {
@@ -26,12 +27,19 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { PdfService } from "@/common/pdf/pdf.service"
+import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
 import { env } from "@/config/env.config"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { newVerificationToken } from "../payments/receipt-number"
 import { formatDocumentNumber } from "./document-number"
-import { documentTypeFor } from "./document-types/registry"
+import type { PdfExtras, RenderableDocumentType } from "./document-types/document-type"
+import {
+	documentTypeFor,
+	isVaccinationType,
+	medicalExemption,
+	serviceDocumentTypeFor,
+} from "./document-types/registry"
 import { holderNameOf, maskName } from "./mask-name"
 
 const AUDIT_DOMAIN_CERTIFICATES = "certificates"
@@ -66,8 +74,22 @@ export interface IssueRequest {
 	bookingItemId: number
 	/** The officer issuing; for auto-issue, the officer who cleared the item. */
 	actorId: string
-	details: IcvIssueDetails
+	/** What staff typed for the Service's own document (the vaccination record). */
+	details?: IcvIssueDetails | null
+	/**
+	 * CRT-3: the client is medically exempt, so a Medical Exemption Certificate
+	 * is issued instead of the vaccination record. Give this or `details`.
+	 */
+	exemption?: MedicalExemptionDetails | null
 	now?: Date
+}
+
+/** A print of an existing document (CRT-3). */
+export interface PrintResult {
+	fileName: string
+	pdf: Buffer
+	/** How many times the document has been printed, this print included. */
+	printCount: number
 }
 
 export interface IssueResult {
@@ -150,10 +172,46 @@ export class DocumentService {
 			throw new ORPCError("NOT_FOUND", { message: "Booking item not found" })
 		}
 
-		const type = documentTypeFor(context.documentType)
-		if (!type) {
+		const serviceType = serviceDocumentTypeFor(context.documentType)
+		if (!serviceType) {
 			throw new ORPCError("CONFLICT", {
 				message: `${context.serviceName} does not issue a document QSPS can generate yet`,
+			})
+		}
+		const issueContext = {
+			holder: {
+				name: context.holderName,
+				birthDate: context.holderBirthDate,
+				gender: context.holderGender,
+				nationality: context.holderNationality,
+			},
+			serviceName: context.serviceName,
+			locationName: context.locationName,
+			issuedAt: now,
+		}
+
+		// CRT-3: an exempt client gets a Medical Exemption Certificate, with its
+		// own number series and QR code, instead of the vaccination record.
+		let type: RenderableDocumentType
+		let payload: Record<string, unknown>
+		let validUntil: string | null
+		if (request.exemption) {
+			if (!isVaccinationType(serviceType.type)) {
+				throw new ORPCError("CONFLICT", {
+					message: `A medical exemption applies only to a vaccination; ${context.serviceName} is not one`,
+				})
+			}
+			type = medicalExemption
+			payload = medicalExemption.buildPayload(issueContext, request.exemption)
+			validUntil = medicalExemption.validUntil(request.exemption)
+		} else if (request.details) {
+			type = serviceType
+			payload = serviceType.buildPayload(issueContext, request.details)
+			validUntil = serviceType.validUntil(request.details)
+		} else {
+			throw new ORPCError("BAD_REQUEST", {
+				message:
+					"Enter the vaccine batch number and the vaccinator, or record the medical exemption.",
 			})
 		}
 
@@ -164,21 +222,6 @@ export class DocumentService {
 			now,
 			sequence
 		)
-		const payload = type.buildPayload(
-			{
-				holder: {
-					name: context.holderName,
-					birthDate: context.holderBirthDate,
-					gender: context.holderGender,
-					nationality: context.holderNationality,
-				},
-				serviceName: context.serviceName,
-				locationName: context.locationName,
-				issuedAt: now,
-			},
-			request.details
-		)
-
 		const [created] = await tx
 			.insert(documents)
 			.values({
@@ -189,7 +232,7 @@ export class DocumentService {
 				issuingLocationId: item.locationId,
 				issuedBy: request.actorId,
 				issuedAt: now,
-				validUntil: type.validUntil(request.details),
+				validUntil,
 				status: "valid",
 				source: "qsps",
 				payload,
@@ -240,7 +283,7 @@ export class DocumentService {
 				documentNumber,
 				status: "valid",
 				issuedAt: now,
-				validUntil: type.validUntil(request.details),
+				validUntil,
 				serviceName: context.serviceName,
 				locationName: context.locationName,
 				referenceNumber: context.referenceNumber,
@@ -254,26 +297,35 @@ export class DocumentService {
 	 * the transaction that clears the item. Returns null when the Service has
 	 * auto-issue off or issues no document. When it does auto-issue, the staff
 	 * details are required, so a missing batch number rolls the clearance back.
+	 *
+	 * CRT-3: with `exemption`, the Medical Exemption Certificate is issued
+	 * instead. An exemption on a Service that does not auto-issue is refused, so
+	 * it is never silently dropped; staff issue it from the item afterwards.
 	 */
-	async issueOnClearance(
-		tx: Transaction,
-		request: Omit<IssueRequest, "details"> & { details?: IcvIssueDetails | null }
-	): Promise<IssueResult | null> {
+	async issueOnClearance(tx: Transaction, request: IssueRequest): Promise<IssueResult | null> {
 		const [service] = await tx
 			.select({ autoIssue: services.autoIssue, documentType: services.documentType })
 			.from(bookingItems)
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, request.bookingItemId))
 			.limit(1)
-		if (!service?.autoIssue || !documentTypeFor(service.documentType)) return null
+		if (!service?.autoIssue || !serviceDocumentTypeFor(service.documentType)) {
+			if (request.exemption) {
+				throw new ORPCError("BAD_REQUEST", {
+					message:
+						"This service does not issue its certificate on clearance. Clear the item first, then issue the Medical Exemption Certificate from the item.",
+				})
+			}
+			return null
+		}
 
-		if (!request.details) {
+		if (!request.details && !request.exemption) {
 			throw new ORPCError("BAD_REQUEST", {
 				message:
-					"This service issues its certificate on clearance. Enter the vaccine batch number and the vaccinator.",
+					"This service issues its certificate on clearance. Enter the vaccine batch number and the vaccinator, or record the medical exemption.",
 			})
 		}
-		return this.issue(tx, { ...request, details: request.details })
+		return this.issue(tx, request)
 	}
 
 	/**
@@ -310,7 +362,12 @@ export class DocumentService {
 		}
 
 		const result = await db.transaction(tx =>
-			this.issue(tx, { bookingItemId: item.id, actorId, details: input.details })
+			this.issue(tx, {
+				bookingItemId: item.id,
+				actorId,
+				details: input.details,
+				exemption: input.exemption,
+			})
 		)
 		return result.document
 	}
@@ -401,6 +458,125 @@ export class DocumentService {
 				})
 		)
 		return { fileName: `${row.documentNumber}.pdf`, pdf }
+	}
+
+	/**
+	 * Staff print a document (CRT-3): the vaccination record onto the
+	 * pre-printed yellow card, shifted by the issuing Location's card offsets,
+	 * or any other type on plain A4. Every print adds one to
+	 * `documents.print_count` and is audited as `document.print`, with
+	 * `reprint` true from the second print on.
+	 *
+	 * The permission (`certificates.documents:print`) is checked by the route;
+	 * here the document must be in the caller's Scope (its Service Category and
+	 * issuing Location), or the caller gets the same 404 as a missing document
+	 * and the attempt is audited as denied. Only a valid document prints.
+	 *
+	 * Called from a plain route, so it throws Nest exceptions, not ORPCError.
+	 */
+	async printForStaff(
+		documentId: number,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<PrintResult> {
+		const [row] = await db
+			.select({
+				id: documents.id,
+				documentNumber: documents.documentNumber,
+				documentType: documents.documentType,
+				status: documents.status,
+				verificationToken: documents.verificationToken,
+				payload: documents.payload,
+				printCount: documents.printCount,
+				locationId: documents.issuingLocationId,
+				cardOffsetXMm: locations.cardOffsetXMm,
+				cardOffsetYMm: locations.cardOffsetYMm,
+				serviceCategoryId: services.serviceCategoryId,
+			})
+			.from(documents)
+			.innerJoin(locations, eq(locations.id, documents.issuingLocationId))
+			.innerJoin(bookingItems, eq(bookingItems.id, documents.bookingItemId))
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.where(eq(documents.id, documentId))
+			.limit(1)
+
+		const type = documentTypeFor(row?.documentType)
+		const allowed =
+			!!row &&
+			!!actorId &&
+			inScope(scope, { serviceCategoryId: row.serviceCategoryId, locationId: row.locationId })
+		if (!row || !type || !allowed) {
+			if (actorId && row) {
+				await this.auditService.record({
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action: "document.print",
+					outcome: "denied",
+					actorId,
+					targetType: "document",
+					targetId: String(documentId),
+					reason: "outside_scope",
+				})
+			}
+			throw new NotFoundException("Document not found")
+		}
+		if (row.status !== "valid") {
+			throw new ConflictException(`Only a valid document can be printed; this one is ${row.status}`)
+		}
+
+		const verifyUrl = documentVerifyUrl(row.verificationToken)
+		const extras: PdfExtras = {
+			documentNumber: row.documentNumber,
+			status: row.status,
+			verifyUrl,
+			qrPng: await this.pdfService.qrPng(verifyUrl),
+		}
+		const card = type.card
+		const title = `${type.title} ${row.documentNumber}`
+		// Rendered before counting, so a failed render is never counted as a print.
+		const pdf = card
+			? await this.pdfService.render({ title, size: card.size, margin: 0 }, doc =>
+					card.draw(doc, row.payload, extras, {
+						xMm: row.cardOffsetXMm,
+						yMm: row.cardOffsetYMm,
+					})
+				)
+			: await this.pdfService.render({ title }, doc => type.draw(doc, row.payload, extras))
+
+		const printCount = await db.transaction(async tx => {
+			// One atomic increment, so two prints at once both count. The status
+			// condition refuses a document revoked since it was read.
+			const [counted] = await tx
+				.update(documents)
+				.set({ printCount: sql`${documents.printCount} + 1` })
+				.where(and(eq(documents.id, row.id), eq(documents.status, "valid")))
+				.returning({ printCount: documents.printCount })
+			if (!counted) {
+				throw new ConflictException("Only a valid document can be printed")
+			}
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action: "document.print",
+					actorId,
+					targetType: "document",
+					targetId: String(row.id),
+					oldValue: { printCount: counted.printCount - 1 },
+					newValue: {
+						documentNumber: row.documentNumber,
+						documentType: type.type,
+						layout: card ? "card" : "a4",
+						printCount: counted.printCount,
+						reprint: counted.printCount > 1,
+						...(card ? { offsetsMm: { x: row.cardOffsetXMm, y: row.cardOffsetYMm } } : {}),
+					},
+				},
+				tx
+			)
+			return counted.printCount
+		})
+
+		return { fileName: `${row.documentNumber}.pdf`, pdf, printCount }
 	}
 
 	/**

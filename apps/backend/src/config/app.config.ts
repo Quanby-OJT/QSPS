@@ -93,7 +93,7 @@ export function configureCors(app: INestApplication): void {
 	app.enableCors({
 		origin: origins,
 		credentials: true,
-		exposedHeaders: ["Retry-After", "X-Retry-After", "X-Request-Id"],
+		exposedHeaders: ["Retry-After", "X-Retry-After", "X-Request-Id", "X-Print-Count"],
 	})
 	logger.log(`CORS enabled for origins: ${origins.join(", ")}`)
 }

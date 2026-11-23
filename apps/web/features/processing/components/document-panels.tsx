@@ -1,0 +1,401 @@
+"use client"
+
+import { useState } from "react"
+import { toast } from "sonner"
+
+import type { IcvIssueDetails, MedicalExemptionDetails, ProcessingItem } from "@repo/contracts"
+
+import { BoqLoader } from "@/core/components/boq-loader"
+import { Button } from "@/core/components/ui/button"
+import { Input } from "@/core/components/ui/input"
+import { Label } from "@/core/components/ui/label"
+import { Textarea } from "@/core/components/ui/textarea"
+import { cn } from "@/core/lib/utils"
+import {
+	useIssueDocumentMutation,
+	usePrintDocumentMutation,
+} from "@/features/processing/api/processing.hooks"
+import { documentTypeLabel, printCountLabel } from "@/features/processing/lib/labels"
+import { manilaDateKey } from "@/features/schedules/lib/calendar"
+
+/** Same limit as MAX_EXEMPTION_REASON_LENGTH in @repo/contracts. */
+const MAX_REASON_LENGTH = 500
+
+/** CRT-3: the client was vaccinated, or is medically exempt from the vaccine. */
+export type DocumentMode = "vaccinated" | "exempt"
+
+/**
+ * What staff type for the document a cleared item gets: the vaccination
+ * record's details (CRT-1), or the medical exemption (CRT-3). Shared by the
+ * assessment form and the Issue document panel.
+ */
+export function useDocumentDetailsForm() {
+	const today = manilaDateKey(new Date())
+	const [mode, setMode] = useState<DocumentMode>("vaccinated")
+	const [certificate, setCertificate] = useState({
+		batchNumber: "",
+		vaccinatorName: "",
+		validFrom: today,
+		validUntil: "",
+		passportOrIdNumber: "",
+	})
+	const [exemption, setExemption] = useState({
+		reason: "",
+		physicianName: "",
+		validFrom: today,
+		validUntil: "",
+		passportOrIdNumber: "",
+	})
+
+	const missing =
+		mode === "vaccinated"
+			? certificate.batchNumber.trim().length === 0 ||
+				certificate.vaccinatorName.trim().length === 0 ||
+				certificate.validFrom.length === 0
+			: exemption.reason.trim().length === 0 ||
+				exemption.physicianName.trim().length === 0 ||
+				exemption.validFrom.length === 0
+
+	function details(): IcvIssueDetails | null {
+		if (mode !== "vaccinated") return null
+		return {
+			batchNumber: certificate.batchNumber.trim(),
+			vaccinatorName: certificate.vaccinatorName.trim(),
+			validFrom: certificate.validFrom,
+			validUntil: certificate.validUntil || null,
+			passportOrIdNumber: certificate.passportOrIdNumber.trim() || null,
+		}
+	}
+
+	function exemptionDetails(): MedicalExemptionDetails | null {
+		if (mode !== "exempt") return null
+		return {
+			reason: exemption.reason.trim(),
+			physicianName: exemption.physicianName.trim(),
+			validFrom: exemption.validFrom,
+			validUntil: exemption.validUntil || null,
+			passportOrIdNumber: exemption.passportOrIdNumber.trim() || null,
+		}
+	}
+
+	return {
+		mode,
+		setMode,
+		certificate,
+		setCertificateField: (field: keyof typeof certificate, value: string) =>
+			setCertificate(current => ({ ...current, [field]: value })),
+		exemption,
+		setExemptionField: (field: keyof typeof exemption, value: string) =>
+			setExemption(current => ({ ...current, [field]: value })),
+		missing,
+		details,
+		exemptionDetails,
+	}
+}
+
+export type DocumentDetailsForm = ReturnType<typeof useDocumentDetailsForm>
+
+const MODES: { value: DocumentMode; label: string; hint: string }[] = [
+	{
+		value: "vaccinated",
+		label: "Vaccinated",
+		hint: "Issue the vaccination certificate with the vaccine details.",
+	},
+	{
+		value: "exempt",
+		label: "Medically exempt",
+		hint: "The vaccine was not given for a medical reason. Issue a Medical Exemption Certificate.",
+	},
+]
+
+/**
+ * The document fields (CRT-1, CRT-3). With `allowExemption`, staff first
+ * choose Vaccinated or Medically exempt, and the fields follow the choice.
+ */
+export function DocumentDetailsFields({
+	form,
+	allowExemption,
+	idPrefix,
+	intro,
+}: {
+	form: DocumentDetailsForm
+	allowExemption: boolean
+	/** Keeps field ids unique when two forms could share a page. */
+	idPrefix: string
+	intro: string
+}) {
+	const { mode, certificate, exemption } = form
+	const showExemption = allowExemption && mode === "exempt"
+
+	return (
+		<fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+			<legend className="px-1 text-sm font-medium">Certificate details</legend>
+			<p className="text-muted-foreground text-xs">{intro} Fields marked * are required.</p>
+
+			{allowExemption ? (
+				<div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Vaccination">
+					{MODES.map(option => (
+						<label
+							key={option.value}
+							className={cn(
+								"flex cursor-pointer flex-col gap-1 rounded-lg border p-3 text-sm transition-colors",
+								mode === option.value ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+							)}
+						>
+							<span className="flex items-center gap-2 font-medium">
+								<input
+									type="radio"
+									name={`${idPrefix}-mode`}
+									value={option.value}
+									checked={mode === option.value}
+									onChange={() => form.setMode(option.value)}
+								/>
+								{option.label}
+							</span>
+							<span className="text-muted-foreground text-xs">{option.hint}</span>
+						</label>
+					))}
+				</div>
+			) : null}
+
+			{showExemption ? (
+				<div className="grid items-start gap-x-3 gap-y-4 sm:grid-cols-2">
+					<div className="flex flex-col gap-1.5 sm:col-span-2">
+						<Label htmlFor={`${idPrefix}-reason`}>Medical reason *</Label>
+						<Textarea
+							id={`${idPrefix}-reason`}
+							placeholder="e.g. Severe egg allergy (anaphylaxis)"
+							value={exemption.reason}
+							maxLength={MAX_REASON_LENGTH}
+							rows={3}
+							onChange={event => form.setExemptionField("reason", event.target.value)}
+							aria-invalid={!exemption.reason.trim() || undefined}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5 sm:col-span-2">
+						<Label htmlFor={`${idPrefix}-physician`}>Examining physician *</Label>
+						<Input
+							id={`${idPrefix}-physician`}
+							placeholder="e.g. Dr. Maria Santos"
+							value={exemption.physicianName}
+							maxLength={200}
+							onChange={event => form.setExemptionField("physicianName", event.target.value)}
+							aria-invalid={!exemption.physicianName.trim() || undefined}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-exempt-from`}>Valid from *</Label>
+						<Input
+							id={`${idPrefix}-exempt-from`}
+							type="date"
+							value={exemption.validFrom}
+							onChange={event => form.setExemptionField("validFrom", event.target.value)}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-exempt-until`}>Valid until</Label>
+						<Input
+							id={`${idPrefix}-exempt-until`}
+							type="date"
+							value={exemption.validUntil}
+							min={exemption.validFrom || undefined}
+							onChange={event => form.setExemptionField("validUntil", event.target.value)}
+						/>
+						<p className="text-muted-foreground text-xs">Leave blank if it has no end date.</p>
+					</div>
+					<div className="flex flex-col gap-1.5 sm:col-span-2">
+						<Label htmlFor={`${idPrefix}-exempt-passport`}>Passport/ID number</Label>
+						<Input
+							id={`${idPrefix}-exempt-passport`}
+							value={exemption.passportOrIdNumber}
+							maxLength={50}
+							onChange={event => form.setExemptionField("passportOrIdNumber", event.target.value)}
+						/>
+					</div>
+				</div>
+			) : (
+				<div className="grid items-start gap-x-3 gap-y-4 sm:grid-cols-2">
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-batch`}>Batch/lot number *</Label>
+						<Input
+							id={`${idPrefix}-batch`}
+							placeholder="e.g. YF-24A"
+							value={certificate.batchNumber}
+							maxLength={50}
+							onChange={event => form.setCertificateField("batchNumber", event.target.value)}
+							aria-invalid={!certificate.batchNumber.trim() || undefined}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-vaccinator`}>Vaccinator *</Label>
+						<Input
+							id={`${idPrefix}-vaccinator`}
+							placeholder="e.g. Dr. Juan Reyes"
+							value={certificate.vaccinatorName}
+							maxLength={200}
+							onChange={event => form.setCertificateField("vaccinatorName", event.target.value)}
+							aria-invalid={!certificate.vaccinatorName.trim() || undefined}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-valid-from`}>Valid from *</Label>
+						<Input
+							id={`${idPrefix}-valid-from`}
+							type="date"
+							value={certificate.validFrom}
+							onChange={event => form.setCertificateField("validFrom", event.target.value)}
+						/>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor={`${idPrefix}-valid-until`}>Valid until</Label>
+						<Input
+							id={`${idPrefix}-valid-until`}
+							type="date"
+							value={certificate.validUntil}
+							min={certificate.validFrom || undefined}
+							onChange={event => form.setCertificateField("validUntil", event.target.value)}
+						/>
+						<p className="text-muted-foreground text-xs">Leave blank if it does not expire.</p>
+					</div>
+					<div className="flex flex-col gap-1.5 sm:col-span-2">
+						<Label htmlFor={`${idPrefix}-passport`}>Passport/ID number</Label>
+						<Input
+							id={`${idPrefix}-passport`}
+							value={certificate.passportOrIdNumber}
+							maxLength={50}
+							onChange={event => form.setCertificateField("passportOrIdNumber", event.target.value)}
+						/>
+					</div>
+				</div>
+			)}
+		</fieldset>
+	)
+}
+
+/**
+ * The item's issued document (CRT-1), with its type, how often it was
+ * printed, and, for staff with `certificates.documents:print`, a Print
+ * button (CRT-3). The vaccination record prints on the yellow card.
+ */
+export function IssuedDocumentPanel({
+	item,
+	canPrint,
+}: {
+	item: ProcessingItem & { document: NonNullable<ProcessingItem["document"]> }
+	canPrint: boolean
+}) {
+	const print = usePrintDocumentMutation(item.bookingItemId)
+	const { document } = item
+	const onCard = document.documentType === "icv-record"
+
+	async function printDocument() {
+		// Opened from the click itself, or the browser blocks the new tab.
+		const target = window.open("", "_blank")
+		try {
+			const { printCount } = await print.mutateAsync({ documentId: document.id, target })
+			toast.success(
+				printCount > 1
+					? `Reprint ${printCount - 1} sent to the print view`
+					: "Print view opened. Load the card and print."
+			)
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Could not print the document")
+		}
+	}
+
+	return (
+		<div className="bg-card flex flex-col gap-2 rounded-xl border p-4">
+			<h2 className="font-semibold">Document issued</h2>
+			<p className="text-sm">{documentTypeLabel(document.documentType)}</p>
+			<p className="text-sm">
+				<span className="font-mono">{document.documentNumber}</span>
+			</p>
+			<p className="text-muted-foreground text-xs">
+				{printCountLabel(document.printCount)} · The client can download it from My Documents.
+			</p>
+			{canPrint ? (
+				<div className="flex flex-col items-start gap-1 pt-1">
+					<Button type="button" onClick={() => void printDocument()} disabled={print.isPending}>
+						{print.isPending
+							? "Preparing…"
+							: document.printCount > 0
+								? onCard
+									? "Reprint card"
+									: "Reprint"
+								: onCard
+									? "Print card"
+									: "Print"}
+					</Button>
+					<p className="text-muted-foreground text-xs">
+						{onCard
+							? "Prints onto the pre-printed yellow card, using this office's card offsets. Print at 100% (actual size)."
+							: "Prints on plain A4 paper."}{" "}
+						Every print is recorded.
+					</p>
+				</div>
+			) : null}
+		</div>
+	)
+}
+
+function newKey(): string {
+	return crypto.randomUUID()
+}
+
+/**
+ * Issue the document for a cleared item that has none yet (CRT-1, CRT-3):
+ * Services with auto-issue off, or items cleared after head approval. Staff
+ * enter the vaccination details or record the medical exemption here.
+ */
+export function IssueDocumentPanel({
+	item,
+	allowExemption,
+}: {
+	item: ProcessingItem
+	allowExemption: boolean
+}) {
+	const issue = useIssueDocumentMutation(item.bookingItemId)
+	const form = useDocumentDetailsForm()
+	// One key per issue, so a double click issues one document, not two.
+	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
+	const exempt = allowExemption && form.mode === "exempt"
+
+	async function submit(event: React.FormEvent) {
+		event.preventDefault()
+		if (form.missing) return
+		try {
+			const document = await issue.mutateAsync({
+				details: exempt ? null : form.details(),
+				exemption: exempt ? form.exemptionDetails() : null,
+				idempotencyKey,
+			})
+			setIdempotencyKey(newKey())
+			toast.success(`Document ${document.documentNumber} issued`)
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Could not issue the document")
+		}
+	}
+
+	return (
+		<form
+			onSubmit={event => void submit(event)}
+			className="bg-card flex flex-col gap-4 rounded-xl border p-4"
+		>
+			{issue.isPending ? <BoqLoader label="Issuing the certificate" /> : null}
+			<h2 className="font-semibold">Issue document</h2>
+			<DocumentDetailsFields
+				form={form}
+				allowExemption={allowExemption}
+				idPrefix="issue"
+				intro="This item is cleared but has no document yet."
+			/>
+			<Button type="submit" disabled={issue.isPending || form.missing} className="self-start">
+				{issue.isPending
+					? "Issuing…"
+					: exempt
+						? "Issue exemption certificate"
+						: "Issue certificate"}
+			</Button>
+		</form>
+	)
+}

@@ -23,19 +23,54 @@ export interface PdfExtras {
 }
 
 /**
- * One entry in the document-type registry (CRT-1): how a type is numbered,
- * what its payload holds, and how its PDF is drawn. CRT-3 to CRT-10 add types
- * by adding entries, not by changing DocumentService.
+ * How far a card print is shifted for one station's printer (CRT-3), in
+ * millimetres: positive X moves right, positive Y moves down. Read from the
+ * issuing Location's `card_offset_x_mm` and `card_offset_y_mm`.
  */
-export interface DocumentTypeDefinition<TDetails> {
+export interface CardOffsets {
+	xMm: number
+	yMm: number
+}
+
+/**
+ * A layout for pre-printed stock (CRT-3): only the values are printed, at
+ * fixed positions, because the card already carries the labels and boxes.
+ */
+export interface CardLayout {
+	/** Page size in points, [width, height]. */
+	size: [number, number]
+	draw(
+		doc: PdfDocument,
+		payload: Record<string, unknown>,
+		extras: PdfExtras,
+		offsets: CardOffsets
+	): void
+}
+
+/**
+ * What every registered type can do with a document that already exists:
+ * name it, draw its PDF, and, for types printed on pre-printed stock, draw
+ * the card layout (CRT-3).
+ */
+export interface RenderableDocumentType {
 	type: string
 	/** Shown as the PDF title. */
 	title: string
 	/** First part of the Document Number, e.g. "ICV". */
 	numberPrefix: string
+	draw(doc: PdfDocument, payload: Record<string, unknown>, extras: PdfExtras): void
+	/** Present when staff print this type onto a pre-printed card (CRT-3). */
+	card?: CardLayout
+}
+
+/**
+ * One entry in the document-type registry (CRT-1): how a type is numbered,
+ * what its payload holds, and how its PDF is drawn. CRT-3 to CRT-10 add types
+ * by adding entries, not by changing DocumentService.
+ */
+export interface DocumentTypeDefinition<TDetails> extends RenderableDocumentType {
 	/** Everything printed on the document, copied at issue time into documents.payload. */
 	buildPayload(context: IssueContext, details: TDetails): Record<string, unknown>
 	/** documents.valid_until (YYYY-MM-DD), or null when it does not expire. */
 	validUntil(details: TDetails): string | null
-	draw(doc: PdfDocument, payload: Record<string, unknown>, extras: PdfExtras): void
 }

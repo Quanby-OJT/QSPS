@@ -74,6 +74,10 @@ const detailRow = {
 	serviceId: 1,
 	serviceName: "Yellow fever vaccination",
 	requiresApproval: false,
+	documentId: null,
+	documentNumber: null,
+	issuedDocumentType: null,
+	printCount: null,
 	locationId: 2,
 	locationName: "BOQ Manila",
 	startsAt: new Date("2026-11-18T01:00:00.000Z"),
@@ -316,6 +320,33 @@ describe("ProcessingService", () => {
 			})
 			expect(item.assessments).toHaveLength(1)
 			expect(item.formAnswers).toEqual({})
+			expect(item.document).toBeNull()
+		})
+
+		it("shows the issued document's type and how often it was printed (CRT-3)", async () => {
+			selects(
+				[{ id: 44, locationId: 2, serviceCategoryId: 1 }],
+				[
+					{
+						...detailRow,
+						status: "issued",
+						documentId: 9,
+						documentNumber: "MEC-MNL-2026-000001",
+						issuedDocumentType: "medical-exemption",
+						printCount: 2,
+					},
+				],
+				[]
+			)
+
+			const item = await processingService.item({ bookingItemId: 44 }, "staff-1", MANILA_SCOPE)
+
+			expect(item.document).toEqual({
+				id: 9,
+				documentNumber: "MEC-MNL-2026-000001",
+				documentType: "medical-exemption",
+				printCount: 2,
+			})
 		})
 	})
 
@@ -422,7 +453,63 @@ describe("ProcessingService", () => {
 				bookingItemId: 44,
 				actorId: "staff-1",
 				details: document,
+				exemption: null,
 			})
+		})
+
+		it("passes a medical exemption to the clearing transaction instead (CRT-3)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "issued" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "cleared" })
+			mockInsert()
+			const exemption = {
+				reason: "Egg allergy",
+				physicianName: "Dr. Santos",
+				validFrom: "2026-11-29",
+				validUntil: null,
+				passportOrIdNumber: null,
+			}
+
+			await processingService.assess(
+				{ bookingItemId: 44, outcome: "cleared", notes: "", corrections: {}, exemption },
+				"staff-1"
+			)
+
+			expect(documentService.issueOnClearance).toHaveBeenCalledWith(tx, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				details: null,
+				exemption,
+			})
+		})
+
+		it("refuses an exemption on an item that goes to head approval, saving nothing (CRT-3)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA])
+			bookingService.transitionItem.mockResolvedValue({
+				from: "in_assessment",
+				to: "pending_head_approval",
+			})
+			const values = mockInsert()
+
+			await expect(
+				processingService.assess(
+					{
+						bookingItemId: 44,
+						outcome: "cleared",
+						notes: "",
+						corrections: {},
+						exemption: {
+							reason: "Egg allergy",
+							physicianName: "Dr. Santos",
+							validFrom: "2026-11-29",
+							validUntil: null,
+							passportOrIdNumber: null,
+						},
+					},
+					"staff-1"
+				)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(documentService.issueOnClearance).not.toHaveBeenCalled()
+			expect(values).not.toHaveBeenCalled()
 		})
 
 		it("does not try to issue a document for a returned item", async () => {

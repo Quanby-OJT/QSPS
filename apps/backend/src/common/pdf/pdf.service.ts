@@ -7,6 +7,10 @@ export type PdfDocument = PDFKit.PDFDocument
 export interface PdfInfo {
 	/** Shown as the document title in PDF viewers. */
 	title: string
+	/** Page size: "A4" (the default) or [width, height] in points, e.g. a card (CRT-3). */
+	size?: "A4" | [number, number]
+	/** Page margin in points (default 50). Pre-printed stock uses 0. */
+	margin?: number
 }
 
 /**
@@ -17,11 +21,11 @@ export interface PdfInfo {
  */
 @Injectable()
 export class PdfService {
-	/** Run `draw` on a new A4 page and return the finished PDF bytes. */
+	/** Run `draw` on a new page (A4 unless `info.size` says otherwise) and return the PDF bytes. */
 	async render(info: PdfInfo, draw: (doc: PdfDocument) => void | Promise<void>): Promise<Buffer> {
 		const doc = new PDFDocument({
-			size: "A4",
-			margin: 50,
+			size: info.size ?? "A4",
+			margin: info.margin ?? 50,
 			info: { Title: info.title, Creator: "QSPS", Producer: "QSPS" },
 		})
 

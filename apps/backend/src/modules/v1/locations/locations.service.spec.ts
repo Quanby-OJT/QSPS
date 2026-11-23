@@ -33,13 +33,18 @@ const makeLocation = (
 		address: string
 		region: string
 		isActive: boolean
+		cardOffsetXMm: number
+		cardOffsetYMm: number
 	}> = {}
 ) => ({
+	id: 1,
 	code: "MNL",
 	name: "Manila",
 	address: "Port Area, Manila",
 	region: "NCR",
 	isActive: true,
+	cardOffsetXMm: 0,
+	cardOffsetYMm: 0,
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 	...overrides,
@@ -90,6 +95,8 @@ describe("LocationsService", () => {
 					address: "Port Area, Manila",
 					region: "NCR",
 					isActive: true,
+					cardOffsetXMm: 0,
+					cardOffsetYMm: 0,
 				},
 			}),
 			tx
@@ -122,6 +129,38 @@ describe("LocationsService", () => {
 				targetId: "MNL",
 				oldValue: expect.objectContaining({ name: "Manila" }),
 				newValue: expect.objectContaining({ name: "Manila City" }),
+			}),
+			tx
+		)
+	})
+
+	it("saves the card print offsets and audits the old and new calibration (CRT-3)", async () => {
+		const current = makeLocation()
+		const updated = makeLocation({ cardOffsetXMm: 1.5, cardOffsetYMm: -2 })
+		const selectWhere = jest.fn().mockResolvedValue([current])
+		const selectFrom = jest.fn().mockReturnValue({ where: selectWhere })
+		const returning = jest.fn().mockResolvedValue([updated])
+		const updateWhere = jest.fn().mockReturnValue({ returning })
+		const set = jest.fn().mockReturnValue({ where: updateWhere })
+		const tx = mockTransaction({
+			select: jest.fn().mockReturnValue({ from: selectFrom }),
+			update: jest.fn().mockReturnValue({ set }),
+		})
+
+		await service.update({ code: "MNL", cardOffsetXMm: 1.5, cardOffsetYMm: -2 }, "staff-1")
+
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: "Manila",
+				cardOffsetXMm: 1.5,
+				cardOffsetYMm: -2,
+			})
+		)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "location.update",
+				oldValue: expect.objectContaining({ cardOffsetXMm: 0, cardOffsetYMm: 0 }),
+				newValue: expect.objectContaining({ cardOffsetXMm: 1.5, cardOffsetYMm: -2 }),
 			}),
 			tx
 		)
