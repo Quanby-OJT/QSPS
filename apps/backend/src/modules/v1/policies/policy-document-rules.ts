@@ -34,6 +34,16 @@ export function appliesToService(row: PolicyDocumentRow, serviceId: number): boo
 	return row.appliesToAllServices || row.serviceIds.includes(serviceId)
 }
 
+/** Whether a version applies to booking any of these Services (BKG-3). */
+export function appliesToAnyService(
+	row: PolicyDocumentRow,
+	serviceIds: readonly number[]
+): boolean {
+	return (
+		row.appliesToAllServices || serviceIds.some(serviceId => row.serviceIds.includes(serviceId))
+	)
+}
+
 /**
  * The versions in effect on `today` for one Service, read with `reader` so a
  * booking can check them inside its own transaction.
@@ -43,9 +53,22 @@ export async function loadPoliciesForService(
 	serviceId: number,
 	today: string
 ): Promise<PolicyDocumentRow[]> {
+	return loadPoliciesForServices(reader, [serviceId], today)
+}
+
+/**
+ * The versions in effect on `today` that apply to any Service in one checkout
+ * (BKG-3), each policy once. Read with `reader` so a booking can check them
+ * inside its own transaction.
+ */
+export async function loadPoliciesForServices(
+	reader: PolicyReader,
+	serviceIds: readonly number[],
+	today: string
+): Promise<PolicyDocumentRow[]> {
 	const rows = await reader
 		.select()
 		.from(policyDocuments)
 		.where(and(isNull(policyDocuments.withdrawnAt), lte(policyDocuments.effectiveFrom, today)))
-	return versionsInEffect(rows, today).filter(row => appliesToService(row, serviceId))
+	return versionsInEffect(rows, today).filter(row => appliesToAnyService(row, serviceIds))
 }

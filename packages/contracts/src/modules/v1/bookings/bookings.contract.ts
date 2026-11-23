@@ -12,9 +12,9 @@ export const bookingsContract = {
 		.route({
 			method: "POST",
 			path: "/bookings",
-			summary: "Book a service in an available slot",
+			summary: "Book one or more services in one checkout",
 			description:
-				"Creates a Booking in pending_payment with one Booking Item and reserves one place in the slot (Book Now, Pay Later). Refused when the slot is full, disabled or already started, when the client has another unpaid booking, or when an applicable policy that requires acceptance is not among acceptedPolicyDocumentIds (ADM-9). Accepted versions are stored against the Booking.",
+				"Creates one Booking in pending_payment with one Booking Item per slot and reserves one place in each slot, all together or not at all (Book Now, Pay Later; BKG-3). The total is the sum of the item fees. Refused, with nothing created, when any slot is full, disabled or already started (the error names that Service and its data carries the scheduleSlotId), when the same Service is chosen twice, when the client has another unpaid booking, or when a policy that requires acceptance for any of the Services is not among acceptedPolicyDocumentIds (ADM-9). Accepted versions are stored against the Booking.",
 			tags: ["Bookings"],
 		})
 		.input(CreateBookingSchema)

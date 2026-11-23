@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { Booking } from "@repo/contracts"
 
+import { feeInPesos } from "@/features/services/lib/fee"
+
 import { UnpaidBookingDetails } from "./unpaid-booking-card"
 
 const booking: Booking = {
@@ -85,5 +87,31 @@ describe("UnpaidBookingDetails (BKG-2)", () => {
 		expect(screen.getByText(/pay at the BOQ cashier/)).toBeInTheDocument()
 		expect(screen.queryByRole("button", { name: "Pay at the office" })).not.toBeInTheDocument()
 		expect(screen.getByRole("button", { name: "Pay now" })).toBeInTheDocument()
+	})
+
+	it("lists every Service with its own fee and the total (BKG-3)", () => {
+		renderDetails({
+			totalCentavos: 200000,
+			items: [
+				...booking.items,
+				{
+					id: 45,
+					serviceId: 3,
+					serviceName: "Basic hygiene seminar",
+					locationId: 4,
+					locationName: "Cebu",
+					scheduleSlotId: 9,
+					startsAt: new Date("2026-12-03T01:00:00.000Z"),
+					endsAt: new Date("2026-12-03T03:00:00.000Z"),
+					feeCentavos: 50000,
+					status: "booked",
+				},
+			],
+		})
+		expect(screen.getByText("Yellow fever vaccination")).toBeInTheDocument()
+		expect(screen.getByText("Basic hygiene seminar")).toBeInTheDocument()
+		expect(screen.getByText(`₱${feeInPesos(150000)}`)).toBeInTheDocument()
+		expect(screen.getByText(`₱${feeInPesos(50000)}`)).toBeInTheDocument()
+		expect(screen.getByText(`₱${feeInPesos(200000)}`)).toBeInTheDocument()
 	})
 })

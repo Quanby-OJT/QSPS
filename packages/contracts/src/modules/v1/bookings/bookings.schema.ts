@@ -35,6 +35,9 @@ export const BOOKING_ITEM_STATUSES = [
 /** Why a Booking was cancelled (BKG-2). */
 export const BOOKING_CANCEL_REASONS = ["hold_expired", "no_show", "client_cancelled"] as const
 
+/** Most Services one checkout may hold (BKG-3). */
+export const MAX_BOOKING_ITEMS = 10
+
 export const BookingStatusSchema = z.enum(BOOKING_STATUSES)
 export const BookingCancelReasonSchema = z.enum(BOOKING_CANCEL_REASONS)
 export const BookingKindSchema = z.enum(BOOKING_KINDS)
@@ -65,6 +68,7 @@ export const BookingSchema = z.object({
 	referenceNumber: ReferenceNumberSchema,
 	status: BookingStatusSchema,
 	kind: BookingKindSchema,
+	/** The sum of the items' fees (BKG-3). */
 	totalCentavos: z.number().int().min(0),
 	/** When an unpaid booking stops holding its slot. Null once paid or once onsite payment is chosen. */
 	holdExpiresAt: dateField.nullable(),
@@ -77,14 +81,27 @@ export const BookingSchema = z.object({
 	items: z.array(BookingItemSchema).min(1),
 })
 
+/** One Service in a checkout. The slot already fixes the service, the location and the time. */
+export const CreateBookingItemSchema = z.object({
+	scheduleSlotId: z.number().int().positive(),
+})
+
 /**
- * Book one Service in one Schedule Slot. The slot already fixes the service,
- * the location and the time. The client also sends the ids of the policy
- * versions it accepted on the review step (ADM-9); every applicable policy
- * that requires acceptance must be among them.
+ * Book one or more Services in one checkout (BKG-1, BKG-3): one Booking with
+ * one Booking Item per slot, reserved all together or not at all. Each slot
+ * may appear once. The client also sends the ids of the policy versions it
+ * accepted on the review step (ADM-9); every applicable policy that requires
+ * acceptance, for any of the Services, must be among them.
  */
 export const CreateBookingSchema = z.object({
-	scheduleSlotId: z.number().int().positive(),
+	items: z
+		.array(CreateBookingItemSchema)
+		.min(1, "Choose at least one service")
+		.max(MAX_BOOKING_ITEMS, `Book at most ${MAX_BOOKING_ITEMS} services in one checkout`)
+		.refine(
+			items => new Set(items.map(item => item.scheduleSlotId)).size === items.length,
+			"Each slot can be chosen once"
+		),
 	acceptedPolicyDocumentIds: z
 		.array(z.number().int().positive())
 		.max(100)
@@ -103,4 +120,5 @@ export type BookingKind = z.infer<typeof BookingKindSchema>
 export type BookingItemStatus = z.infer<typeof BookingItemStatusSchema>
 export type BookingItem = z.infer<typeof BookingItemSchema>
 export type Booking = z.infer<typeof BookingSchema>
+export type CreateBookingItemInput = z.infer<typeof CreateBookingItemSchema>
 export type CreateBookingInput = z.infer<typeof CreateBookingSchema>

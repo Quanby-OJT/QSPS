@@ -4,26 +4,54 @@ import {
 	BookingIdParamSchema,
 	BookingSchema,
 	CreateBookingSchema,
+	MAX_BOOKING_ITEMS,
 	ReferenceNumberSchema,
 } from "./bookings.schema.js"
 
 describe("booking schemas", () => {
-	it("accepts a slot id and rejects anything that is not a positive whole number", () => {
-		expect(CreateBookingSchema.parse({ scheduleSlotId: 7 })).toEqual({
-			scheduleSlotId: 7,
+	it("takes one or more slots as items (BKG-3)", () => {
+		expect(CreateBookingSchema.parse({ items: [{ scheduleSlotId: 7 }] })).toEqual({
+			items: [{ scheduleSlotId: 7 }],
 			acceptedPolicyDocumentIds: [],
 		})
-		expect(CreateBookingSchema.safeParse({ scheduleSlotId: 0 }).success).toBe(false)
-		expect(CreateBookingSchema.safeParse({ scheduleSlotId: 1.5 }).success).toBe(false)
+		expect(
+			CreateBookingSchema.parse({ items: [{ scheduleSlotId: 7 }, { scheduleSlotId: 9 }] }).items
+		).toEqual([{ scheduleSlotId: 7 }, { scheduleSlotId: 9 }])
+	})
+
+	it("rejects an empty checkout, a bad slot id and the old single-slot shape", () => {
+		expect(CreateBookingSchema.safeParse({ items: [] }).success).toBe(false)
+		expect(CreateBookingSchema.safeParse({ items: [{ scheduleSlotId: 0 }] }).success).toBe(false)
+		expect(CreateBookingSchema.safeParse({ items: [{ scheduleSlotId: 1.5 }] }).success).toBe(false)
+		expect(CreateBookingSchema.safeParse({ scheduleSlotId: 7 }).success).toBe(false)
 		expect(CreateBookingSchema.safeParse({}).success).toBe(false)
+	})
+
+	it("refuses the same slot twice and more than the most services per checkout", () => {
+		expect(
+			CreateBookingSchema.safeParse({ items: [{ scheduleSlotId: 7 }, { scheduleSlotId: 7 }] })
+				.success
+		).toBe(false)
+		const items = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({ scheduleSlotId: index + 1 }))
+		expect(CreateBookingSchema.safeParse({ items: items(MAX_BOOKING_ITEMS) }).success).toBe(true)
+		expect(CreateBookingSchema.safeParse({ items: items(MAX_BOOKING_ITEMS + 1) }).success).toBe(
+			false
+		)
 	})
 
 	it("takes the accepted policy versions, once each (ADM-9)", () => {
 		expect(
-			CreateBookingSchema.parse({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [3, 5, 3] })
-		).toEqual({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [3, 5] })
+			CreateBookingSchema.parse({
+				items: [{ scheduleSlotId: 7 }],
+				acceptedPolicyDocumentIds: [3, 5, 3],
+			})
+		).toEqual({ items: [{ scheduleSlotId: 7 }], acceptedPolicyDocumentIds: [3, 5] })
 		expect(
-			CreateBookingSchema.safeParse({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [0] }).success
+			CreateBookingSchema.safeParse({
+				items: [{ scheduleSlotId: 7 }],
+				acceptedPolicyDocumentIds: [0],
+			}).success
 		).toBe(false)
 	})
 
