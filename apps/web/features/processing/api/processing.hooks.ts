@@ -3,6 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
+	ApprovalDecision,
+	ApprovalQueue,
+	ApprovalQueueView,
 	AssessmentOutcome,
 	CheckInResponse,
 	IcvIssueDetails,
@@ -82,6 +85,35 @@ export const processingKeys = {
 	all: ["processing"] as const,
 	queue: (date: string) => ["processing", "queue", date] as const,
 	item: (bookingItemId: number) => ["processing", "item", bookingItemId] as const,
+	approvals: (view: ApprovalQueueView) => ["processing", "approvals", view] as const,
+}
+
+type ApprovalQueueJson = Omit<ApprovalQueue, "items"> & {
+	items: (Omit<ApprovalQueue["items"][number], "startsAt" | "assessedAt"> & {
+		startsAt: string
+		assessedAt: string | null
+	})[]
+}
+
+function toApprovalQueue(queue: ApprovalQueueJson): ApprovalQueue {
+	return {
+		...queue,
+		items: queue.items.map(item => ({
+			...item,
+			startsAt: new Date(item.startsAt),
+			assessedAt: item.assessedAt ? new Date(item.assessedAt) : null,
+		})),
+	}
+}
+
+/** PRC-3: items waiting for head approval, or rejected items to override. Refreshes every 30 seconds. */
+export function useApprovalQueueQuery(view: ApprovalQueueView) {
+	return useQuery({
+		queryKey: processingKeys.approvals(view),
+		queryFn: async () =>
+			toApprovalQueue(await apiFetch<ApprovalQueueJson>(`/processing/approvals?view=${view}`)),
+		refetchInterval: 30_000,
+	})
 }
 
 /** The day's queue at the signed-in staff user's Location. Refreshes every 30 seconds. */
@@ -164,6 +196,58 @@ export function useRecordAssessmentMutation(bookingItemId: number) {
 			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
 			// A cleared item may have just issued a document (CRT-1).
 			void queryClient.invalidateQueries({ queryKey: ["certificates"] })
+		},
+	})
+}
+
+export interface DecideApprovalRequest {
+	decision: ApprovalDecision
+	notes: string
+	/** One per decision, so a double click records one decision, not two. */
+	idempotencyKey: string
+}
+
+/** PRC-3: approve a pending item, or send it back to the officer with notes. */
+export function useDecideApprovalMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({ idempotencyKey, ...body }: DecideApprovalRequest) =>
+			toItem(
+				await apiFetch<ItemJson>(`/processing/items/${bookingItemId}/approval`, {
+					method: "POST",
+					headers: { "Idempotency-Key": idempotencyKey },
+					body: JSON.stringify(body),
+				})
+			),
+		onSuccess: item => {
+			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
+			void queryClient.invalidateQueries({ queryKey: ["processing", "approvals"] })
+			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+		},
+	})
+}
+
+export interface OverrideItemRequest {
+	reason: string
+	idempotencyKey: string
+}
+
+/** PRC-3: override a rejected item to cleared, with a mandatory reason. */
+export function useOverrideItemMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({ idempotencyKey, reason }: OverrideItemRequest) =>
+			toItem(
+				await apiFetch<ItemJson>(`/processing/items/${bookingItemId}/override`, {
+					method: "POST",
+					headers: { "Idempotency-Key": idempotencyKey },
+					body: JSON.stringify({ reason }),
+				})
+			),
+		onSuccess: item => {
+			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
+			void queryClient.invalidateQueries({ queryKey: ["processing", "approvals"] })
+			void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
 		},
 	})
 }

@@ -47,7 +47,7 @@ import {
 } from "@/core/components/ui/sidebar"
 import { cn } from "@/core/lib/utils"
 import { useSignOutMutation } from "@/features/auth/api/session.hooks"
-import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
+import { getAccessibleNavItems, getActiveNavHref } from "@/features/dashboard/lib/nav-items"
 
 interface SidebarUser {
 	name: string | null
@@ -72,10 +72,6 @@ interface AppSidebarProps {
 	access: SidebarAccess
 }
 
-function isActivePath(pathname: string, href: string): boolean {
-	return pathname === href || pathname.startsWith(`${href}/`)
-}
-
 function getInitials(user: SidebarUser): string {
 	const source = user.name?.trim() || user.email
 	const initials = source
@@ -96,7 +92,13 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 	const items = getAccessibleNavItems(access)
 	const mainItems = items.filter(item => !item.section)
 	const adminItems = items.filter(item => item.section === "Administration")
-	const isAdminActive = adminItems.some(item => isActivePath(pathname, item.href))
+	// Only the most specific link is active, so Approvals and Processing are
+	// not both highlighted on /processing/approvals (PRC-3).
+	const activeHref = getActiveNavHref(
+		pathname,
+		items.map(item => item.href)
+	)
+	const isAdminActive = adminItems.some(item => item.href === activeHref)
 	const displayName = user.name?.trim() || "Account"
 	const closeMobileSidebarOnSelect = useCallback(() => {
 		if (isMobile) {
@@ -157,7 +159,7 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 								<SidebarMenuItem key={item.href}>
 									<SidebarMenuButton
 										render={<Link href={item.href} onClick={closeMobileSidebarOnSelect} />}
-										isActive={isActivePath(pathname, item.href)}
+										isActive={item.href === activeHref}
 										tooltip={item.label}
 									>
 										<HugeiconsIcon icon={item.icon} strokeWidth={2} />
@@ -191,7 +193,7 @@ export function AppSidebar({ user, access }: AppSidebarProps) {
 											<SidebarMenuItem key={item.href}>
 												<SidebarMenuButton
 													render={<Link href={item.href} onClick={closeMobileSidebarOnSelect} />}
-													isActive={isActivePath(pathname, item.href)}
+													isActive={item.href === activeHref}
 													tooltip={item.label}
 												>
 													<HugeiconsIcon icon={item.icon} strokeWidth={2} />

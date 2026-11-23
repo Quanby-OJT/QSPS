@@ -4,6 +4,7 @@ import {
 	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
 	File01Icon,
+	SecurityCheckIcon,
 	ShieldKeyIcon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
@@ -47,6 +48,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/processing",
 		icon: CheckmarkCircle02Icon,
 		requiredPermission: "processing.queue:read",
+	},
+	{
+		// PRC-3: head approval and overrides. Processing Officers do not hold this key.
+		label: "Approvals",
+		href: "/processing/approvals",
+		icon: SecurityCheckIcon,
+		requiredPermission: "processing.assessments:approve",
 	},
 	{
 		label: "User Management",
@@ -107,10 +115,23 @@ export const dashboardRouteTitles: readonly Pick<DashboardNavItem, "href" | "lab
 	},
 ]
 
+/**
+ * The link that matches the current page, if any. The most specific match
+ * wins, so /processing/approvals is Approvals while /processing/44 stays
+ * Processing (PRC-3).
+ */
+export function getActiveNavHref(pathname: string, hrefs: readonly string[]): string | undefined {
+	return hrefs
+		.filter(href => pathname === href || pathname.startsWith(`${href}/`))
+		.sort((a, b) => b.length - a.length)[0]
+}
+
 export function getDashboardRouteTitle(pathname: string): string {
-	const currentRoute = dashboardRouteTitles.find(
-		route => pathname === route.href || pathname.startsWith(`${route.href}/`)
+	const activeHref = getActiveNavHref(
+		pathname,
+		dashboardRouteTitles.map(route => route.href)
 	)
+	const currentRoute = dashboardRouteTitles.find(route => route.href === activeHref)
 
 	return currentRoute?.label ?? "Dashboard"
 }

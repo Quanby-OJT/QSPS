@@ -19,6 +19,9 @@ jest.mock("@/config/api-versions.config", () => ({
 			checkIn: {},
 			open: {},
 			assess: {},
+			approvals: {},
+			decide: {},
+			override: {},
 		},
 	},
 }))
@@ -46,6 +49,16 @@ describe("ProcessingController permissions", () => {
 			expect(
 				Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, ProcessingController.prototype[method])
 			).toEqual(["processing.assessments:perform"])
+		}
+	)
+
+	// PRC-3: Processing Officers do not hold this key (Annex A), so they get 403.
+	it.each(["approvals", "decide", "override"] as const)(
+		"requires processing.assessments:approve to %s",
+		method => {
+			expect(
+				Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, ProcessingController.prototype[method])
+			).toEqual(["processing.assessments:approve"])
 		}
 	)
 })

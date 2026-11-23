@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { canOpen, correctionsFromRows, itemStatusLabel, outcomeLabel } from "./labels"
+import {
+	canDecideApproval,
+	canOpen,
+	canOverride,
+	correctionsFromRows,
+	itemStatusLabel,
+	outcomeLabel,
+} from "./labels"
 
 describe("processing labels", () => {
 	it("names every item status in plain words", () => {
@@ -36,5 +43,22 @@ describe("correctionsFromRows", () => {
 				{ field: "Name", value: "Juan Dela Cruz" },
 			])
 		).toEqual({ Name: "Juan Dela Cruz" })
+	})
+})
+
+describe("head approval labels (PRC-3)", () => {
+	it("names the head's decisions apart from the officer's", () => {
+		expect(outcomeLabel("cleared", "assessment")).toBe("Cleared")
+		expect(outcomeLabel("cleared", "approval")).toBe("Approved by head")
+		expect(outcomeLabel("returned", "approval")).toBe("Sent back by head")
+		expect(outcomeLabel("cleared", "override")).toBe("Overridden to cleared")
+	})
+
+	it("offers approval only for pending items and override only for rejected ones", () => {
+		expect(canDecideApproval("pending_head_approval")).toBe(true)
+		expect(canDecideApproval("cleared")).toBe(false)
+		expect(canOverride("rejected")).toBe(true)
+		expect(canOverride("pending_head_approval")).toBe(false)
+		expect(canOverride("issued")).toBe(false)
 	})
 })
