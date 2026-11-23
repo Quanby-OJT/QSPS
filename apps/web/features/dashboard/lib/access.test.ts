@@ -142,6 +142,12 @@ describe("navItems", () => {
 					requiredPermission: "schedules.slots:manage",
 				}),
 				expect.objectContaining({
+					label: "Payment Channels",
+					href: "/payment-channels",
+					section: "Administration",
+					requiredPermission: "settings.payment-channels:manage",
+				}),
+				expect.objectContaining({
 					label: "Policies",
 					href: "/policies",
 					section: "Administration",
@@ -227,9 +233,16 @@ describe("navItems", () => {
 			"Services",
 			"Forms",
 			"Schedules",
+			"Payment Channels",
 			"Policies",
 			"Audit log",
 		])
+
+		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["settings.payment-channels:manage"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Payment Channels"])
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {
@@ -238,6 +251,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/locations")).toBe("Locations")
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
+		expect(getDashboardRouteTitle("/payment-channels")).toBe("Payment Channels")
 		expect(getDashboardRouteTitle("/audit-log")).toBe("Audit log")
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")

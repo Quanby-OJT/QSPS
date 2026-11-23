@@ -660,6 +660,28 @@ export const documentSequences = createTable(
 // ============================================================================
 
 /**
+ * The ways a client can pay, and which gateway serves each (PAY-5). Switching
+ * a channel to another provider is a row update, with no deployment (PRD
+ * decision B2). Seeded with TOR §VIII.2's list, all disabled until an
+ * administrator assigns a provider. The convenience fee is a fixed amount
+ * plus a percentage of the Service fees (either may be zero); a change
+ * applies to new Payments only, because each Payment stores its own fee.
+ */
+export const paymentChannels = createTable("payment_channels", t => ({
+	/** Lowercase code, e.g. "gcash". Stored on every Payment as channel_code. */
+	code: t.text("code").primaryKey(),
+	name: t.text("name").notNull(),
+	/** The PaymentProvider that serves this channel; null until one is assigned. */
+	providerCode: t.text("provider_code"),
+	convenienceFeeCentavos: t.integer("convenience_fee_centavos").notNull().default(0),
+	/** Percentage part of the fee in basis points: 250 = 2.5% of the Service fees. */
+	convenienceFeeBps: t.integer("convenience_fee_bps").notNull().default(0),
+	isEnabled: t.boolean("is_enabled").notNull().default(false),
+	createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+}))
+
+/**
  * One attempt to pay a Booking (PAY-1). Status follows state machine 5.3 in
  * DOMAIN-MODEL.md and only `PaymentService` writes this table. Money is
  * integer centavos: `amount_centavos` is the full amount charged (the Booking
@@ -1002,6 +1024,7 @@ export const relations = defineRelations(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		paymentChannels,
 		payments,
 		paymentEvents,
 		assessments,
@@ -1243,6 +1266,7 @@ export const schema = Object.assign(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		paymentChannels,
 		payments,
 		paymentEvents,
 		assessments,

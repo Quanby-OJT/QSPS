@@ -18,7 +18,7 @@ jest.mock("@thallesp/nestjs-better-auth", () => {
 	}
 })
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { payments: { create: {}, status: {}, verifyReceipt: {} } },
+	v1: { payments: { create: {}, status: {}, verifyReceipt: {}, checkoutChannels: {} } },
 }))
 // The interceptor and the service both reach the database; these tests only
 // check the controller's permission metadata.
@@ -30,6 +30,9 @@ jest.mock("./payments.service", () => ({
 }))
 jest.mock("./receipts.service", () => ({
 	ReceiptService: jest.fn(),
+}))
+jest.mock("./payment-channels.service", () => ({
+	PaymentChannelService: jest.fn(),
 }))
 
 describe("PaymentsController permissions", () => {
@@ -51,5 +54,11 @@ describe("PaymentsController permissions", () => {
 		const handler = PaymentsController.prototype.verifyReceipt
 		expect(Reflect.getMetadata("PUBLIC", handler)).toBe(true)
 		expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toBeUndefined()
+	})
+
+	it("requires payments.own:create to see the channels and fees at checkout", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, PaymentsController.prototype.checkoutChannels)
+		).toEqual(["payments.own:create"])
 	})
 })

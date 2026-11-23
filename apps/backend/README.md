@@ -303,3 +303,21 @@ enabled by default, and real delivery cannot be claimed until it is configured.
 Question types: `text`, `number`, `date`, `single_choice`, `multiple_choice`, `yes_no`, `file`. The field schema lives in `packages/contracts` (`FormFieldInputSchema`) so web, mobile and the API apply the same rules. Audit actions: `form_template.version.create`, `form_template.fields.update`, `form_template.publish`, `form_template.enable`, `form_template.disable`, `form_template.delete` (questions only; never answers).
 
 `form_submissions` is created here so the version and delete rules can count answers; FRM-2 writes the rows.
+
+## Payment channels and convenience fees (PAY-5)
+
+`payment_channels` holds each channel (GCash, Maya, Link.Biz, …), the
+`PaymentProvider` that serves it, and its convenience fee: a fixed amount plus a
+percentage (basis points) of the Service fees. Administrators with
+`settings.payment-channels:manage` edit them at **Administration → Payment
+Channels** (`GET`/`PUT /api/v1/settings/payment-channels`).
+
+- **Routing:** `PaymentService.create` reads the channel on every payment, so
+  switching a channel to another provider applies to the next payment with no
+  deployment. Only providers registered in `provider-registry.ts` can be chosen.
+- **Fees:** `chargeFor()` in `convenience-fee.ts` is the only fee calculation.
+  Checkout (`GET /api/v1/payments/checkout/{bookingId}/channels`) shows its
+  result, `PaymentService.create` charges and stores it, and the e-Receipt
+  prints the stored figures.
+- **Local testing:** with `PAYMENT_FAKE_ENABLED=true`, configure a channel
+  (for example GCash) with provider `fake` and enable it.

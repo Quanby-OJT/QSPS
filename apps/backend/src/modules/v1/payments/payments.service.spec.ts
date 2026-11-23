@@ -7,6 +7,7 @@ import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 
 import type { BookingService } from "../bookings/bookings.service"
+import type { PaymentChannelService } from "./payment-channels.service"
 import { PaymentService } from "./payments.service"
 import type { ParsedNotification, PaymentProvider } from "./providers/payment-provider"
 import { PaymentProviderRegistry } from "./providers/provider-registry"
@@ -144,17 +145,41 @@ const savedPayment = {
 
 const notification = { headers: {}, rawBody: '{"any":"body"}' }
 
+/** A channel with no convenience fee, served by the stub provider. */
+const fakeChannel = {
+	code: "fake",
+	name: "Fake gateway",
+	providerCode: "fake",
+	convenienceFeeCentavos: 0,
+	convenienceFeeBps: 0,
+	isEnabled: true,
+	createdAt: NOW,
+	updatedAt: NOW,
+}
+
 describe("PaymentService", () => {
 	let audit: { record: jest.Mock }
 	let bookingService: { markPaid: jest.Mock }
 	let provider: PaymentProvider
+	let channels: { findUsable: jest.Mock }
 	let alerts: jest.SpyInstance
 
-	function makeService(withProvider: PaymentProvider = provider) {
+	/**
+	 * The channel the client picked. `findUsable` answers for that one code
+	 * only, as the real service does for an enabled channel whose provider
+	 * exists; any other code is not available.
+	 */
+	function makeService(withProvider: PaymentProvider = provider, channel = fakeChannel) {
+		channels = {
+			findUsable: jest.fn(async (code: string) =>
+				code === channel.code ? { channel, provider: withProvider } : undefined
+			),
+		}
 		return new PaymentService(
 			audit as unknown as AuditService,
 			bookingService as unknown as BookingService,
-			new PaymentProviderRegistry([withProvider])
+			new PaymentProviderRegistry([withProvider]),
+			channels as unknown as PaymentChannelService
 		)
 	}
 
@@ -257,6 +282,51 @@ describe("PaymentService", () => {
 			await expect(
 				makeService().create({ bookingId: 31, channelCode: "fake" }, "client-1", NOW)
 			).rejects.toMatchObject({ code: "CONFLICT" })
+		})
+
+		it("charges the channel's convenience fee on top of the Service fees", async () => {
+			const gcash = { ...fakeChannel, code: "gcash", name: "GCash", convenienceFeeCentavos: 1500, convenienceFeeBps: 250 }
+			const database = fakeDatabase({
+				selects: [[ownBooking], [{ status: "pending_payment" }]],
+				inserts: [[{ ...savedPayment, providerReference: null, status: "initiated" }]],
+			})
+
+			const result = await makeService(provider, gcash).create(
+				{ bookingId: 31, channelCode: "gcash" },
+				"client-1",
+				NOW
+			)
+
+			// PHP 1,500.00 + PHP 15.00 fixed + 2.5% (PHP 37.50) = PHP 1,552.50
+			expect(database.inserted[0]?.values).toMatchObject({
+				channelCode: "gcash",
+				providerCode: "fake",
+				convenienceFeeCentavos: 5250,
+				amountCentavos: 155250,
+			})
+			expect(provider.createCheckout).toHaveBeenCalledWith(
+				expect.objectContaining({ amountCentavos: 155250 })
+			)
+			expect(result).toMatchObject({ amountCentavos: 155250, convenienceFeeCentavos: 5250 })
+		})
+
+		it("sends the payment to whichever provider the channel is routed to now", async () => {
+			const other: PaymentProvider = { ...stubProvider(), code: "other" }
+			const database = fakeDatabase({
+				selects: [[ownBooking], [{ status: "pending_payment" }]],
+				inserts: [[{ ...savedPayment, providerReference: null, status: "initiated" }]],
+			})
+
+			await makeService(other, { ...fakeChannel, code: "gcash", providerCode: "other" }).create(
+				{ bookingId: 31, channelCode: "gcash" },
+				"client-1",
+				NOW
+			)
+
+			expect(channels.findUsable).toHaveBeenCalledWith("gcash")
+			expect(database.inserted[0]?.values).toMatchObject({ channelCode: "gcash", providerCode: "other" })
+			expect(other.createCheckout).toHaveBeenCalled()
+			expect(provider.createCheckout).not.toHaveBeenCalled()
 		})
 
 		it("refuses a channel this deployment does not have", async () => {

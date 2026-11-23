@@ -84,6 +84,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "schedules.slots:manage",
 	},
 	{
+		label: "Payment Channels",
+		href: "/payment-channels",
+		icon: AccountSetting01Icon,
+		section: "Administration",
+		requiredPermission: "settings.payment-channels:manage",
+	},
+	{
 		label: "Policies",
 		href: "/policies",
 		icon: AccountSetting01Icon,

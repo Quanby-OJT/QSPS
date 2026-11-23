@@ -34,10 +34,7 @@ import {
 	type CartItem,
 } from "@/features/bookings/lib/cart"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
-import {
-	DEFAULT_PAYMENT_CHANNEL,
-	useCreatePaymentMutation,
-} from "@/features/payments/api/payments.hooks"
+import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
 import {
 	policyDocumentKeys,
 	useBookingPoliciesForServicesQuery,
@@ -99,7 +96,6 @@ export function BookingWizard() {
 	const services = useAvailableServicesQuery()
 	const locations = useAvailableLocationsQuery()
 	const createBooking = useCreateBookingMutation()
-	const createPayment = useCreatePaymentMutation()
 	const queryClient = useQueryClient()
 	const isQueryLoading = useIsQueryLoading()
 	const hydrated = useHydrated()
@@ -117,8 +113,6 @@ export function BookingWizard() {
 	const [booking, setBooking] = useState<Booking | null>(null)
 	// One key per attempt, so a double click or a retry cannot book twice.
 	const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
-	// Its own key, so a double click on "Pay now" opens one checkout, not two.
-	const [paymentKey, setPaymentKey] = useState(newIdempotencyKey)
 	// Keeps the BOQ loader up while the browser leaves for the checkout page.
 	const [redirecting, setRedirecting] = useState(false)
 	// ADM-9: the policy versions the client ticked on the review step.
@@ -203,25 +197,6 @@ export function BookingWizard() {
 		setCheckoutProblem(null)
 	}
 
-	// PAY-1: send the client to the provider's hosted checkout. The booking is
-	// marked paid only when the provider's signed notification arrives, never
-	// by this page or the return page.
-	async function payNow() {
-		if (!booking) return
-		try {
-			const checkout = await createPayment.mutateAsync({
-				bookingId: booking.id,
-				channelCode: DEFAULT_PAYMENT_CHANNEL,
-				idempotencyKey: paymentKey,
-			})
-			setRedirecting(true)
-			window.location.assign(checkout.checkoutUrl)
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not start the payment")
-			setPaymentKey(newIdempotencyKey())
-		}
-	}
-
 	async function confirm() {
 		if (!isCartReady(cart)) return
 		try {
@@ -284,7 +259,7 @@ export function BookingWizard() {
 			{createBooking.isPending ? (
 				<BoqLoader label={cart.length > 1 ? "Reserving your slots" : "Reserving your slot"} />
 			) : null}
-			{createPayment.isPending || redirecting ? (
+			{redirecting ? (
 				<BoqLoader label="Opening secure checkout" />
 			) : null}
 			<PageHeader
@@ -637,10 +612,9 @@ export function BookingWizard() {
 						Keep your Reference Number. You will need it, or the QR code, when you pay and when you
 						arrive.
 					</p>
+					{/* PAY-5: the client picks a channel and sees its fee before paying. */}
+					<PaymentCheckout bookingId={booking.id} onRedirect={() => setRedirecting(true)} />
 					<div className="flex flex-wrap gap-2">
-						<Button type="button" onClick={() => void payNow()} disabled={createPayment.isPending}>
-							{createPayment.isPending ? "Opening checkout…" : "Pay now"}
-						</Button>
 						<Button type="button" variant="outline" onClick={startOver}>
 							Done
 						</Button>

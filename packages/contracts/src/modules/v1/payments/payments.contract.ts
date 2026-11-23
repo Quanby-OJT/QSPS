@@ -1,12 +1,17 @@
 import { oc } from "@orpc/contract"
 
 import {
+	CheckoutChannelsParamSchema,
+	CheckoutChannelsSchema,
 	CreatePaymentSchema,
 	PaymentCheckoutSchema,
+	PaymentChannelSettingsSchema,
+	PaymentChannelSchema,
 	PaymentIdParamSchema,
 	PaymentStatusResponseSchema,
 	ReceiptTokenParamSchema,
 	ReceiptVerificationSchema,
+	UpdatePaymentChannelSchema,
 } from "./payments.schema.js"
 
 /**
@@ -48,4 +53,40 @@ export const paymentsContract = {
 		})
 		.input(ReceiptTokenParamSchema)
 		.output(ReceiptVerificationSchema),
+	checkoutChannels: oc
+		.route({
+			method: "GET",
+			path: "/payments/checkout/{bookingId}/channels",
+			summary: "Payment channels for a booking",
+			description:
+				"The enabled channels a client can pay a booking with, each with its convenience fee and the total for that booking, so the fee is shown before the client confirms.",
+			tags: ["Payments"],
+		})
+		.input(CheckoutChannelsParamSchema)
+		.output(CheckoutChannelsSchema),
+}
+
+/** Payment channel settings (PAY-5): `settings.payment-channels:manage`. */
+export const paymentChannelsContract = {
+	list: oc
+		.route({
+			method: "GET",
+			path: "/settings/payment-channels",
+			summary: "List payment channels",
+			description:
+				"Every payment channel with its provider and convenience fee, plus the provider codes this deployment can route to.",
+			tags: ["Settings"],
+		})
+		.output(PaymentChannelSettingsSchema),
+	update: oc
+		.route({
+			method: "PUT",
+			path: "/settings/payment-channels/{code}",
+			summary: "Configure a payment channel",
+			description:
+				"Enable or disable a channel, choose the provider that serves it, and set its fixed and percentage convenience fee. Applies to new payments only; audited with old and new values.",
+			tags: ["Settings"],
+		})
+		.input(UpdatePaymentChannelSchema)
+		.output(PaymentChannelSchema),
 }
