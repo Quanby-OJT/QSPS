@@ -70,6 +70,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "settings.services:manage",
 	},
 	{
+		label: "Forms",
+		href: "/forms",
+		icon: File01Icon,
+		section: "Administration",
+		requiredPermission: "forms.templates:manage",
+	},
+	{
 		label: "Schedules",
 		href: "/schedules",
 		icon: AccountSetting01Icon,
