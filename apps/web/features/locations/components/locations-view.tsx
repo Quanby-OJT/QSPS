@@ -29,6 +29,8 @@ import {
 	TableRow,
 } from "@/core/components/ui/table"
 import { Textarea } from "@/core/components/ui/textarea"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useCreateLocationMutation,
 	useLocationsQuery,
@@ -40,15 +42,26 @@ type LocationForm = CreateLocationInput
 
 const emptyForm: LocationForm = { code: "", name: "", address: "", region: "" }
 
+/**
+ * BOQ Locations admin (ADM-5).
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds a restored copy.
+ */
 export function LocationsView() {
 	const locations = useLocationsQuery()
 	const createLocation = useCreateLocationMutation()
 	const updateLocation = useUpdateLocationMutation()
 	const setActive = useSetLocationActiveMutation()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<Location | null>(null)
 	const [form, setForm] = useState<LocationForm>(emptyForm)
 	const isSaving = createLocation.isPending || updateLocation.isPending
+
+	const loading = !hydrated || isQueryLoading(locations)
+	const list = locations.data ?? []
 
 	function startCreate() {
 		setEditing(null)
@@ -110,7 +123,7 @@ export function LocationsView() {
 				}
 			/>
 
-			{locations.isPending ? (
+			{loading ? (
 				<p className="text-muted-foreground text-sm" role="status">
 					Loading locations…
 				</p>
@@ -122,7 +135,7 @@ export function LocationsView() {
 						Retry
 					</Button>
 				</div>
-			) : locations.data.length === 0 ? (
+			) : list.length === 0 ? (
 				<div className="border-border rounded-lg border border-dashed p-8 text-center">
 					<p className="font-medium">No locations have been added.</p>
 					<p className="text-muted-foreground mt-1 text-sm">
@@ -130,7 +143,9 @@ export function LocationsView() {
 					</p>
 				</div>
 			) : (
-				<div className="border-border rounded-lg border">
+				// Wide content scrolls inside its own container so the page body
+				// never scrolls sideways on a phone.
+				<div className="border-border overflow-x-auto rounded-lg border">
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -143,7 +158,7 @@ export function LocationsView() {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{locations.data.map(location => (
+							{list.map(location => (
 								<TableRow key={location.code}>
 									<TableCell className="font-medium">{location.code}</TableCell>
 									<TableCell>{location.name}</TableCell>

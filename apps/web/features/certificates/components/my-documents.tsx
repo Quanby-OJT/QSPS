@@ -5,7 +5,9 @@ import type { DocumentSummary } from "@repo/contracts"
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { buttonVariants } from "@/core/components/ui/button"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { documentPdfUrl, useMyDocumentsQuery } from "@/features/certificates/api/certificates.hooks"
 
 const issuedFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -35,9 +37,17 @@ function validUntilLabel(date: string | null): string {
 /**
  * My Documents (CRT-1): every document issued to the signed-in client, with
  * a link to its PDF. The PDF is generated from QSPS records each time.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds a restored copy.
  */
 export function MyDocuments() {
 	const query = useMyDocumentsQuery()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+
+	const loading = !hydrated || isQueryLoading(query)
+	const documents = query.data?.documents ?? []
 
 	return (
 		<section className="flex w-full flex-col gap-6">
@@ -45,22 +55,26 @@ export function MyDocuments() {
 				title="My documents"
 				description="Certificates and records issued to you. Each one has a QR code anyone can scan to check it."
 			/>
-			{query.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading…</p>
+			{loading ? (
+				<p className="text-muted-foreground text-sm" role="status">
+					Loading…
+				</p>
 			) : query.error ? (
-				<p className="text-destructive text-sm">{query.error.message}</p>
-			) : query.data.documents.length === 0 ? (
+				<p className="text-destructive text-sm" role="alert">
+					{query.error.message}
+				</p>
+			) : documents.length === 0 ? (
 				<p className="text-muted-foreground text-sm">
 					You have no documents yet. A document appears here once BOQ staff clear your booking.
 				</p>
 			) : (
 				<ul className="flex flex-col gap-3">
-					{query.data.documents.map(document => (
+					{documents.map(document => (
 						<li
 							key={document.id}
 							className="bg-card flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4"
 						>
-							<div className="flex flex-col gap-1">
+							<div className="flex min-w-0 flex-col gap-1">
 								<div className="flex flex-wrap items-center gap-2">
 									<span className="font-semibold">
 										{DOCUMENT_TITLES[document.documentType] ?? document.documentType}
@@ -69,7 +83,7 @@ export function MyDocuments() {
 										{STATUS_LABELS[document.status]}
 									</Badge>
 								</div>
-								<span className="font-mono text-sm">{document.documentNumber}</span>
+								<span className="font-mono text-sm break-all">{document.documentNumber}</span>
 								<span className="text-muted-foreground text-xs">
 									{document.serviceName} · {document.locationName} · Issued{" "}
 									{issuedFormatter.format(document.issuedAt)} · Valid until{" "}
@@ -83,7 +97,7 @@ export function MyDocuments() {
 								href={documentPdfUrl(document.id)}
 								target="_blank"
 								rel="noopener noreferrer"
-								className={cn(buttonVariants({ variant: "outline" }))}
+								className={cn(buttonVariants({ variant: "outline" }), "w-full sm:w-auto")}
 							>
 								View or download PDF
 							</a>

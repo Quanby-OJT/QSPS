@@ -19,7 +19,9 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/core/components/ui/table"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useCheckInMutation,
 	useProcessingQueueQuery,
@@ -31,6 +33,10 @@ import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
  * Processing queue (PRC-1): today's Booking Items at the staff user's
  * Location, and a box to check a client in. A handheld scanner reading the
  * booking's QR code types the Reference Number into the box and presses Enter.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line and the generic heading, even when the client already holds a
+ * restored copy of the queue.
  */
 export function ProcessingQueue() {
 	const router = useRouter()
@@ -40,6 +46,14 @@ export function ProcessingQueue() {
 
 	const queue = useProcessingQueueQuery(date)
 	const checkIn = useCheckInMutation()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+
+	const loading = !hydrated || isQueryLoading(queue)
+	// Nothing from the cache is shown until the page has hydrated.
+	const data = loading ? undefined : queue.data
+	const location = data?.location
+	const items = data?.items ?? []
 
 	async function checkInByReference(value: string) {
 		if (!value) return
@@ -62,8 +76,6 @@ export function ProcessingQueue() {
 		void checkInByReference(referenceNumber.trim().toUpperCase())
 	}
 
-	const location = queue.data?.location
-
 	return (
 		<section className="flex w-full flex-col gap-6">
 			<PageHeader
@@ -79,7 +91,7 @@ export function ProcessingQueue() {
 				onSubmit={submitCheckIn}
 				className="bg-card flex flex-wrap items-end gap-3 rounded-xl border p-4"
 			>
-				<div className="flex min-w-64 flex-1 flex-col gap-2">
+				<div className="flex min-w-0 flex-1 basis-64 flex-col gap-2">
 					<Label htmlFor="reference-number">Scan the QR code or enter the Reference Number</Label>
 					<Input
 						id="reference-number"
@@ -92,7 +104,11 @@ export function ProcessingQueue() {
 						className="font-mono uppercase"
 					/>
 				</div>
-				<Button type="submit" disabled={checkIn.isPending || !referenceNumber.trim()}>
+				<Button
+					type="submit"
+					className="w-full sm:w-auto"
+					disabled={checkIn.isPending || !referenceNumber.trim()}
+				>
 					{checkIn.isPending ? "Checking in…" : "Check in"}
 				</Button>
 			</form>
@@ -108,26 +124,30 @@ export function ProcessingQueue() {
 						className="w-44"
 					/>
 				</div>
-				<p className="text-muted-foreground text-sm">
-					{queue.data ? `${queue.data.items.length} booked` : null}
-				</p>
+				<p className="text-muted-foreground text-sm">{data ? `${items.length} booked` : null}</p>
 			</div>
 
-			{queue.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading the queue…</p>
+			{loading ? (
+				<p className="text-muted-foreground text-sm" role="status">
+					Loading the queue…
+				</p>
 			) : queue.error ? (
-				<p className="text-destructive text-sm">{queue.error.message}</p>
+				<p className="text-destructive text-sm" role="alert">
+					{queue.error.message}
+				</p>
 			) : !location ? (
 				<p className="text-muted-foreground rounded-xl border p-6 text-sm">
 					Your account is not assigned to a BOQ location yet, so there is no queue to show. Ask an
 					administrator to assign you to your station.
 				</p>
-			) : queue.data.items.length === 0 ? (
+			) : items.length === 0 ? (
 				<p className="text-muted-foreground rounded-xl border p-6 text-sm">
 					No clients are booked at {location.name} on this date.
 				</p>
 			) : (
-				<div className="rounded-xl border">
+				// Wide content scrolls inside its own container so the page body
+				// never scrolls sideways on a phone.
+				<div className="overflow-x-auto rounded-xl border">
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -141,7 +161,7 @@ export function ProcessingQueue() {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{queue.data.items.map(item => (
+							{items.map(item => (
 								<TableRow key={item.bookingItemId}>
 									<TableCell className="whitespace-nowrap">{slotTimeRange(item)}</TableCell>
 									<TableCell className="font-medium">{item.clientName}</TableCell>
