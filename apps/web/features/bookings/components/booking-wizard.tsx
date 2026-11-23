@@ -10,6 +10,8 @@ import { BoqLoader } from "@/core/components/boq-loader"
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { useCreateBookingMutation } from "@/features/bookings/api/bookings.hooks"
 import { BookingPolicies } from "@/features/bookings/components/booking-policies"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
@@ -47,12 +49,18 @@ function newIdempotencyKey(): string {
  * confirmation with the Reference Number and its QR code. The review step
  * shows the written policies for the Service (ADM-9); confirming needs every
  * one that requires acceptance to be ticked.
+ *
+ * Hydration-safe: the service and location lists show their loading line on
+ * the server and on the client's first render, even when the client already
+ * holds a restored copy, so the two renders agree.
  */
 export function BookingWizard() {
 	const services = useAvailableServicesQuery()
 	const locations = useAvailableLocationsQuery()
 	const createBooking = useCreateBookingMutation()
 	const createPayment = useCreatePaymentMutation()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 
 	const [step, setStep] = useState(0)
 	const [serviceId, setServiceId] = useState<number | null>(null)
@@ -68,6 +76,11 @@ export function BookingWizard() {
 	const [redirecting, setRedirecting] = useState(false)
 	// ADM-9: the policy versions the client ticked on the review step.
 	const [acceptedPolicyIds, setAcceptedPolicyIds] = useState<ReadonlySet<number>>(() => new Set())
+
+	const servicesLoading =
+		!hydrated || isQueryLoading(services) || (!services.isError && !services.data)
+	const locationsLoading =
+		!hydrated || isQueryLoading(locations) || (!locations.isError && !locations.data)
 
 	const service = services.data?.find(item => item.id === serviceId)
 	const location = locations.data?.find(item => item.id === locationId)
@@ -178,7 +191,7 @@ export function BookingWizard() {
 			{step === 0 ? (
 				<div className="flex flex-col gap-3">
 					<h2 className="text-lg font-semibold">Choose a service</h2>
-					{services.isPending ? (
+					{servicesLoading ? (
 						<p className="text-muted-foreground text-sm" role="status">
 							Loading services…
 						</p>
@@ -213,7 +226,7 @@ export function BookingWizard() {
 			{step === 1 ? (
 				<div className="flex flex-col gap-3">
 					<h2 className="text-lg font-semibold">Choose a location</h2>
-					{locations.isPending ? (
+					{locationsLoading ? (
 						<p className="text-muted-foreground text-sm" role="status">
 							Loading locations…
 						</p>
@@ -297,7 +310,7 @@ export function BookingWizard() {
 											type="button"
 											disabled={!item.isAvailable}
 											aria-pressed={item.id === slot?.id}
-											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
+											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
 											onClick={() => setSlot(item)}
 										>
 											<span className="block font-medium">{slotTimeRange(item)}</span>
