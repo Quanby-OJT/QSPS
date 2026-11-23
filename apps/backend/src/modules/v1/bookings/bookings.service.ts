@@ -18,7 +18,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { PolicyService } from "@/common/policy/policy.service"
-import { loadPoliciesForService } from "@/modules/v1/policies/policy-document-rules"
+import { loadPoliciesForServices } from "@/modules/v1/policies/policy-document-rules"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
 import {
@@ -45,6 +45,16 @@ export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 /** The database, or a transaction: anything that can run a select. */
 type Reader = typeof db | Transaction
 
+/** One Service in a checkout, with the rows it was checked against (BKG-3). */
+interface CheckoutLine {
+	slot: typeof scheduleSlots.$inferSelect
+	service: typeof services.$inferSelect
+	location: typeof locations.$inferSelect
+}
+
+/** A saved Booking Item and the checkout line it came from. */
+type SavedItem = typeof bookingItems.$inferSelect & { line: CheckoutLine }
+
 /** What happened when staff tried to check a Booking in (PRC-1). */
 export type CheckInResult =
 	| { ok: true; bookingItemIds: number[]; checkedInIds: number[] }
@@ -55,7 +65,8 @@ export type CheckInResult =
  * Bookings (BKG-1). The only code that changes `bookings.status`,
  * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
  * (DOMAIN-MODEL.md section 6). BKG-2 adds cancelling: by the client, and by
- * the expiry job in `common/maintenance/`.
+ * the expiry job in `common/maintenance/`. BKG-3 books several Services in
+ * one checkout.
  */
 @Injectable()
 export class BookingService {
@@ -65,16 +76,24 @@ export class BookingService {
 	) {}
 
 	/**
-	 * Book one Service in one Schedule Slot (Flow B, steps 1 to 3).
+	 * Book one or more Services in one checkout (Flow B, steps 1 to 3; BKG-1,
+	 * BKG-3): one Booking with one Booking Item per slot.
+	 *
+	 * Every slot row is locked, in ascending id order and in one statement,
+	 * before any capacity is read. Two checkouts that share slots therefore
+	 * always lock them in the same order and cannot deadlock, and when two
+	 * clients confirm the last place at the same moment the second waits, then
+	 * sees the slot full. The checkout is all or nothing: if any slot cannot
+	 * take the booking, nothing is created and the error names that Service
+	 * (its data carries the `scheduleSlotId`, so the wizard can ask for a new
+	 * slot for that item only).
 	 *
 	 * ADM-9: refused unless the client accepted every written policy in effect
-	 * for the Service that requires acceptance; the accepted versions are
-	 * stored against the Booking in the same transaction.
+	 * for any of the Services that requires acceptance; the accepted versions
+	 * are stored against the Booking in the same transaction.
 	 *
-	 * The slot row is locked before its capacity is read, so when two clients
-	 * confirm the last place at the same moment the second waits, then sees the
-	 * slot full. The booking, its item, the count and the audit entry commit
-	 * together or not at all.
+	 * The booking, its items, the counts and the audit entry commit together or
+	 * not at all.
 	 */
 	async create(
 		input: CreateBookingInput,
@@ -104,40 +123,86 @@ export class BookingService {
 				})
 			}
 
-			const [slot] = await tx
+			// Flow B step 2: several slots are locked in ascending id order.
+			const slotIds = [...new Set(input.items.map(item => item.scheduleSlotId))].sort(
+				(a, b) => a - b
+			)
+			const slotRows = await tx
 				.select()
 				.from(scheduleSlots)
-				.where(eq(scheduleSlots.id, input.scheduleSlotId))
+				.where(inArray(scheduleSlots.id, slotIds))
+				.orderBy(asc(scheduleSlots.id))
 				.for("update")
-			if (!slot) {
+			const slotById = new Map(slotRows.map(slot => [slot.id, slot]))
+			const unknown = input.items.find(item => !slotById.has(item.scheduleSlotId))
+			if (unknown) {
 				throw new ORPCError("NOT_FOUND", {
-					message: `Schedule slot "${input.scheduleSlotId}" was not found`,
+					message: `Schedule slot "${unknown.scheduleSlotId}" was not found`,
+					data: { scheduleSlotId: unknown.scheduleSlotId },
 				})
 			}
-			if (slot.isDisabled) {
-				throw new ORPCError("CONFLICT", { message: "This slot is no longer available" })
-			}
-			if (slot.startsAt.getTime() <= now.getTime()) {
-				throw new ORPCError("CONFLICT", { message: "This slot has already started" })
-			}
-			if (slot.bookedCount >= slot.capacity) {
-				throw new ORPCError("CONFLICT", { message: "This slot is full" })
+
+			const serviceRows = await tx
+				.select()
+				.from(services)
+				.where(inArray(services.id, [...new Set(slotRows.map(slot => slot.serviceId))]))
+			const locationRows = await tx
+				.select()
+				.from(locations)
+				.where(inArray(locations.id, [...new Set(slotRows.map(slot => slot.locationId))]))
+			const serviceById = new Map(serviceRows.map(service => [service.id, service]))
+			const locationById = new Map(locationRows.map(location => [location.id, location]))
+
+			// Checked in the order the client chose them, so the first problem
+			// named is the first one in their cart.
+			const lines: CheckoutLine[] = []
+			const chosenServiceIds = new Set<number>()
+			for (const { scheduleSlotId } of input.items) {
+				const slot = slotById.get(scheduleSlotId)
+				if (!slot) continue // Unreachable: every id was found above.
+				const service = serviceById.get(slot.serviceId)
+				const location = locationById.get(slot.locationId)
+				const refuse = (message: string) =>
+					new ORPCError("CONFLICT", { message, data: { scheduleSlotId } })
+
+				if (!service?.isActive) {
+					throw refuse(
+						`${service?.name ?? "One of the services"} is not available for booking. Remove it from your booking.`
+					)
+				}
+				if (chosenServiceIds.has(service.id)) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: `${service.name} is in your booking twice. Keep one slot for it.`,
+						data: { scheduleSlotId },
+					})
+				}
+				if (!location?.isActive) {
+					throw refuse(
+						`${location?.name ?? "This location"} is not taking bookings. Choose a new slot for ${service.name}.`
+					)
+				}
+				if (slot.isDisabled) {
+					throw refuse(
+						`The slot you chose for ${service.name} is no longer available. Choose a new slot for it.`
+					)
+				}
+				if (slot.startsAt.getTime() <= now.getTime()) {
+					throw refuse(
+						`The slot you chose for ${service.name} has already started. Choose a new slot for it.`
+					)
+				}
+				if (slot.bookedCount >= slot.capacity) {
+					throw refuse(`The slot you chose for ${service.name} is full. Choose a new slot for it.`)
+				}
+				chosenServiceIds.add(service.id)
+				lines.push({ slot, service, location })
 			}
 
-			const [service] = await tx.select().from(services).where(eq(services.id, slot.serviceId))
-			if (!service?.isActive) {
-				throw new ORPCError("CONFLICT", { message: "This service is not available for booking" })
-			}
-			const [location] = await tx.select().from(locations).where(eq(locations.id, slot.locationId))
-			if (!location?.isActive) {
-				throw new ORPCError("CONFLICT", { message: "This location is not available for booking" })
-			}
-
-			// ADM-9: every written policy in effect for this Service that requires
-			// acceptance must be accepted, in the version in effect now. Read in
-			// this transaction, so what is checked is what is stored.
+			// ADM-9: every written policy in effect for any of these Services that
+			// requires acceptance must be accepted, in the version in effect now.
+			// Read in this transaction, so what is checked is what is stored.
 			const accepted = new Set(input.acceptedPolicyDocumentIds)
-			const applicable = await loadPoliciesForService(tx, service.id, manilaDateOf(now))
+			const applicable = await loadPoliciesForServices(tx, [...chosenServiceIds], manilaDateOf(now))
 			const notAccepted = applicable.find(
 				policy => policy.requiresAcceptance && !accepted.has(policy.id)
 			)
@@ -150,6 +215,8 @@ export class BookingService {
 
 			const referenceNumber = await this.unusedReferenceNumber(tx, now)
 			const holdExpiresAt = new Date(now.getTime() + holdMinutes * MS_PER_MINUTE)
+			// BKG-3: each item keeps the Service fee at booking time; the total is their sum.
+			const totalCentavos = lines.reduce((sum, line) => sum + line.service.feeCentavos, 0)
 
 			const [booking] = await tx
 				.insert(bookings)
@@ -158,7 +225,7 @@ export class BookingService {
 					clientId: actorId,
 					status: initialStatus("regular"),
 					kind: "regular",
-					totalCentavos: service.feeCentavos,
+					totalCentavos,
 					holdExpiresAt,
 					createdBy: actorId,
 				})
@@ -167,18 +234,26 @@ export class BookingService {
 				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking could not be created" })
 			}
 
-			const [item] = await tx
+			const savedItems = await tx
 				.insert(bookingItems)
-				.values({
-					bookingId: booking.id,
-					serviceId: slot.serviceId,
-					scheduleSlotId: slot.id,
-					locationId: slot.locationId,
-					feeCentavos: service.feeCentavos,
-					status: "booked",
-				})
+				.values(
+					lines.map(line => ({
+						bookingId: booking.id,
+						serviceId: line.slot.serviceId,
+						scheduleSlotId: line.slot.id,
+						locationId: line.slot.locationId,
+						feeCentavos: line.service.feeCentavos,
+						status: "booked" as const,
+					}))
+				)
 				.returning()
-			if (!item) {
+			// Each saved item paired with what it was booked from, in item id order.
+			const lineBySlotId = new Map(lines.map(line => [line.slot.id, line]))
+			const items = savedItems
+				.map(item => ({ ...item, line: lineBySlotId.get(item.scheduleSlotId) }))
+				.filter((item): item is SavedItem => item.line !== undefined)
+				.sort((a, b) => a.id - b.id)
+			if (items.length !== lines.length) {
 				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking could not be created" })
 			}
 
@@ -193,11 +268,12 @@ export class BookingService {
 				)
 			}
 
-			// Counted in the database, on the locked row, so it cannot be lost.
+			// One place in each slot, counted by the database on the rows locked
+			// above, so no count can be lost. Each slot appears once.
 			await tx
 				.update(scheduleSlots)
 				.set({ bookedCount: sql`${scheduleSlots.bookedCount} + 1`, updatedAt: now })
-				.where(eq(scheduleSlots.id, slot.id))
+				.where(inArray(scheduleSlots.id, slotIds))
 
 			await this.auditService.record(
 				{
@@ -215,16 +291,14 @@ export class BookingService {
 						kind: booking.kind,
 						totalCentavos: booking.totalCentavos,
 						holdExpiresAt: holdExpiresAt.toISOString(),
-						items: [
-							{
-								id: item.id,
-								serviceId: item.serviceId,
-								scheduleSlotId: item.scheduleSlotId,
-								locationId: item.locationId,
-								feeCentavos: item.feeCentavos,
-								status: item.status,
-							},
-						],
+						items: items.map(item => ({
+							id: item.id,
+							serviceId: item.serviceId,
+							scheduleSlotId: item.scheduleSlotId,
+							locationId: item.locationId,
+							feeCentavos: item.feeCentavos,
+							status: item.status,
+						})),
 						acceptedPolicies: acceptedPolicies.map(policy => ({
 							policyDocumentId: policy.id,
 							documentKey: policy.documentKey,
@@ -254,20 +328,18 @@ export class BookingService {
 				cancelReason: booking.cancelReason,
 				cancelledAt: booking.cancelledAt,
 				createdAt: booking.createdAt,
-				items: [
-					{
-						id: item.id,
-						serviceId: item.serviceId,
-						serviceName: service.name,
-						locationId: item.locationId,
-						locationName: location.name,
-						scheduleSlotId: item.scheduleSlotId,
-						startsAt: slot.startsAt,
-						endsAt: slot.endsAt,
-						feeCentavos: item.feeCentavos,
-						status: item.status,
-					},
-				],
+				items: items.map(item => ({
+					id: item.id,
+					serviceId: item.serviceId,
+					serviceName: item.line.service.name,
+					locationId: item.locationId,
+					locationName: item.line.location.name,
+					scheduleSlotId: item.scheduleSlotId,
+					startsAt: item.line.slot.startsAt,
+					endsAt: item.line.slot.endsAt,
+					feeCentavos: item.feeCentavos,
+					status: item.status,
+				})),
 			}
 		})
 	}

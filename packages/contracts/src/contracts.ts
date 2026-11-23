@@ -24,12 +24,13 @@ export type {
 	UpdateServiceRequest,
 } from "./modules/v1/services/services.schema.js"
 
-// Booking contracts + schemas
+// Booking contracts + schemas (BKG-1, BKG-3: several services in one checkout)
 export { bookingsContract } from "./modules/v1/bookings/bookings.contract.js"
 export {
 	BOOKING_STATUSES,
 	BOOKING_KINDS,
 	BOOKING_ITEM_STATUSES,
+	MAX_BOOKING_ITEMS,
 	REFERENCE_NUMBER_PATTERN,
 	BookingStatusSchema,
 	BookingKindSchema,
@@ -37,6 +38,7 @@ export {
 	ReferenceNumberSchema,
 	BookingItemSchema,
 	BookingSchema,
+	CreateBookingItemSchema,
 	CreateBookingSchema,
 } from "./modules/v1/bookings/bookings.schema.js"
 export type {
@@ -45,6 +47,7 @@ export type {
 	BookingItemStatus,
 	BookingItem,
 	Booking,
+	CreateBookingItemInput,
 	CreateBookingInput,
 } from "./modules/v1/bookings/bookings.schema.js"
 
