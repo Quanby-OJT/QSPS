@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common"
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
 import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm"
 
@@ -22,6 +22,8 @@ import {
 	bookingItems,
 	bookings,
 	documents,
+	formFields,
+	formSubmissions,
 	locations,
 	scheduleSlots,
 	services,
@@ -37,13 +39,39 @@ import {
 	scopeCondition,
 	type ResolvedScope,
 } from "@/common/scope/scope-match"
-import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
+import { sniffContentType } from "@/common/storage/content-type"
+import { FILE_STORAGE, type FileStorage } from "@/common/storage/file-storage"
+import { fileAnswers, readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { DocumentService } from "../certificates/documents.service"
 import { manilaDateOf, manilaDateTimeToUtc } from "../schedules/manila-time"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
+
+/** FRM-2c: a confirmed questionnaire upload key (same shape as FORM_UPLOAD_KEY_PATTERN in @repo/contracts, without pending/). */
+const ANSWER_FILE_KEY =
+	/^form-uploads\/[A-Za-z0-9_-]{1,64}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|png)$/
+
+const ANSWER_FILE_EXTENSIONS: Record<string, string> = {
+	"application/pdf": "pdf",
+	"image/jpeg": "jpg",
+	"image/png": "png",
+}
+
+const answerFileLogger = new Logger("ProcessingService")
+
+/** FRM-2c: one uploaded answer file, ready to send. */
+export interface AnswerFile {
+	fileName: string
+	contentType: string
+	body: Uint8Array
+}
+
+/** The same answer for a missing answer, a non-file question and a missing file. */
+function answerFileNotFound() {
+	return new ORPCError("NOT_FOUND", { message: "File not found" })
+}
 
 const MS_PER_DAY = 86_400_000
 
@@ -88,7 +116,9 @@ export class ProcessingService {
 	constructor(
 		private readonly bookingService: BookingService,
 		private readonly auditService: AuditService,
-		private readonly documentService: DocumentService
+		private readonly documentService: DocumentService,
+		// FRM-2c: optional only so unit tests that build the service by hand still work.
+		@Optional() @Inject(FILE_STORAGE) private readonly storage?: FileStorage
 	) {}
 
 	/** Booking Items at the caller's Location for one Manila date, earliest first. */
@@ -732,10 +762,84 @@ export class ProcessingService {
 			},
 			// FRM-2: the client's answers, labelled by question, in question order.
 			formAnswers: await readableAnswers(db, bookingItemId),
+			// FRM-2c: which answers are files staff can download.
+			formFiles: await fileAnswers(db, bookingItemId),
 			assessments: history,
 		}
 	}
 
+	/**
+	 * FRM-2c: one of the client's uploaded answer files, for staff assessing the
+	 * item. Same Scope rule as reading the item (no station needed). Only a file
+	 * stored in this item's own answers, for a file question, can be read;
+	 * anything else is the same 404. Every download is audited.
+	 */
+	async answerFile(
+		bookingItemId: number,
+		fieldId: number,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<AnswerFile> {
+		const staffId = requireActor(actorId)
+		await this.requireItemInScope(bookingItemId, staffId, "form_upload.read", scope, {
+			requireStation: false,
+		})
+
+		const [submission] = await db
+			.select({
+				formTemplateId: formSubmissions.formTemplateId,
+				answers: formSubmissions.answers,
+				referenceNumber: bookings.referenceNumber,
+			})
+			.from(formSubmissions)
+			.innerJoin(bookingItems, eq(bookingItems.id, formSubmissions.bookingItemId))
+			.innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
+			.where(eq(formSubmissions.bookingItemId, bookingItemId))
+			.limit(1)
+		const [field] = submission
+			? await db
+					.select({ type: formFields.type })
+					.from(formFields)
+					.where(
+						and(
+							eq(formFields.id, fieldId),
+							eq(formFields.formTemplateId, submission.formTemplateId)
+						)
+					)
+					.limit(1)
+			: []
+		const fileKey = submission?.answers[String(fieldId)]
+		if (
+			!submission ||
+			field?.type !== "file" ||
+			typeof fileKey !== "string" ||
+			!ANSWER_FILE_KEY.test(fileKey)
+		) {
+			throw answerFileNotFound()
+		}
+
+		const body = this.storage ? await this.storage.read(fileKey) : null
+		const contentType = body ? sniffContentType(body) : null
+		if (!body || !contentType) {
+			answerFileLogger.warn({ event: "processing.answer_file.missing", bookingItemId, fieldId })
+			throw answerFileNotFound()
+		}
+
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_PROCESSING,
+			action: "form_upload.read",
+			actorId: staffId,
+			targetType: "booking_item",
+			targetId: String(bookingItemId),
+			oldValue: null,
+			newValue: { fieldId, fileKey },
+		})
+		return {
+			fileName: `${submission.referenceNumber}-question-${fieldId}.${ANSWER_FILE_EXTENSIONS[contentType] ?? "bin"}`,
+			contentType,
+			body,
+		}
+	}
 	/** Recorded outside any transaction, so the denial is kept when the request fails. */
 	private async recordDenial(
 		staffId: string,

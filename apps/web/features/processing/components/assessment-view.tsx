@@ -17,6 +17,7 @@ import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
+	answerFileUrl,
 	useOpenItemMutation,
 	useProcessingItemQuery,
 	useRecordAssessmentMutation,
@@ -195,7 +196,25 @@ function AssessmentBody({ item, canApprove }: { item: ProcessingItem; canApprove
 								<Detail
 									key={field}
 									label={field}
-									value={typeof answer === "string" ? answer : JSON.stringify(answer)}
+									value={
+										item.formFiles?.some(file => file.label === field) ? (
+											<a
+												href={answerFileUrl(
+													item.bookingItemId,
+													item.formFiles.find(file => file.label === field)?.fieldId ?? 0
+												)}
+												className="text-primary underline underline-offset-2"
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												Download
+											</a>
+										) : typeof answer === "string" ? (
+											answer
+										) : (
+											JSON.stringify(answer)
+										)
+									}
 								/>
 							))}
 						</dl>
