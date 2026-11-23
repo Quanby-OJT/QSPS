@@ -35,8 +35,13 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/core/components/ui/table"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { ApiError } from "@/core/lib/api-error"
-import { useAuditLogQuery, useExportAuditLogMutation } from "@/features/audit-log/api/audit-log.hooks"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
+import {
+	useAuditLogQuery,
+	useExportAuditLogMutation,
+} from "@/features/audit-log/api/audit-log.hooks"
 import { AuditEntryDialog } from "@/features/audit-log/components/audit-entry-dialog"
 import {
 	actorLabel,
@@ -65,6 +70,9 @@ interface AuditLogViewProps {
  *
  * Read-only by design. Entries cannot be edited or removed, so the screen
  * offers no way to do either.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading rows, even when the client already holds a restored copy of the log.
  */
 export function AuditLogView({ canExport }: AuditLogViewProps) {
 	const [draft, setDraft] = useState<AuditFilterDraft>(EMPTY_AUDIT_DRAFT)
@@ -74,9 +82,12 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 
 	const query = useAuditLogQuery(filter)
 	const exportLog = useExportAuditLogMutation()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 
-	const entries = query.data?.pages.flatMap(page => page.entries) ?? []
-	const forbidden = query.error instanceof ApiError && query.error.status === 403
+	const loading = !hydrated || isQueryLoading(query)
+	const entries = loading ? [] : (query.data?.pages.flatMap(page => page.entries) ?? [])
+	const forbidden = !loading && query.error instanceof ApiError && query.error.status === 403
 
 	function setField<K extends keyof AuditFilterDraft>(key: K, value: AuditFilterDraft[K]) {
 		setDraft(current => ({ ...current, [key]: value }))
@@ -293,15 +304,15 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 						</div>
 					</form>
 
-					{query.isPending ? (
-						<div className="flex flex-col gap-2">
+					{loading ? (
+						<div className="flex flex-col gap-2" role="status" aria-label="Loading the audit log">
 							<Skeleton className="h-10 w-full" />
 							<Skeleton className="h-10 w-full" />
 							<Skeleton className="h-10 w-full" />
 						</div>
 					) : null}
 
-					{query.isError ? (
+					{!loading && query.isError ? (
 						<p role="alert" className="text-destructive text-sm">
 							{query.error.message}
 						</p>
@@ -373,7 +384,7 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 						</div>
 					) : null}
 
-					{query.hasNextPage ? (
+					{!loading && query.hasNextPage ? (
 						<Button
 							variant="outline"
 							className="self-center"
@@ -384,7 +395,7 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 						</Button>
 					) : null}
 
-					{!query.isPending && !query.isError && entries.length === 0 ? (
+					{!loading && !query.isError && entries.length === 0 ? (
 						<Empty className="border">
 							<EmptyHeader>
 								<EmptyMedia variant="icon">

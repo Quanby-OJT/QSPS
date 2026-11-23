@@ -28,6 +28,8 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/core/components/ui/table"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useCreateServiceMutation,
 	useServiceCategoriesQuery,
@@ -73,21 +75,34 @@ const emptyForm: ServiceForm = {
 	autoIssue: true,
 }
 
+/**
+ * Service catalog admin (ADM-6).
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line and a disabled Add button, even when the client already holds
+ * restored copies of the services or categories.
+ */
 export function ServicesView() {
 	const categories = useServiceCategoriesQuery()
 	const services = useServicesQuery()
 	const createService = useCreateServiceMutation()
 	const updateService = useUpdateServiceMutation()
 	const setActive = useSetServiceActiveMutation()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 
 	const [dialogOpen, setDialogOpen] = useState(false)
 	const [editing, setEditing] = useState<Service | null>(null)
 	const [form, setForm] = useState<ServiceForm>(emptyForm)
 	const isSaving = createService.isPending || updateService.isPending
 
+	const loading = !hydrated || isQueryLoading(services) || isQueryLoading(categories)
+	const serviceList = loading ? [] : (services.data ?? [])
+	const categoryList = loading ? [] : (categories.data ?? [])
+
 	function startCreate() {
 		setEditing(null)
-		setForm({ ...emptyForm, serviceCategoryId: categories.data?.[0]?.id ?? "" })
+		setForm({ ...emptyForm, serviceCategoryId: categoryList[0]?.id ?? "" })
 		setDialogOpen(true)
 	}
 
@@ -166,14 +181,14 @@ export function ServicesView() {
 				title="Services"
 				description="Manage bookable services, their fees, and approval requirements."
 				actions={
-					<Button type="button" onClick={startCreate} disabled={!categories.data?.length}>
+					<Button type="button" onClick={startCreate} disabled={categoryList.length === 0}>
 						<HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
 						Add service
 					</Button>
 				}
 			/>
 
-			{services.isPending || categories.isPending ? (
+			{loading ? (
 				<p className="text-muted-foreground text-sm" role="status">
 					Loading services…
 				</p>
@@ -194,7 +209,7 @@ export function ServicesView() {
 						Retry
 					</Button>
 				</div>
-			) : services.data.length === 0 ? (
+			) : serviceList.length === 0 ? (
 				<div className="border-border rounded-lg border border-dashed p-8 text-center">
 					<p className="font-medium">No services have been added.</p>
 					<p className="text-muted-foreground mt-1 text-sm">
@@ -202,7 +217,9 @@ export function ServicesView() {
 					</p>
 				</div>
 			) : (
-				<div className="border-border rounded-lg border">
+				// Wide content scrolls inside its own container so the page body
+				// never scrolls sideways on a phone.
+				<div className="border-border overflow-x-auto rounded-lg border">
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -217,7 +234,7 @@ export function ServicesView() {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{services.data.map(service => (
+							{serviceList.map(service => (
 								<TableRow key={service.id}>
 									<TableCell>{service.categoryName}</TableCell>
 									<TableCell className="font-mono text-xs">{service.code}</TableCell>
@@ -287,7 +304,7 @@ export function ServicesView() {
 									<option value="" disabled>
 										Select a category
 									</option>
-									{categories.data?.map(category => (
+									{categoryList.map(category => (
 										<option key={category.id} value={category.id}>
 											{category.name}
 										</option>

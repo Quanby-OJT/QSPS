@@ -24,12 +24,13 @@ export type {
 	UpdateServiceRequest,
 } from "./modules/v1/services/services.schema.js"
 
-// Booking contracts + schemas
+// Booking contracts + schemas (BKG-1, BKG-3: several services in one checkout)
 export { bookingsContract } from "./modules/v1/bookings/bookings.contract.js"
 export {
 	BOOKING_STATUSES,
 	BOOKING_KINDS,
 	BOOKING_ITEM_STATUSES,
+	MAX_BOOKING_ITEMS,
 	REFERENCE_NUMBER_PATTERN,
 	BookingStatusSchema,
 	BookingKindSchema,
@@ -37,6 +38,7 @@ export {
 	ReferenceNumberSchema,
 	BookingItemSchema,
 	BookingSchema,
+	CreateBookingItemSchema,
 	CreateBookingSchema,
 } from "./modules/v1/bookings/bookings.schema.js"
 export type {
@@ -45,8 +47,43 @@ export type {
 	BookingItemStatus,
 	BookingItem,
 	Booking,
+	CreateBookingItemInput,
 	CreateBookingInput,
 } from "./modules/v1/bookings/bookings.schema.js"
+
+// Form Template contracts + schemas (FRM-1)
+export { formsContract } from "./modules/v1/forms/forms.contract.js"
+export {
+	FORM_FIELD_TYPES,
+	FormFieldTypeSchema,
+	CHOICE_FIELD_TYPES,
+	FORM_TEMPLATE_STATUSES,
+	FormTemplateStatusSchema,
+	MAX_FORM_FIELDS,
+	MAX_FIELD_OPTIONS,
+	FormFieldInputSchema,
+	FormFieldsInputSchema,
+	FormFieldSchema,
+	FormTemplateSummarySchema,
+	FormTemplateSchema,
+	FormServiceSummarySchema,
+	FormServiceIdParamSchema,
+	FormTemplateIdParamSchema,
+	SaveFormFieldsSchema,
+	SetFormTemplateActiveSchema,
+	DeleteFormTemplateResultSchema,
+} from "./modules/v1/forms/forms.schema.js"
+export type {
+	FormFieldType,
+	FormTemplateStatus,
+	FormFieldInput,
+	FormField,
+	FormTemplateSummary,
+	FormTemplate,
+	FormServiceSummary,
+	SaveFormFieldsInput,
+	SetFormTemplateActiveInput,
+} from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
 export { paymentsContract } from "./modules/v1/payments/payments.contract.js"
@@ -149,7 +186,7 @@ export type {
 	DocumentVerification,
 } from "./modules/v1/certificates/certificates.schema.js"
 
-// Schedule slot contracts + schemas
+// Schedule slot contracts + schemas (SCH-1, SCH-2)
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"
 export {
 	MAX_GENERATE_DAYS,
@@ -163,6 +200,12 @@ export {
 	SlotIdParamSchema,
 	UpdateSlotCapacityRequestSchema,
 	SetSlotDisabledRequestSchema,
+	BulkUpdateCapacityRequestSchema,
+	BulkUpdateCapacityResponseSchema,
+	BlockScheduleDateRequestSchema,
+	BlockScheduleDateResponseSchema,
+	UnblockScheduleDateRequestSchema,
+	UnblockScheduleDateResponseSchema,
 	DeleteSlotResponseSchema,
 	SlotAvailabilitySchema,
 } from "./modules/v1/schedules/schedules.schema.js"
@@ -174,6 +217,12 @@ export type {
 	ListSlotsRequest,
 	UpdateSlotCapacityRequest,
 	SetSlotDisabledRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
+	BlockScheduleDateRequest,
+	BlockScheduleDateResponse,
+	UnblockScheduleDateRequest,
+	UnblockScheduleDateResponse,
 	SlotAvailability,
 } from "./modules/v1/schedules/schedules.schema.js"
 

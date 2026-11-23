@@ -84,6 +84,9 @@ function issuesOnClear(item: ProcessingItem): boolean {
  * Submission answers, the assessment history, and the form to clear, return
  * or reject the Booking Item. When clearing issues a document at once
  * (CRT-1), the form also asks for the certificate details.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds a restored copy.
  */
 export function AssessmentView({
 	bookingItemId,
@@ -116,7 +119,9 @@ export function AssessmentView({
 					Loading…
 				</p>
 			) : item.error ? (
-				<p className="text-destructive text-sm">{item.error.message}</p>
+				<p className="text-destructive text-sm" role="alert">
+					{item.error.message}
+				</p>
 			) : item.data ? (
 				<AssessmentBody item={item.data} canApprove={canApprove} />
 			) : null}

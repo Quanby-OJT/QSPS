@@ -23,16 +23,14 @@ import {
 	useUnpaidBookingQuery,
 } from "@/features/bookings/api/bookings.hooks"
 import {
+	BookingFeeLines,
+	feeLinesFromItems,
+} from "@/features/bookings/components/booking-fee-lines"
+import {
 	DEFAULT_PAYMENT_CHANNEL,
 	useCreatePaymentMutation,
 } from "@/features/payments/api/payments.hooks"
-import {
-	dateLabel,
-	manilaDateKey,
-	manilaTime,
-	slotTimeRange,
-} from "@/features/schedules/lib/calendar"
-import { feeInPesos } from "@/features/services/lib/fee"
+import { dateLabel, manilaDateKey, manilaTime } from "@/features/schedules/lib/calendar"
 
 function newIdempotencyKey(): string {
 	return crypto.randomUUID()
@@ -156,21 +154,10 @@ export function UnpaidBookingDetails({
 					<p className="text-muted-foreground text-sm">Reference Number</p>
 					<p className="font-mono text-xl font-semibold tracking-wide">{booking.referenceNumber}</p>
 				</div>
-				<dl className="grid gap-2 text-sm">
-					{booking.items.map(item => (
-						<div key={item.id}>
-							<dt className="font-medium">{item.serviceName}</dt>
-							<dd className="text-muted-foreground">
-								{item.locationName} · {dateLabel(manilaDateKey(item.startsAt))} ·{" "}
-								{slotTimeRange(item)}
-							</dd>
-						</div>
-					))}
-					<div>
-						<dt className="text-muted-foreground">Total</dt>
-						<dd>₱{feeInPesos(booking.totalCentavos)}</dd>
-					</div>
-				</dl>
+				<BookingFeeLines
+					lines={feeLinesFromItems(booking.items)}
+					totalCentavos={booking.totalCentavos}
+				/>
 
 				{booking.payOnsite ? (
 					<p className="text-sm">

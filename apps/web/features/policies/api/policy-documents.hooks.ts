@@ -1,6 +1,6 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
 	CreatePolicyDocumentInput,
@@ -120,5 +120,57 @@ export function useBookingPoliciesQuery(serviceId: number | null) {
 		enabled: serviceId !== null,
 		staleTime: 0,
 		refetchOnMount: "always",
+	})
+}
+
+/** What the review step needs from the policies of every Service in a checkout. */
+export interface CheckoutPolicies {
+	/** Each policy once, sorted by title; undefined until every Service has answered. */
+	data: PolicyDocumentSummary[] | undefined
+	isPending: boolean
+	isError: boolean
+	isSuccess: boolean
+	refetch: () => void
+}
+
+/**
+ * BKG-3: the policies a client must read before booking several Services in
+ * one checkout. One request per Service (the same, always fresh query as a
+ * single booking), merged so a policy that applies to more than one Service
+ * is shown, and accepted, once. The API checks the same set on confirm.
+ */
+export function useBookingPoliciesForServicesQuery(
+	serviceIds: readonly number[]
+): CheckoutPolicies {
+	return useQueries({
+		queries: serviceIds.map(serviceId => ({
+			queryKey: policyDocumentKeys.forService(serviceId),
+			queryFn: () =>
+				apiFetch<PolicyDocumentSummary[]>(`/bookings/policies?serviceId=${String(serviceId)}`),
+			staleTime: 0,
+			refetchOnMount: "always" as const,
+		})),
+		combine: results => {
+			const isSuccess = results.every(result => result.isSuccess)
+			const byId = new Map<number, PolicyDocumentSummary>()
+			if (isSuccess) {
+				for (const result of results) {
+					for (const policy of result.data ?? []) byId.set(policy.id, policy)
+				}
+			}
+			return {
+				data: isSuccess
+					? [...byId.values()].sort((a, b) => a.title.localeCompare(b.title) || a.id - b.id)
+					: undefined,
+				isPending: results.some(result => result.isPending),
+				isError: results.some(result => result.isError),
+				isSuccess,
+				refetch: () => {
+					for (const result of results) {
+						if (!result.isSuccess) void result.refetch()
+					}
+				},
+			}
+		},
 	})
 }

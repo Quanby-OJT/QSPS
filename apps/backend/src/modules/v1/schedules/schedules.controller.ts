@@ -62,6 +62,36 @@ export class SchedulesController {
 	@StrictThrottle()
 	@RequirePermissions("schedules.slots:manage")
 	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.schedules.bulkUpdateCapacity)
+	async bulkUpdateCapacity(@Session() session?: UserSession) {
+		return implement(v1.schedules.bulkUpdateCapacity).handler(async ({ input }) =>
+			this.schedulesService.bulkUpdateCapacity(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("schedules.slots:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.schedules.blockDate)
+	async blockDate(@Session() session?: UserSession) {
+		return implement(v1.schedules.blockDate).handler(async ({ input }) =>
+			this.schedulesService.blockDate(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("schedules.slots:manage")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.schedules.unblockDate)
+	async unblockDate(@Session() session?: UserSession) {
+		return implement(v1.schedules.unblockDate).handler(async ({ input }) =>
+			this.schedulesService.unblockDate(input, actorId(session), await this.scopeOf(session))
+		)
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("schedules.slots:manage")
+	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.schedules.updateSlotCapacity)
 	async updateSlotCapacity(@Session() session?: UserSession) {
 		return implement(v1.schedules.updateSlotCapacity).handler(async ({ input }) =>

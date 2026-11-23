@@ -1,17 +1,21 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq, gte, lt } from "drizzle-orm"
+import { and, asc, eq, gte, inArray, isNotNull, lt } from "drizzle-orm"
 
 import type {
+	BlockScheduleDateRequest,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
 	GenerateSlotsInput,
 	GenerateSlotsResponse,
 	ListSlotsRequest,
 	ScheduleSlot,
 	SetSlotDisabledRequest,
 	SlotAvailability,
+	UnblockScheduleDateRequest,
 	UpdateSlotCapacityRequest,
 } from "@repo/contracts"
-import { locations, scheduleSlots, services } from "@repo/db/schema"
+import { bookingItems, bookings, locations, scheduleSlots, services } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -40,6 +44,7 @@ export const MAX_SLOTS_PER_REQUEST = 2000
 const INSERT_CHUNK_SIZE = 500
 
 type SlotRow = typeof scheduleSlots.$inferSelect
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /** The start and end of every slot a generate request asks for, in UTC. */
 export function slotTimesFor(
@@ -79,13 +84,49 @@ function bookingCount(count: number): string {
 	return count === 1 ? "1 booking" : `${count} bookings`
 }
 
+/** A "YYYY-MM-DD" date moved by whole days. */
+function shiftDate(date: string, days: number): string {
+	const value = new Date(`${date}T00:00:00.000Z`)
+	value.setUTCDate(value.getUTCDate() + days)
+	return value.toISOString().slice(0, 10)
+}
+
+/**
+ * SCH-2: the Manila dates a bulk action covers, as a half-open range: one day,
+ * the Monday-to-Sunday week holding the date, or the calendar month holding it.
+ * `start` and `end` are the matching UTC instants for comparing `starts_at`.
+ */
+export function scheduleDateRange(anchorDate: string, period: "day" | "week" | "month") {
+	let startDate = anchorDate
+	let endDate = shiftDate(anchorDate, 1)
+	if (period === "week") {
+		const mondayOffset = (weekdayOf(anchorDate) + 6) % 7
+		startDate = shiftDate(anchorDate, -mondayOffset)
+		endDate = shiftDate(startDate, 7)
+	} else if (period === "month") {
+		const [year = 0, month = 1] = anchorDate.split("-").map(Number)
+		startDate = `${anchorDate.slice(0, 7)}-01`
+		const nextYear = month === 12 ? year + 1 : year
+		const nextMonth = month === 12 ? 1 : month + 1
+		endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`
+	}
+	return {
+		startDate,
+		/** Last date included, for the audit entry. */
+		lastDate: shiftDate(endDate, -1),
+		start: manilaDateTimeToUtc(startDate, "00:00"),
+		end: manilaDateTimeToUtc(endDate, "00:00"),
+	}
+}
+
 /**
  * Schedule Slots (SCH-1): capacity for one Service at one Location on one date
  * and time window.
  *
- * This service creates slots and edits `capacity` and `is_disabled`. It never
- * writes `booked_count`: only `BookingService` changes it, with a row lock
- * (DOMAIN-MODEL.md section 6). Every change is audited in the same transaction.
+ * This service creates slots and edits `capacity`, `is_disabled` and, for a
+ * blocked date (SCH-2), `disabled_reason`. It never writes `booked_count`:
+ * only `BookingService` changes it, with a row lock (DOMAIN-MODEL.md section 6).
+ * Every change is audited in the same transaction.
  */
 @Injectable()
 export class SchedulesService {
@@ -292,6 +333,210 @@ export class SchedulesService {
 		})
 	}
 
+	/**
+	 * SCH-2: set one capacity on every slot of a service at a location in a day,
+	 * week or month. A slot with more bookings than the new capacity is left
+	 * unchanged and listed back, so no booking is ever pushed over capacity.
+	 */
+	async bulkUpdateCapacity(
+		input: BulkUpdateCapacityRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<BulkUpdateCapacityResponse> {
+		const range = scheduleDateRange(input.anchorDate, input.period)
+		return db.transaction(async tx => {
+			await this.requireTargetInScope(tx, input.serviceId, input.locationId, actorId, scope)
+
+			// Locked so a booking cannot take a place between this check and the update.
+			const slots = await tx
+				.select()
+				.from(scheduleSlots)
+				.where(
+					and(
+						eq(scheduleSlots.serviceId, input.serviceId),
+						eq(scheduleSlots.locationId, input.locationId),
+						gte(scheduleSlots.startsAt, range.start),
+						lt(scheduleSlots.startsAt, range.end)
+					)
+				)
+				.orderBy(asc(scheduleSlots.id))
+				.for("update")
+
+			const skipped = slots
+				.filter(slot => slot.bookedCount > input.capacity)
+				.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+				.map(slot => ({
+					id: slot.id,
+					startsAt: slot.startsAt,
+					bookedCount: slot.bookedCount,
+					capacity: slot.capacity,
+				}))
+			const updateIds = slots
+				.filter(slot => slot.bookedCount <= input.capacity)
+				.map(slot => slot.id)
+
+			if (updateIds.length > 0) {
+				await tx
+					.update(scheduleSlots)
+					.set({ capacity: input.capacity, updatedAt: new Date() })
+					.where(inArray(scheduleSlots.id, updateIds))
+			}
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_SCHEDULES,
+					action: "schedule.slots.capacity.bulk_update",
+					actorId,
+					targetType: "schedule_slot",
+					targetId: null,
+					oldValue: null,
+					newValue: {
+						serviceId: input.serviceId,
+						locationId: input.locationId,
+						period: input.period,
+						startDate: range.startDate,
+						endDate: range.lastDate,
+						capacity: input.capacity,
+						selectedCount: slots.length,
+						updatedCount: updateIds.length,
+						skippedCount: skipped.length,
+					},
+				},
+				tx
+			)
+			return { selectedCount: slots.length, updatedCount: updateIds.length, skipped }
+		})
+	}
+
+	/**
+	 * SCH-2: disable every slot of a service at a location on one Manila date,
+	 * with a reason. A slot someone disabled by hand keeps a null reason, so a
+	 * later unblock leaves it disabled. Paid Bookings on that date are listed for
+	 * follow-up; none is cancelled.
+	 */
+	async blockDate(
+		input: BlockScheduleDateRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<{
+		disabledCount: number
+		paidBookings: { referenceNumber: string; startsAt: Date }[]
+	}> {
+		const range = scheduleDateRange(input.date, "day")
+		return db.transaction(async tx => {
+			await this.requireTargetInScope(tx, input.serviceId, input.locationId, actorId, scope)
+
+			const slots = await tx
+				.select()
+				.from(scheduleSlots)
+				.where(
+					and(
+						eq(scheduleSlots.serviceId, input.serviceId),
+						eq(scheduleSlots.locationId, input.locationId),
+						gte(scheduleSlots.startsAt, range.start),
+						lt(scheduleSlots.startsAt, range.end)
+					)
+				)
+				.orderBy(asc(scheduleSlots.id))
+				.for("update")
+
+			// Open slots, and slots an earlier block disabled (so the reason updates).
+			const blockIds = slots
+				.filter(slot => !slot.isDisabled || slot.disabledReason !== null)
+				.map(slot => slot.id)
+			if (blockIds.length > 0) {
+				await tx
+					.update(scheduleSlots)
+					.set({ isDisabled: true, disabledReason: input.reason, updatedAt: new Date() })
+					.where(inArray(scheduleSlots.id, blockIds))
+			}
+
+			const paidBookings = await this.paidBookingsOn(
+				tx,
+				slots.map(slot => slot.id)
+			)
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_SCHEDULES,
+					action: "schedule.date.block",
+					actorId,
+					targetType: "schedule_date",
+					targetId: `${input.serviceId}:${input.locationId}:${input.date}`,
+					oldValue: null,
+					newValue: {
+						serviceId: input.serviceId,
+						locationId: input.locationId,
+						date: input.date,
+						reason: input.reason,
+						slotCount: slots.length,
+						disabledCount: blockIds.length,
+						paidBookingCount: paidBookings.length,
+					},
+				},
+				tx
+			)
+			return { disabledCount: blockIds.length, paidBookings }
+		})
+	}
+
+	/**
+	 * SCH-2: re-enable the slots a date block disabled. Slots disabled by hand
+	 * (no reason) stay disabled.
+	 */
+	async unblockDate(
+		input: UnblockScheduleDateRequest,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<{ enabledCount: number }> {
+		const range = scheduleDateRange(input.date, "day")
+		return db.transaction(async tx => {
+			await this.requireTargetInScope(tx, input.serviceId, input.locationId, actorId, scope)
+
+			const slots = await tx
+				.select({ id: scheduleSlots.id })
+				.from(scheduleSlots)
+				.where(
+					and(
+						eq(scheduleSlots.serviceId, input.serviceId),
+						eq(scheduleSlots.locationId, input.locationId),
+						gte(scheduleSlots.startsAt, range.start),
+						lt(scheduleSlots.startsAt, range.end),
+						isNotNull(scheduleSlots.disabledReason)
+					)
+				)
+				.orderBy(asc(scheduleSlots.id))
+				.for("update")
+
+			const enableIds = slots.map(slot => slot.id)
+			if (enableIds.length > 0) {
+				await tx
+					.update(scheduleSlots)
+					.set({ isDisabled: false, disabledReason: null, updatedAt: new Date() })
+					.where(inArray(scheduleSlots.id, enableIds))
+			}
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_SCHEDULES,
+					action: "schedule.date.unblock",
+					actorId,
+					targetType: "schedule_date",
+					targetId: `${input.serviceId}:${input.locationId}:${input.date}`,
+					oldValue: null,
+					newValue: {
+						serviceId: input.serviceId,
+						locationId: input.locationId,
+						date: input.date,
+						enabledCount: enableIds.length,
+					},
+				},
+				tx
+			)
+			return { enabledCount: enableIds.length }
+		})
+	}
+
 	/** Change capacity. It may not go below the bookings already made. */
 	async updateSlotCapacity(
 		input: UpdateSlotCapacityRequest,
@@ -342,7 +587,10 @@ export class SchedulesService {
 		})
 	}
 
-	/** Disable or re-enable a slot. Existing bookings are not touched. */
+	/**
+	 * Disable or re-enable a slot. Existing bookings are not touched. Re-enabling
+	 * by hand also clears a date-block reason.
+	 */
 	async setSlotDisabled(
 		input: SetSlotDisabledRequest,
 		actorId: string | null,
@@ -357,7 +605,11 @@ export class SchedulesService {
 
 			const [updated] = await tx
 				.update(scheduleSlots)
-				.set({ isDisabled: input.isDisabled, updatedAt: new Date() })
+				.set({
+					isDisabled: input.isDisabled,
+					...(input.isDisabled ? {} : { disabledReason: null }),
+					updatedAt: new Date(),
+				})
 				.where(eq(scheduleSlots.id, current.id))
 				.returning()
 			if (!updated) {
@@ -423,9 +675,67 @@ export class SchedulesService {
 		})
 	}
 
+	/**
+	 * SCH-2: paid Bookings with an item in any of these slots, each listed once
+	 * at its earliest slot on the date, in time order.
+	 */
+	private async paidBookingsOn(
+		tx: Transaction,
+		slotIds: number[]
+	): Promise<{ referenceNumber: string; startsAt: Date }[]> {
+		if (slotIds.length === 0) return []
+		const rows = await tx
+			.select({ referenceNumber: bookings.referenceNumber, startsAt: scheduleSlots.startsAt })
+			.from(bookingItems)
+			.innerJoin(bookings, eq(bookingItems.bookingId, bookings.id))
+			.innerJoin(scheduleSlots, eq(bookingItems.scheduleSlotId, scheduleSlots.id))
+			.where(and(inArray(bookingItems.scheduleSlotId, slotIds), eq(bookings.status, "paid")))
+			.orderBy(asc(scheduleSlots.startsAt), asc(bookings.referenceNumber))
+
+		const seen = new Set<string>()
+		return rows.filter(row => {
+			if (seen.has(row.referenceNumber)) return false
+			seen.add(row.referenceNumber)
+			return true
+		})
+	}
+
+	/**
+	 * SCH-2, ADM-2: a bulk action names a service and a location rather than a
+	 * slot, so the Scope check runs on them, before any slot is read. An unknown
+	 * service, or one outside the caller's Scope, answers as not found.
+	 */
+	private async requireTargetInScope(
+		tx: Transaction,
+		serviceId: number,
+		locationId: number,
+		actorId: string | null,
+		scope: ResolvedScope
+	): Promise<void> {
+		const [service] = await tx
+			.select({ serviceCategoryId: services.serviceCategoryId })
+			.from(services)
+			.where(eq(services.id, serviceId))
+		if (!service) {
+			throw new ORPCError("NOT_FOUND", { message: `Service "${serviceId}" was not found` })
+		}
+		const record = { serviceCategoryId: service.serviceCategoryId, locationId }
+		if (inScope(scope, record)) return
+		await denyOutsideScope(
+			this.auditService,
+			actorId,
+			{
+				type: "location",
+				id: locationId,
+				notFoundMessage: `Location "${locationId}" was not found`,
+			},
+			record
+		)
+	}
+
 	/** ADM-2: a slot outside the caller's Scope answers like a missing one. */
 	private async requireSlotInScope(
-		tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+		tx: Transaction,
 		slot: SlotRow,
 		actorId: string | null,
 		scope: ResolvedScope
@@ -462,6 +772,7 @@ export class SchedulesService {
 			capacity: slot.capacity,
 			bookedCount: slot.bookedCount,
 			isDisabled: slot.isDisabled,
+			disabledReason: slot.disabledReason,
 		}
 	}
 }

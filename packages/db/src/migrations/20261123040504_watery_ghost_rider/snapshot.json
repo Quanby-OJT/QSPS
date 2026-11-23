@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b99e37fb-5f72-4c30-b0e3-b146ea836d54",
+  "id": "a576a788-aefa-49c8-aa9d-cc394a4d31ef",
   "prevIds": [
     "a907c34e-de82-4f5e-b76c-32a2b0b090c3"
   ],
@@ -409,19 +409,6 @@
       "generated": null,
       "identity": null,
       "name": "outcome",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "assessments"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'assessment'",
-      "generated": null,
-      "identity": null,
-      "name": "kind",
       "entityType": "columns",
       "schema": "public",
       "table": "assessments"
@@ -2502,6 +2489,19 @@
       "generated": null,
       "identity": null,
       "name": "is_disabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "schedule_slots"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "disabled_reason",
       "entityType": "columns",
       "schema": "public",
       "table": "schedule_slots"

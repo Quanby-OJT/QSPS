@@ -1,0 +1,1 @@
+ALTER TABLE "schedule_slots" ADD COLUMN "disabled_reason" text;

@@ -3,12 +3,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
+	BlockScheduleDateRequest,
+	BlockScheduleDateResponse,
+	BulkUpdateCapacityRequest,
+	BulkUpdateCapacityResponse,
 	GenerateSlotsInput,
 	GenerateSlotsResponse,
 	ListSlotsRequest,
 	ScheduleSlot,
 	SetSlotDisabledRequest,
 	SlotAvailability,
+	UnblockScheduleDateRequest,
+	UnblockScheduleDateResponse,
 	UpdateSlotCapacityRequest,
 } from "@repo/contracts"
 
@@ -30,8 +36,13 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	if (!response.ok) {
 		let message = `Request failed (${response.status})`
 		try {
-			const body = (await response.json()) as { message?: string; error?: { message?: string } }
-			message = body?.message ?? body?.error?.message ?? message
+			const body = (await response.json()) as {
+				message?: string
+				error?: { message?: string }
+				/** oRPC input validation puts the field messages here. */
+				data?: { issues?: { message?: string }[] }
+			}
+			message = body?.data?.issues?.[0]?.message ?? body?.message ?? body?.error?.message ?? message
 		} catch {
 			// Error bodies may be empty or non-JSON.
 		}
@@ -64,6 +75,17 @@ function toSlot(slot: SlotJson): ScheduleSlot {
 		createdAt: new Date(slot.createdAt),
 		updatedAt: new Date(slot.updatedAt),
 	}
+}
+
+/** The same shape with every `startsAt` still as JSON text. */
+type WithStartsAtText<T extends { startsAt: Date }> = Omit<T, "startsAt"> & { startsAt: string }
+
+type BulkUpdateCapacityJson = Omit<BulkUpdateCapacityResponse, "skipped"> & {
+	skipped: WithStartsAtText<BulkUpdateCapacityResponse["skipped"][number]>[]
+}
+
+type BlockScheduleDateJson = Omit<BlockScheduleDateResponse, "paidBookings"> & {
+	paidBookings: WithStartsAtText<BlockScheduleDateResponse["paidBookings"][number]>[]
 }
 
 export const scheduleKeys = {
@@ -142,6 +164,58 @@ export function useGenerateSlotsMutation() {
 	return useMutation({
 		mutationFn: (input: GenerateSlotsInput) =>
 			apiFetch<GenerateSlotsResponse>("/schedules/slots/generate", {
+				method: "POST",
+				body: JSON.stringify(input),
+			}),
+		onSuccess: refresh,
+	})
+}
+
+/** SCH-2: one capacity for every slot in a day, week or month. */
+export function useBulkUpdateCapacityMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: async (input: BulkUpdateCapacityRequest): Promise<BulkUpdateCapacityResponse> => {
+			const result = await apiFetch<BulkUpdateCapacityJson>("/schedules/slots/capacity/bulk", {
+				method: "PUT",
+				body: JSON.stringify(input),
+			})
+			return {
+				...result,
+				skipped: result.skipped.map(slot => ({ ...slot, startsAt: new Date(slot.startsAt) })),
+			}
+		},
+		onSuccess: refresh,
+	})
+}
+
+/** SCH-2: disable a whole date, returning the paid Bookings to follow up. */
+export function useBlockScheduleDateMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: async (input: BlockScheduleDateRequest): Promise<BlockScheduleDateResponse> => {
+			const result = await apiFetch<BlockScheduleDateJson>("/schedules/dates/block", {
+				method: "POST",
+				body: JSON.stringify(input),
+			})
+			return {
+				...result,
+				paidBookings: result.paidBookings.map(booking => ({
+					...booking,
+					startsAt: new Date(booking.startsAt),
+				})),
+			}
+		},
+		onSuccess: refresh,
+	})
+}
+
+/** SCH-2: re-enable the slots a date block disabled. */
+export function useUnblockScheduleDateMutation() {
+	const refresh = useRefreshScheduleQueries()
+	return useMutation({
+		mutationFn: (input: UnblockScheduleDateRequest) =>
+			apiFetch<UnblockScheduleDateResponse>("/schedules/dates/unblock", {
 				method: "POST",
 				body: JSON.stringify(input),
 			}),

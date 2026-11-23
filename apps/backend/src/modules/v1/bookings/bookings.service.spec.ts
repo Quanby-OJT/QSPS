@@ -60,6 +60,18 @@ const makeSlot = (overrides: Record<string, unknown> = {}) => ({
 const service = { id: 1, name: "Yellow fever vaccination", feeCentavos: 150000, isActive: true }
 const location = { id: 2, name: "Manila", isActive: true }
 
+/** BKG-3: a second Service, booked at another Location in the same checkout. */
+const seminarSlot = makeSlot({
+	id: 9,
+	serviceId: 3,
+	locationId: 4,
+	startsAt: new Date("2026-12-03T01:00:00.000Z"),
+	endsAt: new Date("2026-12-03T03:00:00.000Z"),
+	bookedCount: 0,
+})
+const seminar = { id: 3, name: "Basic hygiene seminar", feeCentavos: 50000, isActive: true }
+const cebu = { id: 4, name: "Cebu", isActive: true }
+
 const savedBooking = {
 	id: 31,
 	referenceNumber: "QSPS-261117-AB12CD",
@@ -68,6 +80,9 @@ const savedBooking = {
 	kind: "regular",
 	totalCentavos: 150000,
 	holdExpiresAt: new Date("2026-11-17T08:00:00.000Z"),
+	payOnsite: false,
+	cancelReason: null,
+	cancelledAt: null,
 	createdBy: "client-1",
 	createdAt: NOW,
 	updatedAt: NOW,
@@ -85,18 +100,32 @@ const savedItem = {
 	updatedAt: NOW,
 }
 
+const savedSeminarItem = {
+	...savedItem,
+	id: 45,
+	serviceId: 3,
+	scheduleSlotId: 9,
+	locationId: 4,
+	feeCentavos: 50000,
+}
+
 /**
  * A query that resolves to `rows` however it is finished: awaited directly,
- * or ended with `.limit()` or `.for("update")`. `lock` records the lock mode.
+ * or ended with `.limit()` or `.for("update")`. `lock` records the lock mode;
+ * `trace` records the order of `orderBy` and `for` calls.
  */
-function query(rows: unknown[], lock?: jest.Mock) {
+function query(rows: unknown[], lock?: jest.Mock, trace?: jest.Mock) {
 	const chain: Record<string, unknown> = {
 		from: () => chain,
 		where: () => chain,
-		orderBy: () => chain,
+		orderBy: () => {
+			trace?.("orderBy")
+			return chain
+		},
 		limit: () => Promise.resolve(rows),
 		for: (mode: string) => {
 			lock?.(mode)
+			trace?.(`for ${mode}`)
 			return Promise.resolve(rows)
 		},
 		then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
@@ -124,26 +153,30 @@ const makePolicy = (overrides: Record<string, unknown> = {}) => ({
 
 interface Scenario {
 	unpaid?: unknown[]
-	slot?: unknown[]
-	service?: unknown[]
-	location?: unknown[]
+	/** The locked slot rows, as the database returns them (ascending id). */
+	slots?: unknown[]
+	services?: unknown[]
+	locations?: unknown[]
 	/** Stored policy versions not withdrawn and already effective (ADM-9). */
 	policies?: unknown[]
 	/** One entry per Reference Number check: a row means "already taken". */
 	referenceChecks?: unknown[][]
+	savedBooking?: unknown
+	savedItems?: unknown[]
 }
 
 /** Wires a transaction that answers the service's queries in the order it asks them. */
 function mockBookingTransaction(scenario: Scenario = {}) {
 	const clientLock = jest.fn()
 	const slotLock = jest.fn()
+	const slotTrace = jest.fn()
 	const select = jest
 		.fn()
 		.mockReturnValueOnce(query([{ id: "client-1" }], clientLock))
 		.mockReturnValueOnce(query(scenario.unpaid ?? []))
-		.mockReturnValueOnce(query(scenario.slot ?? [makeSlot()], slotLock))
-		.mockReturnValueOnce(query(scenario.service ?? [service]))
-		.mockReturnValueOnce(query(scenario.location ?? [location]))
+		.mockReturnValueOnce(query(scenario.slots ?? [makeSlot()], slotLock, slotTrace))
+		.mockReturnValueOnce(query(scenario.services ?? [service]))
+		.mockReturnValueOnce(query(scenario.locations ?? [location]))
 		.mockReturnValueOnce(query(scenario.policies ?? []))
 	for (const rows of scenario.referenceChecks ?? [[]]) {
 		select.mockReturnValueOnce(query(rows))
@@ -157,13 +190,13 @@ function mockBookingTransaction(scenario: Scenario = {}) {
 		.mockReturnValueOnce({
 			values: (values: unknown) => {
 				bookingValues(values)
-				return { returning: () => Promise.resolve([savedBooking]) }
+				return { returning: () => Promise.resolve([scenario.savedBooking ?? savedBooking]) }
 			},
 		})
 		.mockReturnValueOnce({
 			values: (values: unknown) => {
 				itemValues(values)
-				return { returning: () => Promise.resolve([savedItem]) }
+				return { returning: () => Promise.resolve(scenario.savedItems ?? [savedItem]) }
 			},
 		})
 		.mockReturnValueOnce({
@@ -187,6 +220,7 @@ function mockBookingTransaction(scenario: Scenario = {}) {
 		tx,
 		clientLock,
 		slotLock,
+		slotTrace,
 		insert,
 		update,
 		bookingValues,
@@ -195,6 +229,30 @@ function mockBookingTransaction(scenario: Scenario = {}) {
 		slotSet,
 	}
 }
+
+/** BKG-3: a checkout of the vaccination in Manila and the seminar in Cebu. */
+function mockTwoServiceTransaction(scenario: Scenario = {}) {
+	return mockBookingTransaction({
+		slots: [makeSlot(), seminarSlot],
+		services: [service, seminar],
+		locations: [location, cebu],
+		savedBooking: { ...savedBooking, totalCentavos: 200000 },
+		savedItems: [savedItem, savedSeminarItem],
+		...scenario,
+	})
+}
+
+/** The input for booking slot 7 alone. */
+const oneSlot = (acceptedPolicyDocumentIds: number[] = []) => ({
+	items: [{ scheduleSlotId: 7 }],
+	acceptedPolicyDocumentIds,
+})
+
+/** The input for booking slots 7 and 9 together (BKG-3). */
+const twoSlots = (acceptedPolicyDocumentIds: number[] = []) => ({
+	items: [{ scheduleSlotId: 7 }, { scheduleSlotId: 9 }],
+	acceptedPolicyDocumentIds,
+})
 
 describe("BookingService.create", () => {
 	let bookingService: BookingService
@@ -213,11 +271,7 @@ describe("BookingService.create", () => {
 	it("creates a pending_payment booking with one item and a Reference Number", async () => {
 		const { bookingValues, itemValues } = mockBookingTransaction()
 
-		const booking = await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		const booking = await bookingService.create(oneSlot(), "client-1", NOW)
 
 		expect(booking).toMatchObject({
 			id: 31,
@@ -250,24 +304,92 @@ describe("BookingService.create", () => {
 				totalCentavos: 150000,
 			})
 		)
-		expect(itemValues).toHaveBeenCalledWith({
-			bookingId: 31,
-			serviceId: 1,
-			scheduleSlotId: 7,
-			locationId: 2,
-			feeCentavos: 150000,
-			status: "booked",
-		})
+		expect(itemValues).toHaveBeenCalledWith([
+			{
+				bookingId: 31,
+				serviceId: 1,
+				scheduleSlotId: 7,
+				locationId: 2,
+				feeCentavos: 150000,
+				status: "booked",
+			},
+		])
+	})
+
+	it("books two Services in one checkout: one Booking, two items, the total is their sum (BKG-3)", async () => {
+		const { bookingValues, itemValues, update } = mockTwoServiceTransaction()
+
+		const booking = await bookingService.create(twoSlots(), "client-1", NOW)
+
+		expect(bookingValues).toHaveBeenCalledTimes(1)
+		expect(bookingValues).toHaveBeenCalledWith(expect.objectContaining({ totalCentavos: 200000 }))
+		expect(itemValues).toHaveBeenCalledWith([
+			{
+				bookingId: 31,
+				serviceId: 1,
+				scheduleSlotId: 7,
+				locationId: 2,
+				feeCentavos: 150000,
+				status: "booked",
+			},
+			{
+				bookingId: 31,
+				serviceId: 3,
+				scheduleSlotId: 9,
+				locationId: 4,
+				feeCentavos: 50000,
+				status: "booked",
+			},
+		])
+		expect(booking.totalCentavos).toBe(200000)
+		expect(booking.items).toEqual([
+			expect.objectContaining({
+				id: 44,
+				serviceName: "Yellow fever vaccination",
+				locationName: "Manila",
+				feeCentavos: 150000,
+			}),
+			expect.objectContaining({
+				id: 45,
+				serviceName: "Basic hygiene seminar",
+				locationName: "Cebu",
+				scheduleSlotId: 9,
+				startsAt: new Date("2026-12-03T01:00:00.000Z"),
+				feeCentavos: 50000,
+			}),
+		])
+		// Both slots' counts rise in one statement on the rows locked earlier.
+		expect(update).toHaveBeenCalledTimes(1)
+	})
+
+	it("returns the items in item id order, whatever order the database returns them in", async () => {
+		mockTwoServiceTransaction({ savedItems: [savedSeminarItem, savedItem] })
+
+		const booking = await bookingService.create(twoSlots(), "client-1", NOW)
+
+		expect(booking.items.map(item => item.id)).toEqual([44, 45])
+	})
+
+	it("locks every slot in one statement, ordered by slot id, before reading any capacity", async () => {
+		const { slotLock, slotTrace } = mockTwoServiceTransaction()
+
+		// The client chose the seminar first; the lock order is still by slot id.
+		await bookingService.create(
+			{ items: [{ scheduleSlotId: 9 }, { scheduleSlotId: 7 }], acceptedPolicyDocumentIds: [] },
+			"client-1",
+			NOW
+		)
+
+		// Flow B: SELECT … ORDER BY id FOR UPDATE, so two checkouts sharing slots
+		// always lock them in the same order and cannot deadlock.
+		expect(slotLock).toHaveBeenCalledTimes(1)
+		expect(slotTrace.mock.calls.map(call => call[0])).toEqual(["orderBy", "for update"])
 	})
 
 	it("sets hold_expires_at from the hold Policy: 60 minutes after booking by default", async () => {
 		const { bookingValues } = mockBookingTransaction()
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot(), "client-1", NOW)
 
 		expect(bookingValues).toHaveBeenCalledWith(
 			expect.objectContaining({ holdExpiresAt: new Date("2026-11-17T08:00:00.000Z") })
@@ -282,11 +404,7 @@ describe("BookingService.create", () => {
 		)
 		const { bookingValues } = mockBookingTransaction()
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot(), "client-1", NOW)
 
 		expect(policyService.get).toHaveBeenCalledWith("booking.hold_minutes")
 		expect(bookingValues).toHaveBeenCalledWith(
@@ -297,11 +415,7 @@ describe("BookingService.create", () => {
 	it("locks the slot row before reading capacity, then raises booked_count by one", async () => {
 		const { slotLock, update, slotSet } = mockBookingTransaction()
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot(), "client-1", NOW)
 
 		// Flow B: SELECT … FOR UPDATE is what makes two clients take turns.
 		expect(slotLock).toHaveBeenCalledWith("update")
@@ -316,11 +430,7 @@ describe("BookingService.create", () => {
 	it("writes one audit entry in the same transaction", async () => {
 		const { tx } = mockBookingTransaction()
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot(), "client-1", NOW)
 
 		expect(auditService.record).toHaveBeenCalledTimes(1)
 		expect(auditService.record).toHaveBeenCalledWith(
@@ -356,12 +466,65 @@ describe("BookingService.create", () => {
 		)
 	})
 
+	it("audits every item of a multi-service checkout in its one entry (BKG-3)", async () => {
+		const { tx } = mockTwoServiceTransaction()
+
+		await bookingService.create(twoSlots(), "client-1", NOW)
+
+		expect(auditService.record).toHaveBeenCalledTimes(1)
+		expect(auditService.record).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "booking.create",
+				newValue: expect.objectContaining({
+					totalCentavos: 200000,
+					items: [
+						expect.objectContaining({ id: 44, scheduleSlotId: 7, feeCentavos: 150000 }),
+						expect.objectContaining({ id: 45, scheduleSlotId: 9, feeCentavos: 50000 }),
+					],
+				}),
+			}),
+			tx
+		)
+	})
+
+	it("creates nothing when one slot of the checkout filled up, and names that Service (BKG-3)", async () => {
+		// The seminar's last place went to someone else while this client reviewed.
+		const { insert, update } = mockTwoServiceTransaction({
+			slots: [makeSlot(), { ...seminarSlot, capacity: 30, bookedCount: 30 }],
+		})
+
+		await expect(bookingService.create(twoSlots(), "client-1", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: "The slot you chose for Basic hygiene seminar is full. Choose a new slot for it.",
+		})
+		expect(insert).not.toHaveBeenCalled()
+		expect(update).not.toHaveBeenCalled()
+		expect(auditService.record).not.toHaveBeenCalled()
+		expect(NotificationService.enqueue).not.toHaveBeenCalled()
+	})
+
+	it("refuses the same Service twice in one checkout", async () => {
+		const { insert } = mockBookingTransaction({
+			slots: [makeSlot(), makeSlot({ id: 8, startsAt: new Date("2026-12-04T00:00:00.000Z") })],
+		})
+
+		await expect(
+			bookingService.create(
+				{ items: [{ scheduleSlotId: 7 }, { scheduleSlotId: 8 }], acceptedPolicyDocumentIds: [] },
+				"client-1",
+				NOW
+			)
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("Yellow fever vaccination is in your booking twice"),
+		})
+		expect(insert).not.toHaveBeenCalled()
+	})
+
 	it("refuses a booking when a policy that requires acceptance was not accepted (ADM-9)", async () => {
 		const { insert, update } = mockBookingTransaction({ policies: [makePolicy()] })
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
 			code: "BAD_REQUEST",
 			message: expect.stringContaining("Terms of booking"),
 		})
@@ -370,25 +533,44 @@ describe("BookingService.create", () => {
 		expect(auditService.record).not.toHaveBeenCalled()
 	})
 
+	it("asks for a policy that applies only to the second Service in the checkout (BKG-3)", async () => {
+		const seminarTerms = makePolicy({
+			id: 8,
+			documentKey: "key-seminar",
+			title: "Seminar attendance rules",
+			appliesToAllServices: false,
+			serviceIds: [3],
+		})
+		mockTwoServiceTransaction({ policies: [seminarTerms] })
+		await expect(bookingService.create(twoSlots(), "client-1", NOW)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("Seminar attendance rules"),
+		})
+
+		const { acceptanceValues } = mockTwoServiceTransaction({ policies: [seminarTerms] })
+		await expect(bookingService.create(twoSlots([8]), "client-1", NOW)).resolves.toMatchObject({
+			id: 31,
+		})
+		expect(acceptanceValues).toHaveBeenCalledWith([
+			{ bookingId: 31, policyDocumentId: 8, clientId: "client-1", acceptedAt: NOW },
+		])
+	})
+
 	it("refuses an acceptance of a version that has since been replaced", async () => {
 		// The client read version 1 (id 3); version 2 (id 4) took effect before they confirmed.
 		mockBookingTransaction({
 			policies: [makePolicy({ id: 3, version: 1 }), makePolicy({ id: 4, version: 2 })],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [3] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		await expect(bookingService.create(oneSlot([3]), "client-1", NOW)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+		})
 	})
 
 	it("stores the accepted version and the time against the booking, and audits it", async () => {
 		const { tx, acceptanceValues } = mockBookingTransaction({ policies: [makePolicy()] })
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [4] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot([4]), "client-1", NOW)
 
 		expect(acceptanceValues).toHaveBeenCalledWith([
 			{ bookingId: 31, policyDocumentId: 4, clientId: "client-1", acceptedAt: NOW },
@@ -413,9 +595,9 @@ describe("BookingService.create", () => {
 			],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).resolves.toMatchObject({ id: 31 })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).resolves.toMatchObject({
+			id: 31,
+		})
 		expect(acceptanceValues).not.toHaveBeenCalled()
 	})
 
@@ -424,21 +606,22 @@ describe("BookingService.create", () => {
 			policies: [makePolicy({ requiresAcceptance: false })],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).resolves.toMatchObject({ id: 31 })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).resolves.toMatchObject({
+			id: 31,
+		})
 		expect(acceptanceValues).not.toHaveBeenCalled()
 	})
 
 	it("tells the second of two clients the slot is full once the last place is taken", async () => {
 		// What the second request sees after waiting for the first one's lock.
 		const { insert, update } = mockBookingTransaction({
-			slot: [makeSlot({ capacity: 20, bookedCount: 20 })],
+			slots: [makeSlot({ capacity: 20, bookedCount: 20 })],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-2", NOW)
-		).rejects.toMatchObject({ code: "CONFLICT", message: "This slot is full" })
+		await expect(bookingService.create(oneSlot(), "client-2", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: "The slot you chose for Yellow fever vaccination is full. Choose a new slot for it.",
+		})
 		expect(insert).not.toHaveBeenCalled()
 		expect(update).not.toHaveBeenCalled()
 		expect(auditService.record).not.toHaveBeenCalled()
@@ -446,46 +629,61 @@ describe("BookingService.create", () => {
 
 	it("refuses a disabled slot", async () => {
 		const { insert, update } = mockBookingTransaction({
-			slot: [makeSlot({ isDisabled: true, bookedCount: 0 })],
+			slots: [makeSlot({ isDisabled: true, bookedCount: 0 })],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "CONFLICT", message: "This slot is no longer available" })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("is no longer available"),
+		})
 		expect(insert).not.toHaveBeenCalled()
 		expect(update).not.toHaveBeenCalled()
 	})
 
 	it("refuses a slot that has already started", async () => {
 		const { insert } = mockBookingTransaction({
-			slot: [makeSlot({ startsAt: new Date("2026-11-17T06:00:00.000Z"), bookedCount: 0 })],
+			slots: [makeSlot({ startsAt: new Date("2026-11-17T06:00:00.000Z"), bookedCount: 0 })],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "CONFLICT", message: "This slot has already started" })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("has already started"),
+		})
 		expect(insert).not.toHaveBeenCalled()
 	})
 
 	it("refuses a slot whose service or location has been disabled", async () => {
-		mockBookingTransaction({ service: [{ ...service, isActive: false }] })
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "CONFLICT" })
+		mockBookingTransaction({ services: [{ ...service, isActive: false }] })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+		})
 
-		mockBookingTransaction({ location: [{ ...location, isActive: false }] })
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "CONFLICT" })
+		mockBookingTransaction({ locations: [{ ...location, isActive: false }] })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+			code: "CONFLICT",
+		})
 		expect(auditService.record).not.toHaveBeenCalled()
 	})
 
-	it("returns not found for an unknown slot", async () => {
-		mockBookingTransaction({ slot: [] })
-
+	it("returns not found when any slot of the checkout is unknown", async () => {
+		mockBookingTransaction({ slots: [] })
 		await expect(
-			bookingService.create({ scheduleSlotId: 99, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
+			bookingService.create(
+				{ items: [{ scheduleSlotId: 99 }], acceptedPolicyDocumentIds: [] },
+				"client-1",
+				NOW
+			)
 		).rejects.toMatchObject({ code: "NOT_FOUND" })
+
+		const { insert } = mockBookingTransaction({ slots: [makeSlot()] })
+		await expect(
+			bookingService.create(
+				{ items: [{ scheduleSlotId: 7 }, { scheduleSlotId: 99 }], acceptedPolicyDocumentIds: [] },
+				"client-1",
+				NOW
+			)
+		).rejects.toMatchObject({ code: "NOT_FOUND", message: expect.stringContaining("99") })
+		expect(insert).not.toHaveBeenCalled()
 	})
 
 	it("refuses a client who already has an unpaid booking, under a lock on their own row", async () => {
@@ -493,9 +691,7 @@ describe("BookingService.create", () => {
 			unpaid: [{ referenceNumber: "QSPS-261116-ZZ99ZZ" }],
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
 			code: "CONFLICT",
 			message: expect.stringContaining("QSPS-261116-ZZ99ZZ"),
 		})
@@ -510,11 +706,7 @@ describe("BookingService.create", () => {
 			.mockReturnValueOnce("QSPS-261117-FREE22")
 		const { bookingValues } = mockBookingTransaction({ referenceChecks: [[{ id: 5 }], []] })
 
-		await bookingService.create(
-			{ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] },
-			"client-1",
-			NOW
-		)
+		await bookingService.create(oneSlot(), "client-1", NOW)
 
 		expect(generateReferenceNumber).toHaveBeenCalledTimes(2)
 		expect(bookingValues).toHaveBeenCalledWith(
@@ -527,16 +719,14 @@ describe("BookingService.create", () => {
 			referenceChecks: Array.from({ length: 5 }, () => [{ id: 5 }]),
 		})
 
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, "client-1", NOW)
-		).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" })
+		await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+			code: "INTERNAL_SERVER_ERROR",
+		})
 		expect(insert).not.toHaveBeenCalled()
 	})
 
 	it("refuses a request with no signed-in user before opening a transaction", async () => {
-		await expect(
-			bookingService.create({ scheduleSlotId: 7, acceptedPolicyDocumentIds: [] }, null, NOW)
-		).rejects.toMatchObject({
+		await expect(bookingService.create(oneSlot(), null, NOW)).rejects.toMatchObject({
 			code: "UNAUTHORIZED",
 		})
 		expect(db.transaction).not.toHaveBeenCalled()

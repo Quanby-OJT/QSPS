@@ -140,6 +140,12 @@ describe("navItems", () => {
 					requiredPermission: "settings.services:manage",
 				}),
 				expect.objectContaining({
+					label: "Forms",
+					href: "/forms",
+					section: "Administration",
+					requiredPermission: "forms.templates:manage",
+				}),
+				expect.objectContaining({
 					label: "Schedules",
 					href: "/schedules",
 					section: "Administration",
@@ -215,6 +221,13 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Policies"])
 
+		// FRM-1: the Forms link needs forms.templates:manage.
+		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["forms.templates:manage"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Forms"])
+
 		// ADM-3: the Audit log link needs audit.logs:read.
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["audit.logs:read"] }).map(item => item.label)
@@ -231,6 +244,7 @@ describe("navItems", () => {
 			"User Management",
 			"Locations",
 			"Services",
+			"Forms",
 			"Schedules",
 			"Policies",
 			"Audit log",
@@ -245,6 +259,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
 		expect(getDashboardRouteTitle("/audit-log")).toBe("Audit log")
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
+		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")

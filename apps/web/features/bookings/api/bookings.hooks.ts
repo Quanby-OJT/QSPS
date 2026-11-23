@@ -34,25 +34,49 @@ function toBooking(booking: BookingJson): Booking {
 	}
 }
 
+/**
+ * BKG-3: a refused checkout that names the slot at fault (full, disabled,
+ * started, or a Service no longer bookable), so the wizard can ask for a new
+ * slot for that one Service and keep the rest of the cart.
+ */
+export class BookingCheckoutError extends ApiError {
+	constructor(
+		status: number,
+		message: string,
+		readonly scheduleSlotId: number
+	) {
+		super(status, message)
+	}
+}
+
+type ErrorBody = {
+	message?: string
+	error?: { message?: string }
+	/** The API's error data, or oRPC's input validation issues. */
+	data?: { scheduleSlotId?: unknown; issues?: { message?: string }[] }
+}
+
 async function readError(response: Response): Promise<ApiError> {
 	let message = `Request failed (${response.status})`
+	let scheduleSlotId: number | null = null
 	try {
-		const body = (await response.json()) as {
-			message?: string
-			error?: { message?: string }
-		}
-		message = body?.message ?? body?.error?.message ?? message
+		const body = (await response.json()) as ErrorBody
+		message = body?.data?.issues?.[0]?.message ?? body?.message ?? body?.error?.message ?? message
+		if (typeof body?.data?.scheduleSlotId === "number") scheduleSlotId = body.data.scheduleSlotId
 	} catch {
 		// Error bodies may be empty or non-JSON.
 	}
-	return new ApiError(response.status, message)
+	return scheduleSlotId === null
+		? new ApiError(response.status, message)
+		: new BookingCheckoutError(response.status, message, scheduleSlotId)
 }
 
 /** The client's one booking awaiting payment (BKG-2). */
 export const UNPAID_BOOKING_QUERY_KEY = ["bookings", "unpaid"] as const
 
 /**
- * Confirm a booking.
+ * Confirm a booking of one or more Services (BKG-3). A refusal that names a
+ * slot arrives as a `BookingCheckoutError`.
  *
  * `idempotencyKey` identifies one attempt: sending the same key again (a
  * double click, or a retry after a dropped connection) returns the first
