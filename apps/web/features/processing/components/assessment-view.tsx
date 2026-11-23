@@ -13,7 +13,9 @@ import { Button, buttonVariants } from "@/core/components/ui/button"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Textarea } from "@/core/components/ui/textarea"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useOpenItemMutation,
 	useProcessingItemQuery,
@@ -76,9 +78,16 @@ function issuesOnClear(item: ProcessingItem): boolean {
  * Submission answers, the assessment history, and the form to clear, return
  * or reject the Booking Item. When clearing issues a document at once
  * (CRT-1), the form also asks for the certificate details.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds a restored copy.
  */
 export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
 	const item = useProcessingItemQuery(bookingItemId)
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+
+	const loading = !hydrated || isQueryLoading(item)
 
 	return (
 		<section className="flex w-full flex-col gap-6">
@@ -91,13 +100,17 @@ export function AssessmentView({ bookingItemId }: { bookingItemId: number }) {
 					</Link>
 				}
 			/>
-			{item.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading…</p>
+			{loading ? (
+				<p className="text-muted-foreground text-sm" role="status">
+					Loading…
+				</p>
 			) : item.error ? (
-				<p className="text-destructive text-sm">{item.error.message}</p>
-			) : (
+				<p className="text-destructive text-sm" role="alert">
+					{item.error.message}
+				</p>
+			) : item.data ? (
 				<AssessmentBody item={item.data} />
-			)}
+			) : null}
 		</section>
 	)
 }

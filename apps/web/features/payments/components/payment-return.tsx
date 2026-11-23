@@ -6,6 +6,8 @@ import Link from "next/link"
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
 import { Button, buttonVariants } from "@/core/components/ui/button"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	isWaitingForProvider,
 	POLL_FOR_MS,
@@ -20,41 +22,47 @@ import { feeInPesos } from "@/features/services/lib/fee"
  * Shows "confirming payment" and asks the API every few seconds until the
  * provider's signed notification has been processed. It never marks the
  * booking paid itself: arriving here proves nothing about the payment.
+ *
+ * Hydration-safe: the server and the client's first render both show
+ * "Checking your payment…", even when the client already holds a restored
+ * copy of the payment.
  */
 export function PaymentReturn({ paymentId }: { paymentId: number | null }) {
 	const [keepPolling, setKeepPolling] = useState(true)
 	const payment = usePaymentStatusQuery(paymentId, keepPolling)
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 
 	useEffect(() => {
 		const timer = setTimeout(() => setKeepPolling(false), POLL_FOR_MS)
 		return () => clearTimeout(timer)
 	}, [])
 
-	const status = payment.data?.status
+	const loading = !hydrated || isQueryLoading(payment)
+	// Nothing from the cache is shown until the page has hydrated.
+	const data = loading ? undefined : payment.data
+	const status = data?.status
 	// Only "waiting" once the API has answered; before that we know nothing yet.
-	const waiting = payment.data !== undefined && isWaitingForProvider(status)
+	const waiting = data !== undefined && isWaitingForProvider(status)
 
 	return (
-		<section className="mx-auto flex max-w-xl flex-col gap-6">
+		<section className="mx-auto flex w-full max-w-xl flex-col gap-6">
 			<PageHeader title="Payment" />
 
 			{paymentId === null ? (
 				<p role="alert">This link is missing its payment number.</p>
-			) : payment.isError ? (
+			) : !loading && payment.isError ? (
 				<p role="alert">{payment.error.message}</p>
 			) : (
 				<div className="border-border flex flex-col gap-3 rounded-lg border p-6" role="status">
-					{payment.data ? (
+					{data ? (
 						<p className="text-muted-foreground text-sm">
-							Booking{" "}
-							<span className="text-foreground font-mono">{payment.data.referenceNumber}</span> · ₱
-							{feeInPesos(payment.data.amountCentavos)}
+							Booking <span className="text-foreground font-mono">{data.referenceNumber}</span> · ₱
+							{feeInPesos(data.amountCentavos)}
 						</p>
 					) : null}
 
-					{payment.isPending ? (
-						<p className="text-muted-foreground">Checking your payment…</p>
-					) : null}
+					{loading ? <p className="text-muted-foreground">Checking your payment…</p> : null}
 
 					{waiting && keepPolling ? (
 						<>
@@ -85,11 +93,11 @@ export function PaymentReturn({ paymentId }: { paymentId: number | null }) {
 						<>
 							<Badge>Paid</Badge>
 							<p>Your payment is confirmed and your slot is secured.</p>
-							{payment.data?.receiptNumber && paymentId !== null ? (
+							{data?.receiptNumber ? (
 								<div className="flex flex-col gap-1">
 									<p className="text-muted-foreground text-sm">
 										e-Receipt{" "}
-										<span className="text-foreground font-mono">{payment.data.receiptNumber}</span>
+										<span className="text-foreground font-mono">{data.receiptNumber}</span>
 									</p>
 									<div>
 										<a

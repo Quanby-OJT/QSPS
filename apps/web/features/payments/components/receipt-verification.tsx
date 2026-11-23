@@ -3,7 +3,9 @@
 import { AlertCircleIcon, Cancel01Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { cn } from "@/core/lib/utils"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	verificationCard,
 	VerificationShell,
@@ -51,9 +53,18 @@ function StatusBanner({
 /**
  * Shows what QSPS has on record for a scanned e-Receipt: number, amount,
  * date and status, read from the database. Nothing about the client.
+ *
+ * Hydration-safe: the server and the client's first render both show
+ * "Checking the receipt…", even when the client already holds a restored copy.
  */
 export function ReceiptVerification({ token }: { token: string }) {
 	const receipt = useReceiptVerificationQuery(token)
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
+
+	const loading = !hydrated || isQueryLoading(receipt)
+	// undefined: not known yet. null: no receipt matches this code.
+	const data = loading ? undefined : receipt.data
 
 	return (
 		<VerificationShell
@@ -61,17 +72,15 @@ export function ReceiptVerification({ token }: { token: string }) {
 			description="What QSPS has on record for this receipt."
 		>
 			<div className={verificationCard} role="status">
-				{receipt.isPending ? (
-					<p className="text-muted-foreground text-sm">Checking the receipt…</p>
-				) : null}
+				{loading ? <p className="text-muted-foreground text-sm">Checking the receipt…</p> : null}
 
-				{receipt.isError ? (
+				{!loading && receipt.isError ? (
 					<p role="alert" className="text-destructive text-sm">
 						The receipt could not be checked right now. Please try again.
 					</p>
 				) : null}
 
-				{receipt.data === null ? (
+				{data === null ? (
 					<>
 						<StatusBanner tone="invalid" icon={Cancel01Icon}>
 							No record found
@@ -80,9 +89,9 @@ export function ReceiptVerification({ token }: { token: string }) {
 					</>
 				) : null}
 
-				{receipt.data ? (
+				{data ? (
 					<>
-						{receipt.data.status === "valid" ? (
+						{data.status === "valid" ? (
 							<StatusBanner tone="valid" icon={CheckmarkCircle02Icon}>
 								Valid receipt
 							</StatusBanner>
@@ -96,19 +105,21 @@ export function ReceiptVerification({ token }: { token: string }) {
 								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
 									Receipt number
 								</dt>
-								<dd className="font-mono text-base font-semibold">{receipt.data.receiptNumber}</dd>
+								<dd className="font-mono text-base font-semibold break-all">
+									{data.receiptNumber}
+								</dd>
 							</div>
 							<div className="flex flex-col gap-0.5 py-3">
 								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
 									Amount paid
 								</dt>
-								<dd className="text-lg font-bold">₱{feeInPesos(receipt.data.amountCentavos)}</dd>
+								<dd className="text-lg font-bold">₱{feeInPesos(data.amountCentavos)}</dd>
 							</div>
 							<div className="flex flex-col gap-0.5 py-3 last:pb-0">
 								<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
 									Date issued (Asia/Manila)
 								</dt>
-								<dd>{manilaDateTime(receipt.data.issuedAt)}</dd>
+								<dd>{manilaDateTime(data.issuedAt)}</dd>
 							</div>
 						</dl>
 						<p className="text-muted-foreground border-t pt-4 text-xs">
