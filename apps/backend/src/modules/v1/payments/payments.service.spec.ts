@@ -65,6 +65,7 @@ function fakeDatabase(options: { selects?: unknown[][]; inserts?: unknown[][] })
 			innerJoin: () => chain,
 			leftJoin: () => chain,
 			where: () => chain,
+			orderBy: () => Promise.resolve(rows),
 			limit: () => Promise.resolve(rows),
 			for: (mode: string) => {
 				locks.push(mode)
@@ -144,6 +145,10 @@ const savedPayment = {
 }
 
 const notification = { headers: {}, rawBody: '{"any":"body"}' }
+
+/** PAY-2a: what confirm reads for the receipt, in this order. */
+const receiptNames = [{ clientName: "Alex Johnson", channelName: "Fake gateway" }]
+const receiptLines = [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }]
 
 /** A channel with no convenience fee, served by the stub provider. */
 const fakeChannel = {
@@ -285,7 +290,13 @@ describe("PaymentService", () => {
 		})
 
 		it("charges the channel's convenience fee on top of the Service fees", async () => {
-			const gcash = { ...fakeChannel, code: "gcash", name: "GCash", convenienceFeeCentavos: 1500, convenienceFeeBps: 250 }
+			const gcash = {
+				...fakeChannel,
+				code: "gcash",
+				name: "GCash",
+				convenienceFeeCentavos: 1500,
+				convenienceFeeBps: 250,
+			}
 			const database = fakeDatabase({
 				selects: [[ownBooking], [{ status: "pending_payment" }]],
 				inserts: [[{ ...savedPayment, providerReference: null, status: "initiated" }]],
@@ -324,7 +335,10 @@ describe("PaymentService", () => {
 			)
 
 			expect(channels.findUsable).toHaveBeenCalledWith("gcash")
-			expect(database.inserted[0]?.values).toMatchObject({ channelCode: "gcash", providerCode: "other" })
+			expect(database.inserted[0]?.values).toMatchObject({
+				channelCode: "gcash",
+				providerCode: "other",
+			})
 			expect(other.createCheckout).toHaveBeenCalled()
 			expect(provider.createCheckout).not.toHaveBeenCalled()
 		})
@@ -362,7 +376,7 @@ describe("PaymentService", () => {
 	describe("handleNotification", () => {
 		it("stores the event, then marks the payment succeeded and the booking paid", async () => {
 			const database = fakeDatabase({
-				selects: [[{ id: 90, amountCentavos: 150000 }], [savedPayment]],
+				selects: [[{ id: 90, amountCentavos: 150000 }], [savedPayment], receiptNames, receiptLines],
 				inserts: [[{ id: 500 }]],
 			})
 
@@ -400,7 +414,7 @@ describe("PaymentService", () => {
 
 		it("issues exactly one e-Receipt in the confirming transaction", async () => {
 			const database = fakeDatabase({
-				selects: [[{ id: 90, amountCentavos: 150000 }], [savedPayment]],
+				selects: [[{ id: 90, amountCentavos: 150000 }], [savedPayment], receiptNames, receiptLines],
 				inserts: [[{ id: 500 }], [{ id: 7, receiptNumber: "QSPS-R-261117-000090" }]],
 			})
 
@@ -412,6 +426,9 @@ describe("PaymentService", () => {
 					paymentId: 90,
 					receiptNumber: "QSPS-R-261117-000090",
 					verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+					clientName: "Alex Johnson",
+					channelName: "Fake gateway",
+					serviceLines: receiptLines,
 					issuedAt: NOW,
 				},
 			})
@@ -556,7 +573,7 @@ describe("PaymentService", () => {
 		})
 
 		it("records late money on a cancelled booking and flags it for review", async () => {
-			const database = fakeDatabase({ selects: [[savedPayment]] })
+			const database = fakeDatabase({ selects: [[savedPayment], receiptNames, receiptLines] })
 			bookingService.markPaid.mockResolvedValue(false)
 
 			const result = await makeService().confirm(90, { actorId: null }, NOW)
@@ -587,6 +604,24 @@ describe("PaymentService", () => {
 			)
 		})
 
+		it("stores the channel code on the receipt when the channel has no row (PAY-2a)", async () => {
+			const database = fakeDatabase({
+				selects: [
+					[savedPayment],
+					[{ clientName: "Alex Johnson", channelName: null }],
+					receiptLines,
+				],
+				inserts: [[{ id: 7, receiptNumber: "QSPS-R-261117-000090" }]],
+			})
+
+			await makeService().confirm(90, { actorId: null }, NOW)
+
+			expect(database.inserted[0]?.values).toMatchObject({
+				clientName: "Alex Johnson",
+				channelName: "fake",
+				serviceLines: receiptLines,
+			})
+		})
 		it("queues no email when the payment had already succeeded", async () => {
 			fakeDatabase({ selects: [[{ ...savedPayment, status: "succeeded" }]] })
 

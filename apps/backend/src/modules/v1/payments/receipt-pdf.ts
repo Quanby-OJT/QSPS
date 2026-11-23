@@ -7,7 +7,7 @@ export interface ReceiptPdfData {
 	referenceNumber: string
 	issuedAt: Date
 	clientName: string
-	/** The channel's name at the time of printing, e.g. "GCash". */
+	/** The channel's name at payment time, stored on the receipt (PAY-2a), e.g. "GCash". */
 	channelName: string
 	items: { serviceName: string; feeCentavos: number }[]
 	convenienceFeeCentavos: number

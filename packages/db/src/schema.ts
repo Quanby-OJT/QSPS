@@ -762,6 +762,11 @@ export const paymentEvents = createTable(
 	]
 )
 
+/** One printed line of an e-Receipt, as it was at payment time (PAY-2a). */
+export interface ReceiptServiceLine {
+	serviceName: string
+	feeCentavos: number
+}
 /**
  * The e-Receipt for one succeeded Payment (PAY-2). Created once, in the same
  * transaction that marks the Payment `succeeded`; never updated. The PDF is
@@ -778,6 +783,12 @@ export const receipts = createTable("receipts", t => ({
 	receiptNumber: t.text("receipt_number").notNull().unique(),
 	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
 	verificationToken: t.text("verification_token").notNull().unique(),
+	/** PAY-2a: the client's name at payment time. */
+	clientName: t.text("client_name").notNull(),
+	/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
+	channelName: t.text("channel_name").notNull(),
+	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
+	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
 	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
 }))
 
