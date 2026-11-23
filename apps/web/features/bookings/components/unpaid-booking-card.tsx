@@ -184,9 +184,12 @@ export function UnpaidBookingDetails({
 					</div>
 				) : (
 					<div className="flex flex-wrap gap-2">
-						<Button type="button" onClick={onPayNow} disabled={busy}>
-							{paying ? "Opening checkout…" : "Pay now"}
-						</Button>
+						{/* Once the channel picker is open, its own button pays (PAY-5). */}
+						{checkout ? null : (
+							<Button type="button" onClick={onPayNow} disabled={busy}>
+								{paying ? "Opening checkout…" : "Pay now"}
+							</Button>
+						)}
 						{booking.payOnsite ? null : (
 							<Button type="button" variant="outline" onClick={onPayOnsite} disabled={busy}>
 								{choosingOnsite ? "Saving…" : "Pay at the office"}

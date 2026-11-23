@@ -20,8 +20,8 @@ export const PaymentCodeSchema = z
 	.regex(/^[a-z][a-z0-9-]{1,31}$/, "Codes are lowercase letters, digits and dashes")
 
 /**
- * Pay one Booking online. Until PAY-5 adds the channel list, the channel code
- * is the provider code.
+ * Pay one Booking online with an enabled payment channel (PAY-5). The channel
+ * decides the provider and the convenience fee.
  */
 export const CreatePaymentSchema = z.object({
 	bookingId: z.number().int().positive(),
