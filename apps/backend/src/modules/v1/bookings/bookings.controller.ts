@@ -4,6 +4,8 @@ import { implement } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
 import { v1 } from "@/config/api-versions.config"
+import { FormSubmissionService } from "@/modules/v1/forms/form-submissions.service"
+import { FormUploadService } from "@/modules/v1/forms/form-uploads.service"
 import { PolicyDocumentService } from "@/modules/v1/policies/policy-documents.service"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
@@ -19,7 +21,9 @@ function actorId(session?: UserSession): string | null {
 export class BookingsController {
 	constructor(
 		private readonly bookingService: BookingService,
-		private readonly policyDocumentService: PolicyDocumentService
+		private readonly policyDocumentService: PolicyDocumentService,
+		private readonly formUploadService: FormUploadService,
+		private readonly formSubmissionService: FormSubmissionService
 	) {}
 
 	// ADM-9: what the client must read, and may have to accept, before booking
@@ -29,6 +33,37 @@ export class BookingsController {
 	async policies() {
 		return implement(v1.bookings.policies).handler(({ input }) =>
 			this.policyDocumentService.forService(input.serviceId)
+		)
+	}
+
+	// FRM-2: the questionnaire the wizard shows for a Service, or null.
+	@RequirePermissions("bookings.own:create")
+	@Implement(v1.bookings.form)
+	async form() {
+		return implement(v1.bookings.form).handler(({ input }) =>
+			this.formSubmissionService.forService(input.serviceId)
+		)
+	}
+
+	// FRM-2: a file answer, stored privately under the caller's own folder.
+	// Not idempotent by key: uploading the same file twice only stores a copy.
+	@StrictThrottle()
+	@RequirePermissions("bookings.own:create")
+	@Implement(v1.bookings.uploadFormFile)
+	async uploadFormFile(@Session() session?: UserSession) {
+		return implement(v1.bookings.uploadFormFile).handler(({ input }) =>
+			this.formUploadService.upload(input.file, actorId(session))
+		)
+	}
+
+	// FRM-2: change answers before paying; refused once the booking is paid.
+	@StrictThrottle()
+	@RequirePermissions("bookings.own:create")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.bookings.updateItemForm)
+	async updateItemForm(@Session() session?: UserSession) {
+		return implement(v1.bookings.updateItemForm).handler(({ input }) =>
+			this.bookingService.updateItemForm(input, actorId(session))
 		)
 	}
 

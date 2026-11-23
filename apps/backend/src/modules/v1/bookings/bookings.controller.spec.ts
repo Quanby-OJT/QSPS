@@ -67,3 +67,10 @@ describe("BookingsController permissions", () => {
 		).toEqual(["payments.own:create"])
 	})
 })
+
+// FRM-2: the controller's upload dependency; its rules are tested in form-uploads.service.spec.
+jest.mock("@/modules/v1/forms/form-uploads.service", () => ({ FormUploadService: jest.fn() }))
+
+jest.mock("@/modules/v1/forms/form-submissions.service", () => ({
+	FormSubmissionService: jest.fn(),
+}))

@@ -5,7 +5,17 @@ import {
 	ApplicablePoliciesRequestSchema,
 	PolicyDocumentSummarySchema,
 } from "../policies/policy-documents.schema.js"
-import { BookingIdParamSchema, BookingSchema, CreateBookingSchema } from "./bookings.schema.js"
+import {
+	BookingFormRequestSchema,
+	BookingFormSchema,
+	BookingIdParamSchema,
+	BookingSchema,
+	CreateBookingSchema,
+	FormSubmissionSchema,
+	FormUploadInputSchema,
+	FormUploadSchema,
+	UpdateBookingItemFormSchema,
+} from "./bookings.schema.js"
 
 export const bookingsContract = {
 	create: oc
@@ -14,7 +24,7 @@ export const bookingsContract = {
 			path: "/bookings",
 			summary: "Book one or more services in one checkout",
 			description:
-				"Creates one Booking in pending_payment with one Booking Item per slot and reserves one place in each slot, all together or not at all (Book Now, Pay Later; BKG-3). The total is the sum of the item fees. Refused, with nothing created, when any slot is full, disabled or already started (the error names that Service and its data carries the scheduleSlotId), when the same Service is chosen twice, when the client has another unpaid booking, or when a policy that requires acceptance for any of the Services is not among acceptedPolicyDocumentIds (ADM-9). Accepted versions are stored against the Booking.",
+				"Creates one Booking in pending_payment with one Booking Item per slot and reserves one place in each slot, all together or not at all (Book Now, Pay Later; BKG-3). The total is the sum of the item fees. Refused, with nothing created, when any slot is full, disabled or already started (the error names that Service and its data carries the scheduleSlotId), when the same Service is chosen twice, when the client has another unpaid booking, or when a policy that requires acceptance for any of the Services is not among acceptedPolicyDocumentIds (ADM-9). FRM-2: each item of a Service with an active questionnaire must carry valid answers to that version; otherwise the error data carries the scheduleSlotId and fieldErrors (question id to message), or formChanged when the version is no longer active. The answers are stored as a Form Submission against the Booking Item. Accepted versions are stored against the Booking.",
 			tags: ["Bookings"],
 		})
 		.input(CreateBookingSchema)
@@ -31,6 +41,42 @@ export const bookingsContract = {
 		})
 		.input(ApplicablePoliciesRequestSchema)
 		.output(z.array(PolicyDocumentSummarySchema)),
+
+	form: oc
+		.route({
+			method: "GET",
+			path: "/bookings/form",
+			summary: "The questionnaire to answer when booking a service",
+			description:
+				"The Service's published and enabled Form Template version with its questions in order, or null when the Service has none (FRM-2). Requires bookings.own:create.",
+			tags: ["Bookings"],
+		})
+		.input(BookingFormRequestSchema)
+		.output(BookingFormSchema.nullable()),
+
+	uploadFormFile: oc
+		.route({
+			method: "POST",
+			path: "/bookings/form-uploads",
+			summary: "Upload a file answer",
+			description:
+				"Stores a PDF, JPG or PNG of at most 5 MB in private storage and returns its fileKey, which the answer to a file question holds (FRM-2). The file's content must match its type. Requires bookings.own:create.",
+			tags: ["Bookings"],
+		})
+		.input(FormUploadInputSchema)
+		.output(FormUploadSchema),
+
+	updateItemForm: oc
+		.route({
+			method: "PUT",
+			path: "/bookings/{bookingId}/items/{bookingItemId}/form",
+			summary: "Change your answers before paying",
+			description:
+				"Replaces the answers stored for one item of the caller's own Booking, checked against the Service's active questionnaire (FRM-2). Refused with 409 once the Booking is no longer pending_payment: after payment, corrections are made by BOQ staff during Assessment. Requires bookings.own:create.",
+			tags: ["Bookings"],
+		})
+		.input(UpdateBookingItemFormSchema)
+		.output(FormSubmissionSchema),
 
 	unpaid: oc
 		.route({

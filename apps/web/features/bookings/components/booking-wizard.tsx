@@ -5,7 +5,14 @@ import { useQueryClient } from "@tanstack/react-query"
 import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 
-import { MAX_BOOKING_ITEMS, type Booking, type SlotAvailability } from "@repo/contracts"
+import {
+	checkFormAnswers,
+	MAX_BOOKING_ITEMS,
+	type Booking,
+	type BookingItemFormInput,
+	type FormAnswerValue,
+	type SlotAvailability,
+} from "@repo/contracts"
 
 import { BoqLoader } from "@/core/components/boq-loader"
 import { PageHeader } from "@/core/components/page-header"
@@ -15,6 +22,9 @@ import { useHydrated } from "@/core/hooks/use-hydrated"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	BookingCheckoutError,
+	BookingFormError,
+	bookingFormKeys,
+	useBookingFormsQuery,
 	useCreateBookingMutation,
 } from "@/features/bookings/api/bookings.hooks"
 import {
@@ -33,6 +43,7 @@ import {
 	upsertCartItem,
 	type CartItem,
 } from "@/features/bookings/lib/cart"
+import { QuestionnaireFields } from "@/features/forms/components/questionnaire-fields"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
 import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
 import {
@@ -59,6 +70,7 @@ const STEPS = [
 	"Location",
 	"Date and time",
 	"Your services",
+	"Questions",
 	"Review",
 	"Confirmation",
 ] as const
@@ -67,26 +79,36 @@ const STEP_SERVICE = 0
 const STEP_LOCATION = 1
 const STEP_SLOT = 2
 const STEP_CART = 3
-const STEP_REVIEW = 4
-const STEP_DONE = 5
+const STEP_QUESTIONS = 4
+const STEP_REVIEW = 5
+const STEP_DONE = 6
 
 const choiceClassName =
 	"border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 w-full rounded-lg border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60"
+
+/** Answers per Service, then per question id. */
+type AnswersByService = Record<number, Record<string, FormAnswerValue>>
+/** Messages per Service, then per question id. */
+type ErrorsByService = Record<number, Record<string, string>>
 
 function newIdempotencyKey(): string {
 	return crypto.randomUUID()
 }
 
 /**
- * Booking wizard (BKG-1, BKG-3): pick a service, a location and a date and
- * time, and it goes into the cart. Add more Services the same way, each with
- * its own Location and slot, then review every fee and the total and confirm
- * once: one Booking, one Reference Number, one payment. The review step shows
- * the written policies for every Service in the cart (ADM-9); confirming needs
+ * Booking wizard (BKG-1, BKG-3, FRM-2): pick a service, a location and a date
+ * and time, and it goes into the cart. Add more Services the same way, each
+ * with its own Location and slot. Then answer the questionnaire of every
+ * Service that has one, review every fee and the total, and confirm once: one
+ * Booking, one Reference Number, one payment. The review step shows the
+ * written policies for every Service in the cart (ADM-9); confirming needs
  * every one that requires acceptance to be ticked.
  *
- * If a slot fills up before confirming, nothing is booked: that Service stays
- * in the cart marked for a new time, and the rest are kept.
+ * Answers are checked here with the same rules the API uses, so each invalid
+ * question is flagged before anything is sent. If the API still refuses them
+ * (or the questionnaire changed meanwhile), nothing is booked and the client
+ * is taken back to the questions. If a slot fills up before confirming, that
+ * Service stays in the cart marked for a new time, and the rest are kept.
  *
  * Hydration-safe: the service and location lists show their loading line on
  * the server and on the client's first render, even when the client already
@@ -110,6 +132,10 @@ export function BookingWizard() {
 	const [slot, setSlot] = useState<SlotAvailability | null>(null)
 	// Why the last confirm was refused, shown on the cart until the client acts.
 	const [checkoutProblem, setCheckoutProblem] = useState<string | null>(null)
+	// FRM-2: the client's answers, the flagged questions, and why the API refused them.
+	const [answers, setAnswers] = useState<AnswersByService>({})
+	const [formErrors, setFormErrors] = useState<ErrorsByService>({})
+	const [formProblem, setFormProblem] = useState<string | null>(null)
 	const [booking, setBooking] = useState<Booking | null>(null)
 	// One key per attempt, so a double click or a retry cannot book twice.
 	const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey)
@@ -136,6 +162,17 @@ export function BookingWizard() {
 	const slotsByDate = useMemo(() => groupSlotsByDate(availability.data ?? []), [availability.data])
 
 	const cartServiceIds = useMemo(() => cart.map(item => item.serviceId), [cart])
+
+	// FRM-2: loaded from the cart step on, so "Continue" can skip the
+	// questions when no Service in the cart has any.
+	const bookingForms = useBookingFormsQuery(
+		step >= STEP_CART && step < STEP_DONE ? cartServiceIds : []
+	)
+	const itemsWithForms = cart.flatMap(item => {
+		const form = bookingForms.data?.get(item.serviceId)
+		return form ? [{ item, form }] : []
+	})
+
 	const bookingPolicies = useBookingPoliciesForServicesQuery(
 		step === STEP_REVIEW ? cartServiceIds : []
 	)
@@ -197,13 +234,75 @@ export function BookingWizard() {
 		setCheckoutProblem(null)
 	}
 
+	/** FRM-2: one answer changed; its question is no longer flagged. */
+	function setAnswer(answerServiceId: number, fieldId: string, value: FormAnswerValue) {
+		setAnswers(current => ({
+			...current,
+			[answerServiceId]: { ...current[answerServiceId], [fieldId]: value },
+		}))
+		setFormErrors(current => {
+			const forService = current[answerServiceId]
+			if (!forService?.[fieldId]) return current
+			const rest = { ...forService }
+			delete rest[fieldId]
+			return { ...current, [answerServiceId]: rest }
+		})
+	}
+
+	/**
+	 * FRM-2: check every questionnaire with the API's rules. Returns the
+	 * answers to send, per Service, or null (and flags each invalid question)
+	 * when any needs fixing or the questionnaires are not loaded.
+	 */
+	function checkedForms(): Map<number, BookingItemFormInput> | null {
+		const forms = bookingForms.data
+		if (!forms) return null
+		const checked = new Map<number, BookingItemFormInput>()
+		const errors: ErrorsByService = {}
+		for (const item of cart) {
+			const form = forms.get(item.serviceId)
+			if (!form) continue
+			const result = checkFormAnswers(form.fields, answers[item.serviceId] ?? {})
+			if (result.ok) {
+				checked.set(item.serviceId, {
+					formTemplateId: form.formTemplateId,
+					answers: result.answers,
+				})
+			} else {
+				errors[item.serviceId] = result.fieldErrors
+			}
+		}
+		setFormErrors(errors)
+		return Object.keys(errors).length > 0 ? null : checked
+	}
+
+	/** From the cart: the questions, or straight to review when there are none. */
+	function continueFromCart() {
+		setFormProblem(null)
+		setStep(bookingForms.isSuccess && itemsWithForms.length === 0 ? STEP_REVIEW : STEP_QUESTIONS)
+	}
+
+	function continueFromQuestions() {
+		if (!checkedForms()) {
+			toast.error("Some answers need fixing")
+			return
+		}
+		setFormProblem(null)
+		setStep(STEP_REVIEW)
+	}
+
 	async function confirm() {
 		if (!isCartReady(cart)) return
+		const forms = checkedForms()
+		if (!forms) {
+			setStep(STEP_QUESTIONS)
+			return
+		}
 		try {
 			// Only versions still on screen are sent; a stale tick cannot count.
 			const shownIds = new Set((bookingPolicies.data ?? []).map(policy => policy.id))
 			const created = await createBooking.mutateAsync({
-				items: checkoutItems(cart),
+				items: checkoutItems(cart, forms),
 				acceptedPolicyDocumentIds: [...acceptedPolicyIds].filter(id => shownIds.has(id)),
 				idempotencyKey,
 			})
@@ -216,9 +315,19 @@ export function BookingWizard() {
 			// for the policies, which may have changed while the client reviewed.
 			setIdempotencyKey(newIdempotencyKey())
 			setAcceptedPolicyIds(new Set())
-			// BKG-3: the slot named by the API is taken or closed; that Service
-			// stays in the cart and waits for a new time, the others are kept.
-			if (error instanceof BookingCheckoutError) {
+			if (error instanceof BookingFormError) {
+				// FRM-2: back to the questions, with the API's flags or a fresh form.
+				if (error.formChanged) {
+					void queryClient.invalidateQueries({ queryKey: bookingFormKeys.all })
+				}
+				if (error.serviceId !== null && Object.keys(error.fieldErrors).length > 0) {
+					setFormErrors({ [error.serviceId]: error.fieldErrors })
+				}
+				setFormProblem(message)
+				setStep(STEP_QUESTIONS)
+			} else if (error instanceof BookingCheckoutError) {
+				// BKG-3: the slot named by the API is taken or closed; that Service
+				// stays in the cart and waits for a new time, the others are kept.
 				setCart(current => clearCartSlot(current, error.scheduleSlotId))
 				setCheckoutProblem(message)
 				setStep(STEP_CART)
@@ -236,6 +345,9 @@ export function BookingWizard() {
 		setServiceId(null)
 		setLocationId(null)
 		setCheckoutProblem(null)
+		setAnswers({})
+		setFormErrors({})
+		setFormProblem(null)
 		setAcceptedPolicyIds(new Set())
 		setIdempotencyKey(newIdempotencyKey())
 		setStep(STEP_SERVICE)
@@ -259,12 +371,10 @@ export function BookingWizard() {
 			{createBooking.isPending ? (
 				<BoqLoader label={cart.length > 1 ? "Reserving your slots" : "Reserving your slot"} />
 			) : null}
-			{redirecting ? (
-				<BoqLoader label="Opening secure checkout" />
-			) : null}
+			{redirecting ? <BoqLoader label="Opening secure checkout" /> : null}
 			<PageHeader
 				title="Book an appointment"
-				description="Choose one or more services, each with a BOQ location and a date and time, then confirm them together. You can pay later."
+				description="Choose one or more services, each with a BOQ location and a date and time, answer any questions, then confirm them together. You can pay later."
 			/>
 
 			<ol className="flex flex-wrap gap-2 text-sm" aria-label="Booking steps">
@@ -425,7 +535,7 @@ export function BookingWizard() {
 											type="button"
 											disabled={!item.isAvailable}
 											aria-pressed={item.id === slot?.id}
-											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
+											className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
 											onClick={() => setSlot(item)}
 										>
 											<span className="block font-medium">{slotTimeRange(item)}</span>
@@ -531,9 +641,65 @@ export function BookingWizard() {
 						</p>
 					)}
 					<WizardActions
-						onNext={() => setStep(STEP_REVIEW)}
-						nextLabel="Review booking"
+						onNext={continueFromCart}
+						nextLabel="Continue"
 						nextDisabled={!isCartReady(cart)}
+					/>
+				</div>
+			) : null}
+
+			{step === STEP_QUESTIONS && isCartReady(cart) ? (
+				<div className="flex flex-col gap-4">
+					<h2 className="text-lg font-semibold">Answer the questions</h2>
+					<p className="text-muted-foreground text-sm">
+						BOQ staff use your answers to prepare for your visit. Questions marked * are required.
+						You can change your answers until you pay.
+					</p>
+					{formProblem ? (
+						<div
+							className="border-destructive/30 bg-destructive/5 rounded-lg border p-4"
+							role="alert"
+						>
+							<p className="text-sm font-medium">Nothing was booked yet.</p>
+							<p className="text-muted-foreground mt-1 text-sm">{formProblem}</p>
+						</div>
+					) : null}
+					{bookingForms.isPending ? (
+						<p className="text-muted-foreground text-sm" role="status">
+							Loading questions…
+						</p>
+					) : bookingForms.isError ? (
+						<LoadError
+							message="The questions could not be loaded."
+							onRetry={bookingForms.refetch}
+						/>
+					) : itemsWithForms.length === 0 ? (
+						<p className="text-muted-foreground text-sm">
+							None of your services has questions to answer.
+						</p>
+					) : (
+						itemsWithForms.map(({ item, form }) => (
+							<section
+								key={item.serviceId}
+								className="border-border flex flex-col gap-4 rounded-lg border p-4"
+								aria-label={`Questions for ${item.serviceName}`}
+							>
+								<h3 className="font-medium">{item.serviceName}</h3>
+								<QuestionnaireFields
+									form={form}
+									values={answers[item.serviceId] ?? {}}
+									errors={formErrors[item.serviceId] ?? {}}
+									onChange={(fieldId, value) => setAnswer(item.serviceId, fieldId, value)}
+									idPrefix={`service-${item.serviceId}`}
+								/>
+							</section>
+						))
+					)}
+					<WizardActions
+						onBack={() => setStep(STEP_CART)}
+						onNext={continueFromQuestions}
+						nextLabel="Review booking"
+						nextDisabled={!bookingForms.isSuccess}
 					/>
 				</div>
 			) : null}
@@ -563,10 +729,15 @@ export function BookingWizard() {
 						</p>
 					) : null}
 					<WizardActions
-						onBack={() => setStep(STEP_CART)}
+						onBack={() => setStep(itemsWithForms.length > 0 ? STEP_QUESTIONS : STEP_CART)}
 						onNext={() => void confirm()}
 						nextLabel={createBooking.isPending ? "Confirming…" : "Confirm booking"}
-						nextDisabled={createBooking.isPending || !policiesReady || stillToAccept.length > 0}
+						nextDisabled={
+							createBooking.isPending ||
+							!policiesReady ||
+							!bookingForms.isSuccess ||
+							stillToAccept.length > 0
+						}
 					/>
 				</div>
 			) : null}

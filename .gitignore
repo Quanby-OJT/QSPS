@@ -164,3 +164,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 adm*-*.txt
 auth*-*.txt
+
+# FRM-2: local file storage (development uploads)
+apps/backend/.storage/

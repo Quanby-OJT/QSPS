@@ -1,5 +1,12 @@
 import { z } from "zod"
 
+import {
+	FORM_UPLOAD_CONTENT_TYPES,
+	FORM_UPLOAD_MAX_BYTES,
+	FormAnswersSchema,
+} from "../forms/form-answers.js"
+import { FormFieldSchema } from "../forms/forms.schema.js"
+
 const dateField = z
 	.union([z.date(), z.string()])
 	.transform(value => (typeof value === "string" ? new Date(value) : value))
@@ -81,9 +88,24 @@ export const BookingSchema = z.object({
 	items: z.array(BookingItemSchema).min(1),
 })
 
-/** One Service in a checkout. The slot already fixes the service, the location and the time. */
+/**
+ * FRM-2: the client's answers to one Service's questionnaire, with the
+ * version they were shown. The API refuses them if that version is no
+ * longer the Service's active one.
+ */
+export const BookingItemFormInputSchema = z.object({
+	formTemplateId: z.number().int().positive(),
+	answers: FormAnswersSchema,
+})
+
+/**
+ * One Service in a checkout. The slot already fixes the service, the location
+ * and the time. `form` is required when the Service has an active
+ * questionnaire (FRM-2).
+ */
 export const CreateBookingItemSchema = z.object({
 	scheduleSlotId: z.number().int().positive(),
+	form: BookingItemFormInputSchema.optional(),
 })
 
 /**
@@ -114,11 +136,64 @@ export const BookingIdParamSchema = z.object({
 	bookingId: z.coerce.number().int().positive(),
 })
 
+/** FRM-2: which Service's questionnaire to show in the wizard. */
+export const BookingFormRequestSchema = z.object({
+	serviceId: z.coerce.number().int().positive(),
+})
+
+/** FRM-2: a Service's active questionnaire, as the client answers it. */
+export const BookingFormSchema = z.object({
+	serviceId: z.number().int().positive(),
+	formTemplateId: z.number().int().positive(),
+	version: z.number().int().positive(),
+	fields: z.array(FormFieldSchema),
+})
+
+const maxUploadMegabytes = FORM_UPLOAD_MAX_BYTES / (1024 * 1024)
+
+/** FRM-2: a file answer, uploaded before the booking is confirmed. */
+export const FormUploadInputSchema = z.object({
+	file: z
+		.file()
+		.max(FORM_UPLOAD_MAX_BYTES, `Files can be at most ${maxUploadMegabytes} MB`)
+		.mime(FORM_UPLOAD_CONTENT_TYPES, "Upload a PDF, JPG or PNG file"),
+})
+
+/** The stored upload. `fileKey` is what the answer holds. */
+export const FormUploadSchema = z.object({
+	fileKey: z.string(),
+	fileName: z.string(),
+	contentType: z.string(),
+	sizeBytes: z.number().int().min(0),
+})
+
+/** FRM-2: replace an item's answers while its Booking is still unpaid. */
+export const UpdateBookingItemFormSchema = z.object({
+	bookingId: z.coerce.number().int().positive(),
+	bookingItemId: z.coerce.number().int().positive(),
+	formTemplateId: z.number().int().positive(),
+	answers: FormAnswersSchema,
+})
+
+/** A stored Form Submission (FRM-2). */
+export const FormSubmissionSchema = z.object({
+	bookingItemId: z.number().int().positive(),
+	formTemplateId: z.number().int().positive(),
+	version: z.number().int().positive(),
+	answers: FormAnswersSchema,
+	createdAt: dateField,
+})
+
 export type BookingStatus = z.infer<typeof BookingStatusSchema>
 export type BookingCancelReason = z.infer<typeof BookingCancelReasonSchema>
 export type BookingKind = z.infer<typeof BookingKindSchema>
 export type BookingItemStatus = z.infer<typeof BookingItemStatusSchema>
 export type BookingItem = z.infer<typeof BookingItemSchema>
 export type Booking = z.infer<typeof BookingSchema>
+export type BookingItemFormInput = z.infer<typeof BookingItemFormInputSchema>
 export type CreateBookingItemInput = z.infer<typeof CreateBookingItemSchema>
 export type CreateBookingInput = z.infer<typeof CreateBookingSchema>
+export type BookingForm = z.infer<typeof BookingFormSchema>
+export type FormUpload = z.infer<typeof FormUploadSchema>
+export type UpdateBookingItemFormInput = z.infer<typeof UpdateBookingItemFormSchema>
+export type FormSubmission = z.infer<typeof FormSubmissionSchema>
