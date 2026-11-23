@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 
 import type {
+	CheckoutChannels,
 	CreatePaymentInput,
 	PaymentCheckout,
 	PaymentStatusResponse,
@@ -13,12 +14,6 @@ import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
 
 const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
-
-/**
- * The channel used until PAY-5 adds the channel list. "fake" is the local
- * test gateway; it does not exist in production.
- */
-export const DEFAULT_PAYMENT_CHANNEL = "fake"
 
 /** Statuses that mean the provider's notification has not been processed yet. */
 const WAITING_STATUSES = new Set(["initiated", "pending"])
@@ -124,6 +119,25 @@ export function useReceiptVerificationQuery(token: string) {
 			if (!response.ok) throw await readError(response)
 			const body = (await response.json()) as ReceiptVerificationJson
 			return { ...body, issuedAt: new Date(body.issuedAt) }
+		},
+	})
+}
+
+/**
+ * The channels a booking can be paid with, each with its convenience fee and
+ * total, worked out by the server with the same function that charges the
+ * payment (PAY-5). Under the "payments" root, so never saved to browser storage.
+ */
+export function useCheckoutChannelsQuery(bookingId: number) {
+	return useQuery({
+		queryKey: ["payments", "checkout", bookingId, "channels"],
+		retry: retryUnlessClientError,
+		queryFn: async (): Promise<CheckoutChannels> => {
+			const response = await fetch(`${API_BASE}/payments/checkout/${bookingId}/channels`, {
+				credentials: "include",
+			})
+			if (!response.ok) throw await readError(response)
+			return (await response.json()) as CheckoutChannels
 		},
 	})
 }

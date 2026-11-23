@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { createHash } from "node:crypto"
 import { ORPCError } from "@orpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 
 import type {
 	CreatePaymentInput,
@@ -9,7 +9,16 @@ import type {
 	PaymentStatus,
 	PaymentStatusResponse,
 } from "@repo/contracts"
-import { bookings, paymentEvents, payments, receipts } from "@repo/db/schema"
+import {
+	bookingItems,
+	bookings,
+	paymentChannels,
+	paymentEvents,
+	payments,
+	receipts,
+	services,
+	users,
+} from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -17,6 +26,8 @@ import { NotificationService } from "@/common/notifications/notification.service
 import { env } from "@/config/env.config"
 
 import { BookingService } from "../bookings/bookings.service"
+import { chargeFor } from "./convenience-fee"
+import { PaymentChannelService } from "./payment-channels.service"
 import { canTransitionPayment } from "./payment-state"
 import type { ParsedNotification, RawNotification } from "./providers/payment-provider"
 import { PaymentProviderRegistry } from "./providers/provider-registry"
@@ -59,7 +70,8 @@ export class PaymentService {
 	constructor(
 		private readonly auditService: AuditService,
 		private readonly bookingService: BookingService,
-		private readonly providers: PaymentProviderRegistry
+		private readonly providers: PaymentProviderRegistry,
+		private readonly channels: PaymentChannelService
 	) {}
 
 	/**
@@ -78,10 +90,13 @@ export class PaymentService {
 			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to pay" })
 		}
 
-		const provider = this.providers.find(input.channelCode)
-		if (!provider) {
+		// PAY-5: the channel decides the provider and the fee. Read on every
+		// payment, so a provider switch in settings applies to the next one.
+		const usable = await this.channels.findUsable(input.channelCode)
+		if (!usable) {
 			throw new ORPCError("BAD_REQUEST", { message: "This payment channel is not available" })
 		}
+		const { channel, provider } = usable
 
 		const [booking] = await db
 			.select({
@@ -105,9 +120,12 @@ export class PaymentService {
 			throw new ORPCError("CONFLICT", { message: "This booking is not awaiting payment" })
 		}
 
-		// PAY-5 replaces this with the channel's configured fee.
-		const convenienceFeeCentavos = 0
-		const amountCentavos = booking.totalCentavos + convenienceFeeCentavos
+		// The same function checkout used to show the fee, so the client pays
+		// exactly what they saw; the Receipt prints these stored figures.
+		const { convenienceFeeCentavos, totalCentavos: amountCentavos } = chargeFor(
+			booking.totalCentavos,
+			channel
+		)
 
 		const payment = await db.transaction(async tx => {
 			// Re-read under a lock: the booking may have been cancelled or paid
@@ -125,7 +143,7 @@ export class PaymentService {
 				.insert(payments)
 				.values({
 					bookingId: booking.id,
-					channelCode: input.channelCode,
+					channelCode: channel.code,
 					providerCode: provider.code,
 					amountCentavos,
 					convenienceFeeCentavos,
@@ -411,6 +429,24 @@ export class PaymentService {
 				.set({ status: "succeeded", needsReview, updatedAt: now })
 				.where(eq(payments.id, paymentId))
 
+			// PAY-2a: the receipt keeps the names as they are right now, so a later
+			// rename of the client, channel or Service never changes a reprint.
+			const [names] = await tx
+				.select({ clientName: users.name, channelName: paymentChannels.name })
+				.from(bookings)
+				.innerJoin(users, eq(users.id, bookings.clientId))
+				.leftJoin(paymentChannels, eq(paymentChannels.code, payment.channelCode))
+				.where(eq(bookings.id, payment.bookingId))
+				.limit(1)
+			if (!names) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking not found for payment" })
+			}
+			const serviceLines = await tx
+				.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
+				.from(bookingItems)
+				.innerJoin(services, eq(services.id, bookingItems.serviceId))
+				.where(eq(bookingItems.bookingId, payment.bookingId))
+				.orderBy(asc(bookingItems.id))
 			// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
 			// transaction. The unique payment_id makes a second insert a no-op.
 			const [receipt] = await tx
@@ -419,6 +455,10 @@ export class PaymentService {
 					paymentId,
 					receiptNumber: receiptNumberFor(paymentId, now),
 					verificationToken: newVerificationToken(),
+					clientName: names.clientName,
+					// Payments made before PAY-5 have a channel code with no row; keep the code.
+					channelName: names.channelName ?? payment.channelCode,
+					serviceLines,
 					issuedAt: now,
 				})
 				.onConflictDoNothing({ target: receipts.paymentId })

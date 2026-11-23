@@ -111,6 +111,20 @@ export const env = createEnv({
 		/** Deploy image tag, injected by the deploy compose file / env; reported as the Sentry release. */
 		IMAGE_TAG: z.string().optional(),
 
+		// File storage (FRM-2; AUTH-4 and BKG-6 reuse it): private files such as
+		// questionnaire uploads. "local" writes under STORAGE_LOCAL_DIR and is
+		// meant for development; "s3" uses an S3-compatible private bucket
+		// (AWS S3, Supabase Storage, MinIO) and needs S3_BUCKET and S3_REGION.
+		STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+		STORAGE_LOCAL_DIR: z.string().default(".storage"),
+		S3_BUCKET: z.string().optional(),
+		S3_REGION: z.string().optional(),
+		/** Only for S3-compatible services other than AWS. */
+		S3_ENDPOINT: z.url().optional(),
+		S3_ACCESS_KEY_ID: z.string().optional(),
+		S3_SECRET_ACCESS_KEY: z.string().optional(),
+		S3_FORCE_PATH_STYLE: booleanFromEnv.optional().default(false),
+
 		// Database
 		DATABASE_URL: z.string(),
 

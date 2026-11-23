@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "36d20bc6-8dfd-4db9-b19f-eb336047d2af",
+  "id": "2b22aaba-0a62-40b5-869d-39317809ca9f",
   "prevIds": [
-    "9d3890c4-d8a3-4c5d-a3a9-a55f34b25ee7"
+    "8e958b77-8765-4ccb-bfde-e94d32411610"
   ],
   "ddl": [
     {
@@ -93,6 +93,12 @@
     {
       "isRlsEnabled": false,
       "name": "password_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "payment_channels",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1212,19 +1218,6 @@
       "table": "documents"
     },
     {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "print_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "documents"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -1654,32 +1647,6 @@
       "table": "locations"
     },
     {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "card_offset_x_mm",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "locations"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "card_offset_y_mm",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "locations"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -1938,6 +1905,110 @@
       "entityType": "columns",
       "schema": "public",
       "table": "password_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "convenience_fee_centavos",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "convenience_fee_bps",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "is_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "payment_channels"
     },
     {
       "type": "serial",
@@ -2611,6 +2682,45 @@
       "generated": null,
       "identity": null,
       "name": "verification_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "receipts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "client_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "receipts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "channel_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "receipts"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "service_lines",
       "entityType": "columns",
       "schema": "public",
       "table": "receipts"
@@ -5678,6 +5788,16 @@
       "name": "password_history_pkey",
       "schema": "public",
       "table": "password_history",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "code"
+      ],
+      "nameExplicit": false,
+      "name": "payment_channels_pkey",
+      "schema": "public",
+      "table": "payment_channels",
       "entityType": "pks"
     },
     {

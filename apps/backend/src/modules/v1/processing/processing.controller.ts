@@ -1,7 +1,18 @@
-import { Controller, Inject, Optional, UseInterceptors } from "@nestjs/common"
+import {
+	Controller,
+	Get,
+	HttpException,
+	Inject,
+	Optional,
+	Param,
+	ParseIntPipe,
+	Res,
+	UseInterceptors,
+} from "@nestjs/common"
 import { Implement } from "@orpc/nest"
-import { implement } from "@orpc/server"
+import { implement, ORPCError } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
+import type { Response } from "express"
 
 import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
@@ -49,6 +60,40 @@ export class ProcessingController {
 		return implement(v1.processing.item).handler(async ({ input }) =>
 			this.processingService.item(input, actorId(session), await this.scopeOf(session))
 		)
+	}
+
+	/**
+	 * FRM-2c: GET /api/v1/processing/items/{bookingItemId}/answers/{fieldId}/file.
+	 * A plain route rather than oRPC because it answers with the file's bytes.
+	 * Sent as an attachment and never cached, since it holds personal documents.
+	 */
+	@RequirePermissions("processing.queue:read")
+	@Get("v1/processing/items/:bookingItemId/answers/:fieldId/file")
+	async answerFile(
+		@Param("bookingItemId", ParseIntPipe) bookingItemId: number,
+		@Param("fieldId", ParseIntPipe) fieldId: number,
+		@Res() response: Response,
+		@Session() session?: UserSession
+	): Promise<void> {
+		let file: Awaited<ReturnType<ProcessingService["answerFile"]>>
+		try {
+			file = await this.processingService.answerFile(
+				bookingItemId,
+				fieldId,
+				actorId(session),
+				await this.scopeOf(session)
+			)
+		} catch (error) {
+			// The service speaks oRPC errors; this route is plain Nest.
+			if (error instanceof ORPCError) throw new HttpException(error.message, error.status)
+			throw error
+		}
+		response.setHeader("Cache-Control", "private, no-store")
+		response.setHeader("Content-Type", file.contentType)
+		response.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`)
+		response.setHeader("X-Content-Type-Options", "nosniff")
+		response.setHeader("Content-Length", String(file.body.length))
+		response.end(Buffer.from(file.body))
 	}
 
 	// Scanning the same QR twice is harmless: items already checked in stay as they are.

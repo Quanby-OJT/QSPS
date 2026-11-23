@@ -7,7 +7,8 @@ export interface ReceiptPdfData {
 	referenceNumber: string
 	issuedAt: Date
 	clientName: string
-	channelCode: string
+	/** The channel's name at payment time, stored on the receipt (PAY-2a), e.g. "GCash". */
+	channelName: string
 	items: { serviceName: string; feeCentavos: number }[]
 	convenienceFeeCentavos: number
 	totalCentavos: number
@@ -75,7 +76,7 @@ export function drawReceipt(doc: PdfDocument, data: ReceiptPdfData): void {
 		["Reference No.", data.referenceNumber],
 		["Date and time", formatManilaDateTime(data.issuedAt)],
 		["Client", data.clientName],
-		["Payment channel", data.channelCode],
+		["Payment channel", data.channelName],
 		["Status", data.status === "valid" ? "PAID" : "REFUNDED"],
 	]
 	let y = 110

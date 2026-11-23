@@ -1,11 +1,19 @@
-import { Injectable } from "@nestjs/common"
+import { Inject, Injectable, Optional } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
 
-import type { Booking, BookingItemStatus, BookingStatus, CreateBookingInput } from "@repo/contracts"
+import type {
+	Booking,
+	BookingItemStatus,
+	BookingStatus,
+	CreateBookingInput,
+	FormSubmission,
+	UpdateBookingItemFormInput,
+} from "@repo/contracts"
 import {
 	bookingItems,
 	bookings,
+	formSubmissions,
 	locations,
 	payments,
 	policyAcceptances,
@@ -18,6 +26,11 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { PolicyService } from "@/common/policy/policy.service"
+import {
+	FORM_SUBMISSIONS,
+	type FormSubmissionPreparer,
+	type PreparedSubmission,
+} from "@/modules/v1/forms/form-submissions.token"
 import { loadPoliciesForServices } from "@/modules/v1/policies/policy-document-rules"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
@@ -72,7 +85,10 @@ export type CheckInResult =
 export class BookingService {
 	constructor(
 		private readonly auditService: AuditService,
-		private readonly policyService: PolicyService
+		private readonly policyService: PolicyService,
+		// FRM-2. Optional only so unit tests that build the service by hand still work;
+		// BookingsModule always provides it through FormsModule.
+		@Optional() @Inject(FORM_SUBMISSIONS) private readonly formSubmissions?: FormSubmissionPreparer
 	) {}
 
 	/**
@@ -213,6 +229,23 @@ export class BookingService {
 			}
 			const acceptedPolicies = applicable.filter(policy => accepted.has(policy.id))
 
+			// FRM-2: each Service with an active questionnaire needs valid answers
+			// to that version. Checked before anything is written, in cart order.
+			const formBySlotId = new Map(input.items.map(item => [item.scheduleSlotId, item.form]))
+			const preparedBySlotId = new Map<number, PreparedSubmission>()
+			if (this.formSubmissions) {
+				for (const line of lines) {
+					const prepared = await this.formSubmissions.prepare(tx, {
+						serviceId: line.service.id,
+						serviceName: line.service.name,
+						form: formBySlotId.get(line.slot.id),
+						actorId,
+						errorData: { scheduleSlotId: line.slot.id },
+					})
+					if (prepared) preparedBySlotId.set(line.slot.id, prepared)
+				}
+			}
+
 			const referenceNumber = await this.unusedReferenceNumber(tx, now)
 			const holdExpiresAt = new Date(now.getTime() + holdMinutes * MS_PER_MINUTE)
 			// BKG-3: each item keeps the Service fee at booking time; the total is their sum.
@@ -268,6 +301,22 @@ export class BookingService {
 				)
 			}
 
+			// FRM-2: one Form Submission per answered item, against the exact version.
+			const submissions = items.flatMap(item => {
+				const prepared = preparedBySlotId.get(item.scheduleSlotId)
+				return prepared
+					? [
+							{
+								bookingItemId: item.id,
+								formTemplateId: prepared.formTemplateId,
+								answers: prepared.answers,
+							},
+						]
+					: []
+			})
+			if (submissions.length > 0) {
+				await tx.insert(formSubmissions).values(submissions)
+			}
 			// One place in each slot, counted by the database on the rows locked
 			// above, so no count can be lost. Each slot appears once.
 			await tx
@@ -299,6 +348,14 @@ export class BookingService {
 							feeCentavos: item.feeCentavos,
 							status: item.status,
 						})),
+						...(submissions.length > 0
+							? {
+									formSubmissions: submissions.map(row => ({
+										bookingItemId: row.bookingItemId,
+										formTemplateId: row.formTemplateId,
+									})),
+								}
+							: {}),
 						acceptedPolicies: acceptedPolicies.map(policy => ({
 							policyDocumentId: policy.id,
 							documentKey: policy.documentKey,
@@ -344,6 +401,129 @@ export class BookingService {
 		})
 	}
 
+	/**
+	 * FRM-2: replace the answers of one item of the caller's own Booking while
+	 * it is still unpaid. Locks the Booking, so a payment cannot land halfway.
+	 * Once the Booking is paid the answers are final: staff record corrections
+	 * in the Assessment (PRC-1). Someone else's Booking answers like a missing
+	 * one, and the attempt is audited as denied. The audit keeps which
+	 * questions were answered, never the answers.
+	 */
+	async updateItemForm(
+		input: UpdateBookingItemFormInput,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<FormSubmission> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to change your answers" })
+		}
+		const preparer = this.formSubmissions
+		if (!preparer) {
+			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Questionnaires are not available" })
+		}
+
+		const outcome = await db.transaction(async tx => {
+			const [booking] = await tx
+				.select({ clientId: bookings.clientId, status: bookings.status })
+				.from(bookings)
+				.where(eq(bookings.id, input.bookingId))
+				.for("update")
+			if (!booking || booking.clientId !== actorId) {
+				return { denied: booking ? ("not_owner" as const) : ("not_found" as const) }
+			}
+			if (booking.status !== "pending_payment") {
+				throw new ORPCError("CONFLICT", {
+					message:
+						booking.status === "paid" || booking.status === "completed"
+							? "This booking is already paid, so your answers can no longer be changed. BOQ staff will correct anything during your assessment."
+							: `This booking is ${booking.status.replaceAll("_", " ")}, so its answers can no longer be changed.`,
+				})
+			}
+
+			const [item] = await tx
+				.select({
+					id: bookingItems.id,
+					serviceId: bookingItems.serviceId,
+					serviceName: services.name,
+				})
+				.from(bookingItems)
+				.innerJoin(services, eq(services.id, bookingItems.serviceId))
+				.where(
+					and(eq(bookingItems.id, input.bookingItemId), eq(bookingItems.bookingId, input.bookingId))
+				)
+				.limit(1)
+			if (!item) {
+				throw new ORPCError("NOT_FOUND", { message: "Booking item not found" })
+			}
+
+			const prepared = await preparer.prepare(tx, {
+				serviceId: item.serviceId,
+				serviceName: item.serviceName,
+				form: { formTemplateId: input.formTemplateId, answers: input.answers },
+				actorId,
+				errorData: { bookingItemId: item.id },
+			})
+			if (!prepared) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: `${item.serviceName} has no questionnaire to answer`,
+				})
+			}
+
+			const [existing] = await tx
+				.select({
+					id: formSubmissions.id,
+					formTemplateId: formSubmissions.formTemplateId,
+					createdAt: formSubmissions.createdAt,
+				})
+				.from(formSubmissions)
+				.where(eq(formSubmissions.bookingItemId, item.id))
+				.for("update")
+			if (existing) {
+				await tx
+					.update(formSubmissions)
+					.set({ formTemplateId: prepared.formTemplateId, answers: prepared.answers })
+					.where(eq(formSubmissions.id, existing.id))
+			} else {
+				await tx.insert(formSubmissions).values({
+					bookingItemId: item.id,
+					formTemplateId: prepared.formTemplateId,
+					answers: prepared.answers,
+					createdAt: now,
+				})
+			}
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "form_submission.update",
+					actorId,
+					targetType: "booking_item",
+					targetId: String(item.id),
+					oldValue: existing ? { formTemplateId: existing.formTemplateId } : null,
+					newValue: {
+						formTemplateId: prepared.formTemplateId,
+						answeredQuestionIds: Object.keys(prepared.answers),
+					},
+				},
+				tx
+			)
+			return {
+				submission: {
+					bookingItemId: item.id,
+					formTemplateId: prepared.formTemplateId,
+					version: prepared.version,
+					answers: prepared.answers,
+					createdAt: existing?.createdAt ?? now,
+				},
+			}
+		})
+
+		if ("denied" in outcome && outcome.denied) {
+			await this.recordDenial(actorId, "form_submission.update", input.bookingId, outcome.denied)
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+		return outcome.submission
+	}
 	/**
 	 * Mark a Booking paid (Flow C step 5, PAY-1).
 	 *

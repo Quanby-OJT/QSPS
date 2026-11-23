@@ -86,7 +86,7 @@ export type {
 } from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
-export { paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export { paymentChannelsContract, paymentsContract } from "./modules/v1/payments/payments.contract.js"
 export {
 	PAYMENT_STATUSES,
 	PaymentStatusSchema,
@@ -98,6 +98,13 @@ export {
 	ReceiptTokenSchema,
 	ReceiptTokenParamSchema,
 	ReceiptVerificationSchema,
+	MAX_CONVENIENCE_FEE_CENTAVOS,
+	PaymentChannelSchema,
+	PaymentChannelSettingsSchema,
+	UpdatePaymentChannelSchema,
+	CheckoutChannelsParamSchema,
+	CheckoutChannelSchema,
+	CheckoutChannelsSchema,
 } from "./modules/v1/payments/payments.schema.js"
 export type {
 	PaymentStatus,
@@ -105,6 +112,11 @@ export type {
 	PaymentCheckout,
 	PaymentStatusResponse,
 	ReceiptVerification,
+	PaymentChannel,
+	PaymentChannelSettings,
+	UpdatePaymentChannelInput,
+	CheckoutChannel,
+	CheckoutChannels,
 } from "./modules/v1/payments/payments.schema.js"
 
 // Processing contracts + schemas (PRC-1)
@@ -395,3 +407,34 @@ export type {
 export { BUSINESS_TIMEZONE } from "./common/business-time.js"
 export type { BusinessTimezone } from "./common/business-time.js"
 export * from "./common/privacy-notice.js"
+
+// FRM-2: answering a Service's questionnaire while booking.
+export {
+	checkFormAnswers,
+	FORM_UPLOAD_CONTENT_TYPES,
+	FORM_UPLOAD_KEY_PATTERN,
+	FORM_UPLOAD_MAX_BYTES,
+	FORM_UPLOAD_TYPES,
+	FormAnswersSchema,
+	FormAnswerValueSchema,
+	MAX_TEXT_ANSWER_LENGTH,
+	type AnswerCheck,
+	type CheckedField,
+	type FormAnswers,
+	type FormAnswerValue,
+	type FormUploadContentType,
+} from "./modules/v1/forms/form-answers.js"
+export {
+	BookingFormRequestSchema,
+	BookingFormSchema,
+	BookingItemFormInputSchema,
+	FormSubmissionSchema,
+	FormUploadInputSchema,
+	FormUploadSchema,
+	UpdateBookingItemFormSchema,
+	type BookingForm,
+	type BookingItemFormInput,
+	type FormSubmission,
+	type FormUpload,
+	type UpdateBookingItemFormInput,
+} from "./modules/v1/bookings/bookings.schema.js"

@@ -1,8 +1,8 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import type { Booking, CreateBookingInput } from "@repo/contracts"
+import type { Booking, BookingForm, CreateBookingInput, FormUpload } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -49,34 +49,86 @@ export class BookingCheckoutError extends ApiError {
 	}
 }
 
+/**
+ * FRM-2: a refused checkout because of one Service's answers. Either some
+ * questions need fixing (`fieldErrors`, question id to message), or the
+ * questionnaire changed while the client was booking (`formChanged`). The
+ * slot itself is fine and stays in the cart.
+ */
+export class BookingFormError extends ApiError {
+	constructor(
+		status: number,
+		message: string,
+		readonly serviceId: number | null,
+		readonly fieldErrors: Record<string, string>,
+		readonly formChanged: boolean
+	) {
+		super(status, message)
+	}
+}
+
 type ErrorBody = {
 	message?: string
 	error?: { message?: string }
 	/** The API's error data, or oRPC's input validation issues. */
-	data?: { scheduleSlotId?: unknown; issues?: { message?: string }[] }
+	data?: {
+		scheduleSlotId?: unknown
+		serviceId?: unknown
+		fieldErrors?: unknown
+		formChanged?: unknown
+		issues?: { message?: string }[]
+	}
+}
+
+function stringRecord(value: unknown): Record<string, string> | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return null
+	const entries = Object.entries(value).filter(
+		(entry): entry is [string, string] => typeof entry[1] === "string"
+	)
+	return Object.fromEntries(entries)
 }
 
 async function readError(response: Response): Promise<ApiError> {
 	let message = `Request failed (${response.status})`
-	let scheduleSlotId: number | null = null
+	let data: ErrorBody["data"]
 	try {
 		const body = (await response.json()) as ErrorBody
 		message = body?.data?.issues?.[0]?.message ?? body?.message ?? body?.error?.message ?? message
-		if (typeof body?.data?.scheduleSlotId === "number") scheduleSlotId = body.data.scheduleSlotId
+		data = body?.data
 	} catch {
 		// Error bodies may be empty or non-JSON.
 	}
-	return scheduleSlotId === null
-		? new ApiError(response.status, message)
-		: new BookingCheckoutError(response.status, message, scheduleSlotId)
+
+	// FRM-2 first: these also carry the slot, but the slot is not the problem.
+	const fieldErrors = stringRecord(data?.fieldErrors)
+	const formChanged = data?.formChanged === true
+	if (fieldErrors || formChanged) {
+		return new BookingFormError(
+			response.status,
+			message,
+			typeof data?.serviceId === "number" ? data.serviceId : null,
+			fieldErrors ?? {},
+			formChanged
+		)
+	}
+	if (typeof data?.scheduleSlotId === "number") {
+		return new BookingCheckoutError(response.status, message, data.scheduleSlotId)
+	}
+	return new ApiError(response.status, message)
 }
 
 /** The client's one booking awaiting payment (BKG-2). */
 export const UNPAID_BOOKING_QUERY_KEY = ["bookings", "unpaid"] as const
 
+export const bookingFormKeys = {
+	all: ["bookings", "form"] as const,
+	forService: (serviceId: number) => ["bookings", "form", serviceId] as const,
+}
+
 /**
  * Confirm a booking of one or more Services (BKG-3). A refusal that names a
- * slot arrives as a `BookingCheckoutError`.
+ * slot arrives as a `BookingCheckoutError`; one about answers as a
+ * `BookingFormError` (FRM-2).
  *
  * `idempotencyKey` identifies one attempt: sending the same key again (a
  * double click, or a retry after a dropped connection) returns the first
@@ -106,6 +158,73 @@ export function useCreateBookingMutation() {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
 			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
+		},
+	})
+}
+
+/** What the wizard needs from the questionnaires of every Service in a checkout. */
+export interface CheckoutForms {
+	/** Service id to its active questionnaire, or null; undefined until every Service has answered. */
+	data: ReadonlyMap<number, BookingForm | null> | undefined
+	isPending: boolean
+	isError: boolean
+	isSuccess: boolean
+	refetch: () => void
+}
+
+/**
+ * FRM-2: the questionnaire of each Service in the cart. Always fresh, so the
+ * client answers the version the API will check.
+ */
+export function useBookingFormsQuery(serviceIds: readonly number[]): CheckoutForms {
+	return useQueries({
+		queries: serviceIds.map(serviceId => ({
+			queryKey: bookingFormKeys.forService(serviceId),
+			queryFn: async (): Promise<BookingForm | null> => {
+				const response = await fetch(`${API_BASE}/bookings/form?serviceId=${String(serviceId)}`, {
+					credentials: "include",
+				})
+				if (!response.ok) throw await readError(response)
+				return (await response.json()) as BookingForm | null
+			},
+			staleTime: 0,
+			refetchOnMount: "always" as const,
+		})),
+		combine: results => {
+			const isSuccess = results.every(result => result.isSuccess)
+			return {
+				data: isSuccess
+					? new Map(serviceIds.map((serviceId, index) => [serviceId, results[index]?.data ?? null]))
+					: undefined,
+				isPending: results.some(result => result.isPending),
+				isError: results.some(result => result.isError),
+				isSuccess,
+				refetch: () => {
+					for (const result of results) {
+						if (!result.isSuccess) void result.refetch()
+					}
+				},
+			}
+		},
+	})
+}
+
+/**
+ * FRM-2: upload a file answer. The answer then holds the returned `fileKey`.
+ * Sent as multipart form data, so no Content-Type header is set by hand.
+ */
+export function useUploadFormFileMutation() {
+	return useMutation({
+		mutationFn: async (file: File): Promise<FormUpload> => {
+			const body = new FormData()
+			body.append("file", file)
+			const response = await fetch(`${API_BASE}/bookings/form-uploads`, {
+				method: "POST",
+				credentials: "include",
+				body,
+			})
+			if (!response.ok) throw await readError(response)
+			return (await response.json()) as FormUpload
 		},
 	})
 }

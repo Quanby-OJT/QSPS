@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { asc, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 
 import type { ReceiptVerification } from "@repo/contracts"
-import { bookingItems, bookings, payments, receipts, services, users } from "@repo/db/schema"
+import { bookings, payments, receipts } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -50,6 +50,10 @@ export class ReceiptService {
 	/**
 	 * The receipt PDF for a Payment, for the client who owns its Booking.
 	 * Anyone else, and a Payment with no receipt, gets the same 404.
+	 *
+	 * PAY-2a: the client, channel and Service names are the ones stored on the
+	 * receipt when it was issued, never today's, so a rename does not change
+	 * a reprint. The total and convenience fee come from the Payment.
 	 */
 	async renderForOwner(paymentId: number, actorId: string | null): Promise<RenderedReceipt> {
 		const [row] = await db
@@ -58,19 +62,18 @@ export class ReceiptService {
 				receiptNumber: receipts.receiptNumber,
 				verificationToken: receipts.verificationToken,
 				issuedAt: receipts.issuedAt,
+				clientName: receipts.clientName,
+				channelName: receipts.channelName,
+				serviceLines: receipts.serviceLines,
 				amountCentavos: payments.amountCentavos,
 				convenienceFeeCentavos: payments.convenienceFeeCentavos,
-				channelCode: payments.channelCode,
 				paymentStatus: payments.status,
-				bookingId: bookings.id,
 				referenceNumber: bookings.referenceNumber,
 				clientId: bookings.clientId,
-				clientName: users.name,
 			})
 			.from(receipts)
 			.innerJoin(payments, eq(payments.id, receipts.paymentId))
 			.innerJoin(bookings, eq(bookings.id, payments.bookingId))
-			.innerJoin(users, eq(users.id, bookings.clientId))
 			.where(eq(receipts.paymentId, paymentId))
 			.limit(1)
 
@@ -89,13 +92,6 @@ export class ReceiptService {
 			throw new NotFoundException("Receipt not found")
 		}
 
-		const items = await db
-			.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
-			.from(bookingItems)
-			.innerJoin(services, eq(services.id, bookingItems.serviceId))
-			.where(eq(bookingItems.bookingId, row.bookingId))
-			.orderBy(asc(bookingItems.id))
-
 		const verifyUrl = receiptVerifyUrl(row.verificationToken)
 		const qrPng = await this.pdfService.qrPng(verifyUrl)
 		const pdf = await this.pdfService.render({ title: `e-Receipt ${row.receiptNumber}` }, doc =>
@@ -104,8 +100,8 @@ export class ReceiptService {
 				referenceNumber: row.referenceNumber,
 				issuedAt: row.issuedAt,
 				clientName: row.clientName,
-				channelCode: row.channelCode,
-				items,
+				channelName: row.channelName,
+				items: row.serviceLines,
 				convenienceFeeCentavos: row.convenienceFeeCentavos,
 				totalCentavos: row.amountCentavos,
 				status: statusOf(row.paymentStatus),

@@ -6,7 +6,7 @@ import { formsContract } from "./forms/forms.contract.js"
 import { healthContract } from "./health/health.contract.js"
 import { locationsContract } from "./locations/locations.contract.js"
 import { meContract } from "./me/me.contract.js"
-import { paymentsContract } from "./payments/payments.contract.js"
+import { paymentChannelsContract, paymentsContract } from "./payments/payments.contract.js"
 import { policiesContract } from "./policies/policies.contract.js"
 import { policyDocumentsContract } from "./policies/policy-documents.contract.js"
 import { processingContract } from "./processing/processing.contract.js"
@@ -28,6 +28,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		me: meContract,
 		forms: formsContract,
 		payments: paymentsContract,
+		paymentChannels: paymentChannelsContract,
 		policies: policiesContract,
 		policyDocuments: policyDocumentsContract,
 		processing: processingContract,

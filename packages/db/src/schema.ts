@@ -680,6 +680,28 @@ export const documentSequences = createTable(
 // ============================================================================
 
 /**
+ * The ways a client can pay, and which gateway serves each (PAY-5). Switching
+ * a channel to another provider is a row update, with no deployment (PRD
+ * decision B2). Seeded with TOR §VIII.2's list, all disabled until an
+ * administrator assigns a provider. The convenience fee is a fixed amount
+ * plus a percentage of the Service fees (either may be zero); a change
+ * applies to new Payments only, because each Payment stores its own fee.
+ */
+export const paymentChannels = createTable("payment_channels", t => ({
+	/** Lowercase code, e.g. "gcash". Stored on every Payment as channel_code. */
+	code: t.text("code").primaryKey(),
+	name: t.text("name").notNull(),
+	/** The PaymentProvider that serves this channel; null until one is assigned. */
+	providerCode: t.text("provider_code"),
+	convenienceFeeCentavos: t.integer("convenience_fee_centavos").notNull().default(0),
+	/** Percentage part of the fee in basis points: 250 = 2.5% of the Service fees. */
+	convenienceFeeBps: t.integer("convenience_fee_bps").notNull().default(0),
+	isEnabled: t.boolean("is_enabled").notNull().default(false),
+	createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+}))
+
+/**
  * One attempt to pay a Booking (PAY-1). Status follows state machine 5.3 in
  * DOMAIN-MODEL.md and only `PaymentService` writes this table. Money is
  * integer centavos: `amount_centavos` is the full amount charged (the Booking
@@ -749,6 +771,11 @@ export const paymentEvents = createTable(
 	]
 )
 
+/** One printed line of an e-Receipt, as it was at payment time (PAY-2a). */
+export interface ReceiptServiceLine {
+	serviceName: string
+	feeCentavos: number
+}
 /**
  * The e-Receipt for one succeeded Payment (PAY-2). Created once, in the same
  * transaction that marks the Payment `succeeded`; never updated. The PDF is
@@ -765,6 +792,12 @@ export const receipts = createTable("receipts", t => ({
 	receiptNumber: t.text("receipt_number").notNull().unique(),
 	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
 	verificationToken: t.text("verification_token").notNull().unique(),
+	/** PAY-2a: the client's name at payment time. */
+	clientName: t.text("client_name").notNull(),
+	/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
+	channelName: t.text("channel_name").notNull(),
+	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
+	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
 	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
 }))
 
@@ -1022,6 +1055,7 @@ export const relations = defineRelations(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		paymentChannels,
 		payments,
 		paymentEvents,
 		assessments,
@@ -1263,6 +1297,7 @@ export const schema = Object.assign(
 		scheduleSlots,
 		bookings,
 		bookingItems,
+		paymentChannels,
 		payments,
 		paymentEvents,
 		assessments,

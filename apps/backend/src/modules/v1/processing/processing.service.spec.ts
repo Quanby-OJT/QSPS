@@ -750,6 +750,109 @@ describe("ProcessingService", () => {
 		})
 	})
 
+	describe("issuing the document when approval or override clears the item (CRT-1a)", () => {
+		const document = {
+			batchNumber: "YF-24A",
+			vaccinatorName: "Dr. Reyes",
+			validFrom: "2026-11-29",
+			validUntil: null,
+			passportOrIdNumber: null,
+		}
+		const reason = "Exemption letter verified by phone"
+
+		it("issues on approval in the same transaction, recorded against the approver", async () => {
+			selects(inScopeItem, [{ staffId: "officer-1" }], [{ ...detailRow, status: "issued" }], [])
+			bookingService.transitionItem.mockResolvedValue({
+				from: "pending_head_approval",
+				to: "cleared",
+			})
+			mockDecisionInsert()
+
+			await processingService.decide(
+				{ bookingItemId: 44, decision: "approve", notes: "", document },
+				"head-1",
+				MANILA_SCOPE
+			)
+
+			expect(documentService.issueOnClearance).toHaveBeenCalledWith(tx, {
+				bookingItemId: 44,
+				actorId: "head-1",
+				details: document,
+				exemption: null,
+			})
+		})
+
+		it("does not issue when the head sends the item back", async () => {
+			selects(inScopeItem, [{ staffId: "officer-1" }], [detailRow], [])
+			bookingService.transitionItem.mockResolvedValue({
+				from: "pending_head_approval",
+				to: "in_assessment",
+			})
+			mockDecisionInsert()
+
+			await processingService.decide(
+				{ bookingItemId: 44, decision: "return", notes: "Check the batch number" },
+				"head-1",
+				MANILA_SCOPE
+			)
+
+			expect(documentService.issueOnClearance).not.toHaveBeenCalled()
+		})
+
+		it("saves no approval when the document cannot be issued", async () => {
+			selects(inScopeItem, [{ staffId: "officer-1" }])
+			bookingService.transitionItem.mockResolvedValue({
+				from: "pending_head_approval",
+				to: "cleared",
+			})
+			documentService.issueOnClearance.mockRejectedValue(
+				Object.assign(new Error("details required"), { code: "BAD_REQUEST" })
+			)
+			const values = mockDecisionInsert()
+
+			await expect(
+				processingService.decide(
+					{ bookingItemId: 44, decision: "approve", notes: "" },
+					"head-1",
+					MANILA_SCOPE
+				)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(values).not.toHaveBeenCalled()
+		})
+
+		it("issues on override in the same transaction, recorded against the approver", async () => {
+			selects(inScopeItem, [{ ...detailRow, status: "issued" }], [])
+			bookingService.overrideItem.mockResolvedValue({ from: "rejected", to: "cleared" })
+			mockDecisionInsert()
+
+			await processingService.override(
+				{ bookingItemId: 44, reason, document },
+				"head-1",
+				MANILA_SCOPE
+			)
+
+			expect(documentService.issueOnClearance).toHaveBeenCalledWith(tx, {
+				bookingItemId: 44,
+				actorId: "head-1",
+				details: document,
+				exemption: null,
+			})
+		})
+
+		it("saves no override when the document cannot be issued", async () => {
+			selects(inScopeItem)
+			bookingService.overrideItem.mockResolvedValue({ from: "rejected", to: "cleared" })
+			documentService.issueOnClearance.mockRejectedValue(
+				Object.assign(new Error("details required"), { code: "BAD_REQUEST" })
+			)
+			const values = mockDecisionInsert()
+
+			await expect(
+				processingService.override({ bookingItemId: 44, reason }, "head-1", MANILA_SCOPE)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(values).not.toHaveBeenCalled()
+		})
+	})
 	describe("override (PRC-3)", () => {
 		const reason = "Exemption letter verified by phone"
 
@@ -796,3 +899,9 @@ describe("ProcessingService", () => {
 		})
 	})
 })
+
+// FRM-2: answers are read by form-answers-display, tested in its own spec.
+jest.mock("@/modules/v1/forms/form-answers-display", () => ({
+	fileAnswers: jest.fn().mockResolvedValue([]),
+	readableAnswers: jest.fn().mockResolvedValue({}),
+}))

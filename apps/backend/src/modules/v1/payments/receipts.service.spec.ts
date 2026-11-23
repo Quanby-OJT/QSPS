@@ -37,6 +37,7 @@ function queueSelects(...results: unknown[][]) {
 		const chain: Record<string, unknown> = {
 			from: () => chain,
 			innerJoin: () => chain,
+			leftJoin: () => chain,
 			where: () => chain,
 			orderBy: () => Promise.resolve(rows),
 			limit: () => Promise.resolve(rows),
@@ -52,7 +53,8 @@ const receiptRow = {
 	issuedAt: new Date("2026-11-18T01:30:00.000Z"),
 	amountCentavos: 150000,
 	convenienceFeeCentavos: 0,
-	channelCode: "fake",
+	channelName: "GCash",
+	serviceLines: [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }],
 	paymentStatus: "succeeded",
 	bookingId: 31,
 	referenceNumber: "QSPS-261117-AB12CD",
@@ -81,7 +83,7 @@ describe("ReceiptService", () => {
 
 	describe("renderForOwner", () => {
 		it("renders the owner's receipt from the database, with a QR code to the verify page", async () => {
-			queueSelects([receiptRow], [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }])
+			queueSelects([receiptRow])
 
 			const result = await service.renderForOwner(90, "client-1")
 
@@ -96,7 +98,7 @@ describe("ReceiptService", () => {
 					receiptNumber: "QSPS-R-261118-000090",
 					referenceNumber: "QSPS-261117-AB12CD",
 					clientName: "Alex Johnson",
-					channelCode: "fake",
+					channelName: "GCash",
 					items: [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }],
 					convenienceFeeCentavos: 0,
 					totalCentavos: 150000,
@@ -128,6 +130,29 @@ describe("ReceiptService", () => {
 			await expect(service.renderForOwner(91, "client-1")).rejects.toBeInstanceOf(NotFoundException)
 			expect(audit.record).toHaveBeenCalledWith(
 				expect.objectContaining({ outcome: "denied", reason: "not_found" })
+			)
+		})
+
+		it("prints the names stored on the receipt, not today's names (PAY-2a)", async () => {
+			queueSelects([
+				{
+					...receiptRow,
+					clientName: "Alex Johnson (at payment)",
+					channelName: "GCash (old name)",
+					serviceLines: [{ serviceName: "Old service name", feeCentavos: 150000 }],
+				},
+			])
+
+			await service.renderForOwner(90, "client-1")
+
+			expect(db.select).toHaveBeenCalledTimes(1)
+			expect(drawReceipt).toHaveBeenCalledWith(
+				{},
+				expect.objectContaining({
+					clientName: "Alex Johnson (at payment)",
+					channelName: "GCash (old name)",
+					items: [{ serviceName: "Old service name", feeCentavos: 150000 }],
+				})
 			)
 		})
 
