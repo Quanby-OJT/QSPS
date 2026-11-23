@@ -13,6 +13,14 @@ import { AuditService } from "@/common/audit/audit.service"
 import { sniffContentType } from "@/common/storage/content-type"
 import { FILE_STORAGE, type FileStorage } from "@/common/storage/file-storage"
 
+import type { FormExecutor } from "./form-submissions.token"
+import {
+	confirmedKeyOf,
+	isPendingUploadKey,
+	PENDING_UPLOAD_PREFIX,
+	uploadOwnerOf,
+} from "./pending-uploads"
+
 /** A user id that can name a storage folder (Better Auth ids always can). */
 const USER_FOLDER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
@@ -24,9 +32,12 @@ function displayName(name: string): string {
 
 /**
  * File answers to questionnaires (FRM-2). A client uploads the file before
- * confirming the booking; the answer then holds the returned key. Each
- * client's files live in their own folder, and the booking only accepts a
- * key from the caller's own folder that is really stored.
+ * confirming the booking; the answer then holds the returned key.
+ *
+ * FRM-2b: a new upload goes to `form-uploads/pending/<userId>/`. When the
+ * answers that use it are saved, `confirmUpload` copies it to
+ * `form-uploads/<userId>/`, and the stored answer holds that key. Pending
+ * files nobody saved are deleted by `PendingUploadsCleanupService`.
  */
 @Injectable()
 export class FormUploadService {
@@ -58,7 +69,7 @@ export class FormUploadService {
 			})
 		}
 
-		const fileKey = `form-uploads/${actorId}/${randomUUID()}.${FORM_UPLOAD_TYPES[contentType]}`
+		const fileKey = `${PENDING_UPLOAD_PREFIX}${actorId}/${randomUUID()}.${FORM_UPLOAD_TYPES[contentType]}`
 		await this.storage.put(fileKey, bytes, contentType)
 		await this.auditService.record({
 			domain: "forms",
@@ -77,10 +88,40 @@ export class FormUploadService {
 		}
 	}
 
-	/** Whether `fileKey` is one of the caller's own uploads and is stored. */
+	/**
+	 * Whether `fileKey` is one of the caller's own uploads and is stored:
+	 * a pending one, or one already confirmed by earlier saved answers.
+	 */
 	async ownsUpload(fileKey: string, actorId: string): Promise<boolean> {
 		if (!FORM_UPLOAD_KEY_PATTERN.test(fileKey)) return false
-		if (!fileKey.startsWith(`form-uploads/${actorId}/`)) return false
+		if (uploadOwnerOf(fileKey) !== actorId) return false
 		return this.storage.exists(fileKey)
+	}
+
+	/**
+	 * The key a saved answer should hold. A pending upload is copied to the
+	 * caller's confirmed folder (once; a second save reuses the copy); a key
+	 * that is already confirmed is returned as it is. Call `ownsUpload` first.
+	 */
+	/** `executor`: the booking transaction, so the audit line commits or rolls back with it. */
+	async confirmUpload(fileKey: string, actorId: string, executor: FormExecutor): Promise<string> {
+		if (!isPendingUploadKey(fileKey)) return fileKey
+		const confirmed = confirmedKeyOf(fileKey)
+		if (!(await this.storage.exists(confirmed))) {
+			await this.storage.copy(fileKey, confirmed)
+			await this.auditService.record(
+				{
+					domain: "forms",
+					action: "form_upload.confirm",
+					actorId,
+					targetType: "file",
+					targetId: confirmed,
+					oldValue: { fileKey },
+					newValue: { fileKey: confirmed },
+				},
+				executor
+			)
+		}
+		return confirmed
 	}
 }

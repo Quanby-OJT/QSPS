@@ -1,6 +1,19 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
+import {
+	CopyObjectCommand,
+	DeleteObjectCommand,
+	GetObjectCommand,
+	HeadObjectCommand,
+	ListObjectsV2Command,
+	PutObjectCommand,
+	S3Client,
+} from "@aws-sdk/client-s3"
 
-import { assertStorageKey, type FileStorage } from "./file-storage"
+import {
+	assertStorageKey,
+	assertStoragePrefix,
+	type FileStorage,
+	type StoredFile,
+} from "./file-storage"
 
 export interface S3StorageOptions {
 	bucket: string
@@ -71,5 +84,38 @@ export class S3FileStorage implements FileStorage {
 			if (isMissing(error)) return null
 			throw error
 		}
+	}
+
+	async copy(from: string, to: string): Promise<void> {
+		assertStorageKey(from)
+		assertStorageKey(to)
+		// Keys only ever hold [A-Za-z0-9._-/], so the source needs no URL encoding.
+		await this.client.send(
+			new CopyObjectCommand({ Bucket: this.bucket, Key: to, CopySource: `${this.bucket}/${from}` })
+		)
+	}
+
+	async delete(key: string): Promise<void> {
+		assertStorageKey(key)
+		// S3 answers success for a key that is already gone.
+		await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
+	}
+
+	async list(prefix: string): Promise<StoredFile[]> {
+		assertStoragePrefix(prefix)
+		const files: StoredFile[] = []
+		let token: string | undefined
+		do {
+			const page = await this.client.send(
+				new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token })
+			)
+			for (const object of page.Contents ?? []) {
+				if (object.Key && object.LastModified) {
+					files.push({ key: object.Key, lastModified: object.LastModified })
+				}
+			}
+			token = page.IsTruncated ? page.NextContinuationToken : undefined
+		} while (token)
+		return files
 	}
 }

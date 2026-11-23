@@ -423,8 +423,7 @@ export class ProcessingService {
 	 * to `cleared`; `return` sends it back to `in_assessment` with notes. The
 	 * officer who cleared the item may not approve it (403, audited). The
 	 * decision row, the item's new status and the Audit Entries commit
-	 * together. Documents are issued afterwards through CRT-1, which needs the
-	 * item to be `cleared`.
+	 * together. Approving issues the document in the same transaction when the Service auto-issues (CRT-1a), recorded against the approver.
 	 */
 	async decide(
 		input: DecideApprovalInput,
@@ -471,6 +470,15 @@ export class ProcessingService {
 				actorId: approverId,
 				allowedFrom: ["pending_head_approval"],
 			})
+			// CRT-1a: approving makes the item cleared, so its document is issued
+			// now, in this transaction, recorded against the approver.
+			if (moved.to === "cleared") {
+				await this.documentService.issueOnClearance(tx, {
+					bookingItemId: input.bookingItemId,
+					actorId: approverId,
+					details: input.document ?? null,
+				})
+			}
 			const saved = await this.insertDecision(tx, {
 				bookingItemId: input.bookingItemId,
 				staffId: approverId,
@@ -516,6 +524,15 @@ export class ProcessingService {
 				actorId: approverId,
 				reason: input.reason,
 			})
+			// CRT-1a: the override makes the item cleared, so its document is issued
+			// now, in this transaction, recorded against the approver.
+			if (moved.to === "cleared") {
+				await this.documentService.issueOnClearance(tx, {
+					bookingItemId: input.bookingItemId,
+					actorId: approverId,
+					details: input.document ?? null,
+				})
+			}
 			const saved = await this.insertDecision(tx, {
 				bookingItemId: input.bookingItemId,
 				staffId: approverId,

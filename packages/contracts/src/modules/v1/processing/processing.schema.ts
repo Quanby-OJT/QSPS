@@ -195,6 +195,11 @@ export const ApprovalDecisionSchema = z.enum(APPROVAL_DECISIONS)
 export const DecideApprovalSchema = BookingItemIdParamSchema.extend({
 	decision: ApprovalDecisionSchema,
 	notes: z.string().trim().max(MAX_ASSESSMENT_NOTES_LENGTH).default(""),
+	/**
+	 * Certificate details (CRT-1a). Required when this makes the item cleared and
+	 * its Service issues its document automatically; ignored otherwise.
+	 */
+	document: IcvIssueDetailsSchema.nullish(),
 }).refine(value => value.decision === "approve" || value.notes.length > 0, {
 	message: "Write a note telling the officer what to check again",
 	path: ["notes"],
@@ -208,6 +213,11 @@ export const OverrideItemSchema = BookingItemIdParamSchema.extend({
 			message: `Write the reason for the override (at least ${MIN_OVERRIDE_REASON_LENGTH} characters)`,
 		})
 		.max(MAX_ASSESSMENT_NOTES_LENGTH),
+	/**
+	 * Certificate details (CRT-1a). Required when this makes the item cleared and
+	 * its Service issues its document automatically; ignored otherwise.
+	 */
+	document: IcvIssueDetailsSchema.nullish(),
 })
 
 export type AssessmentOutcome = z.infer<typeof AssessmentOutcomeSchema>

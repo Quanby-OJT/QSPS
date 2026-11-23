@@ -8,10 +8,12 @@ import { FORM_SUBMISSIONS } from "./form-submissions.token"
 import { FormUploadService } from "./form-uploads.service"
 import { FormsController } from "./forms.controller"
 import { FormsService } from "./forms.service"
+import { PendingUploadsCleanupService } from "./pending-uploads-cleanup.service"
 
 /**
  * FRM-1: Form Templates (the questionnaire a client answers for a Service).
  * FRM-2: answers and file answers, checked against the active version.
+ * FRM-2b: pending uploads, confirmed when saved, and the daily cleanup.
  */
 @Module({
 	imports: [ScopeModule, StorageModule],
@@ -20,6 +22,7 @@ import { FormsService } from "./forms.service"
 		FormsService,
 		FormUploadService,
 		FormSubmissionService,
+		PendingUploadsCleanupService,
 		{ provide: FORM_SUBMISSIONS, useExisting: FormSubmissionService },
 	],
 	// FRM-2: the booking module reads questionnaires and checks answers through these.
