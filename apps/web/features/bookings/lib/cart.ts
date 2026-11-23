@@ -1,5 +1,6 @@
 import {
 	MAX_BOOKING_ITEMS,
+	type BookingItemFormInput,
 	type CreateBookingItemInput,
 	type SlotAvailability,
 } from "@repo/contracts"
@@ -48,7 +49,17 @@ export function canAddToCart(cart: readonly CartItem[]): boolean {
 	return cart.length < MAX_BOOKING_ITEMS
 }
 
-/** What the create request sends, in the order the client added them. */
-export function checkoutItems(cart: readonly CartItem[]): CreateBookingItemInput[] {
-	return cart.flatMap(item => (item.slot ? [{ scheduleSlotId: item.slot.id }] : []))
+/**
+ * What the create request sends, in the order the client added them. FRM-2:
+ * `forms` holds the checked answers of each Service that has a questionnaire.
+ */
+export function checkoutItems(
+	cart: readonly CartItem[],
+	forms?: ReadonlyMap<number, BookingItemFormInput>
+): CreateBookingItemInput[] {
+	return cart.flatMap(item => {
+		if (!item.slot) return []
+		const form = forms?.get(item.serviceId)
+		return [form ? { scheduleSlotId: item.slot.id, form } : { scheduleSlotId: item.slot.id }]
+	})
 }
