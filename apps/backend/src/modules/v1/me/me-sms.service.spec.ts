@@ -10,6 +10,17 @@ import { bindDbBackedTests } from "@/testing/db-ready"
 
 import { MeSmsService } from "./me-sms.service"
 
+// @orpc/server is ESM-only; the service only needs its error class.
+jest.mock("@orpc/server", () => ({
+	ORPCError: class ORPCError extends Error {
+		constructor(
+			public readonly code: string,
+			options: { message: string }
+		) {
+			super(options.message)
+		}
+	},
+}))
 jest.mock("@repo/auth/sms", () => ({
 	...jest.requireActual("@repo/auth/sms"),
 	createSmsSender: jest.fn(),
@@ -31,6 +42,7 @@ describe("NTF-2 mobile verification", () => {
 	const send = jest.fn().mockResolvedValue(undefined)
 	const audit = { record: jest.fn().mockResolvedValue(undefined) }
 	const service = new MeSmsService(audit as unknown as AuditService)
+
 	beforeAll(async () => {
 		await tests.probe()
 		if (!tests.ready) return
@@ -38,6 +50,7 @@ describe("NTF-2 mobile verification", () => {
 			.insert(users)
 			.values({ id, name: "SMS test user", email: `${id}@example.test`, twoFactorEnabled: true })
 	})
+
 	beforeEach(async () => {
 		jest.clearAllMocks()
 		;(createSmsSender as jest.Mock).mockReturnValue({ send })
@@ -54,6 +67,7 @@ describe("NTF-2 mobile verification", () => {
 			})
 			.where(eq(users.id, id))
 	})
+
 	afterAll(async () => {
 		if (tests.ready) {
 			await db
@@ -64,7 +78,9 @@ describe("NTF-2 mobile verification", () => {
 		}
 		if (tests.connected) await db.$client.end()
 	})
+
 	const itDb = tests.itDb
+
 	itDb(
 		"requires verification, consumes the code once, and requires password confirmation to select SMS MFA",
 		async () => {
@@ -101,6 +117,12 @@ describe("NTF-2 mobile verification", () => {
 			).resolves.toMatchObject({ smsNotificationsEnabled: true, mfaOtpChannel: "sms" })
 		}
 	)
+
+	itDb("refuses a number that is not a valid mobile number", async () => {
+		await expect(service.requestCode(id, "12345")).rejects.toMatchObject({ code: "BAD_REQUEST" })
+		expect(send).not.toHaveBeenCalled()
+	})
+
 	itDb("limits repeated sends across instances and reopens after the cooldown", async () => {
 		const now = new Date()
 		for (let i = 0; i < 3; i++) await reserveSmsCode(db, secret, mobile, id, now)

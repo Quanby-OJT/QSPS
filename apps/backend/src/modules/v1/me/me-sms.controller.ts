@@ -1,100 +1,87 @@
-import {
-	BadRequestException,
-	Body,
-	Controller,
-	Get,
-	HttpCode,
-	Post,
-	Put,
-	Req,
-	UnauthorizedException,
-} from "@nestjs/common"
+import { Controller, Req } from "@nestjs/common"
+import { Implement } from "@orpc/nest"
+import { implement, ORPCError } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Request } from "express"
-import { z } from "zod"
 
 import { getAuth } from "@repo/auth"
 
+import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { MeSmsService } from "./me-sms.service"
 
-function userId(session?: UserSession): string {
-	if (!session?.user?.id) throw new UnauthorizedException("Authentication required")
-	return session.user.id
+/** The signed-in user id, or an oRPC 401 (Nest exceptions become 500s inside oRPC). */
+function requireUserId(session?: UserSession): string {
+	const userId = session?.user?.id
+	if (!userId) throw new ORPCError("UNAUTHORIZED", { message: "Authentication required" })
+	return userId
 }
 
-function parse<T>(schema: z.ZodType<T>, body: unknown): T {
-	const result = schema.safeParse(body)
-	if (!result.success) throw new BadRequestException("Invalid SMS settings request")
-	return result.data
-}
-
-@Controller("v1/me/sms")
-@RequirePermissions("account.profile:manage")
+/**
+ * Mobile number and SMS settings (NTF-2). Every route needs
+ * `account.profile:manage`; the record is always the caller's own.
+ */
+@Controller()
 export class MeSmsController {
 	constructor(private readonly sms: MeSmsService) {}
 
-	@Get()
-	get(@Session() session?: UserSession) {
-		return this.sms.get(userId(session))
+	@RequirePermissions("account.profile:manage")
+	@Implement(v1.me.smsSettings)
+	async settings(@Session() session?: UserSession) {
+		return implement(v1.me.smsSettings).handler(() => this.sms.get(requireUserId(session)))
 	}
 
-	@Post("request-code")
-	@HttpCode(200)
+	@RequirePermissions("account.profile:manage")
 	@StrictThrottle()
-	request(@Body() body: unknown, @Session() session?: UserSession) {
-		const input = parse(z.object({ mobile: z.string().min(10).max(30) }), body)
-		return this.sms.requestCode(userId(session), input.mobile)
-	}
-
-	@Post("verify-code")
-	@HttpCode(200)
-	@StrictThrottle()
-	verify(@Body() body: unknown, @Session() session?: UserSession) {
-		const input = parse(z.object({ code: z.string().regex(/^\d{6}$/) }), body)
-		return this.sms.verifyCode(userId(session), input.code)
-	}
-
-	@Put("preferences")
-	@StrictThrottle()
-	async preferences(
-		@Body() body: unknown,
-		@Req() request: Request,
-		@Session() session?: UserSession
-	) {
-		const input = parse(
-			z.object({
-				smsNotificationsEnabled: z.boolean(),
-				mfaOtpChannel: z.enum(["email", "sms"]),
-				password: z.string().max(256).optional(),
-			}),
-			body
+	@Implement(v1.me.requestSmsCode)
+	async requestCode(@Session() session?: UserSession) {
+		return implement(v1.me.requestSmsCode).handler(({ input }) =>
+			this.sms.requestCode(requireUserId(session), input.mobile)
 		)
-		const id = userId(session)
-		const current = await this.sms.get(id)
-		let confirmed = false
-		if (input.mfaOtpChannel !== current.mfaOtpChannel) {
-			if (!input.password) throw new BadRequestException("Confirm your password")
-			try {
-				const result = await getAuth().api.verifyPassword({
-					headers: fromNodeHeaders(request.headers),
-					body: { password: input.password },
-				})
-				confirmed = result.status === true
-			} catch {
-				throw new BadRequestException("Could not confirm your password")
+	}
+
+	@RequirePermissions("account.profile:manage")
+	@StrictThrottle()
+	@Implement(v1.me.verifySmsCode)
+	async verifyCode(@Session() session?: UserSession) {
+		return implement(v1.me.verifySmsCode).handler(({ input }) =>
+			this.sms.verifyCode(requireUserId(session), input.code)
+		)
+	}
+
+	@RequirePermissions("account.profile:manage")
+	@StrictThrottle()
+	@Implement(v1.me.updateSmsPreferences)
+	async updatePreferences(@Req() request: Request, @Session() session?: UserSession) {
+		return implement(v1.me.updateSmsPreferences).handler(async ({ input }) => {
+			const userId = requireUserId(session)
+			const current = await this.sms.get(userId)
+			let confirmed = false
+			if (input.mfaOtpChannel !== current.mfaOtpChannel) {
+				if (!input.password) {
+					throw new ORPCError("BAD_REQUEST", { message: "Confirm your password" })
+				}
+				try {
+					const result = await getAuth().api.verifyPassword({
+						headers: fromNodeHeaders(request.headers),
+						body: { password: input.password },
+					})
+					confirmed = result.status === true
+				} catch {
+					throw new ORPCError("BAD_REQUEST", { message: "Your password is incorrect" })
+				}
 			}
-		}
-		return this.sms.updatePreferences(
-			id,
-			{
-				smsNotificationsEnabled: input.smsNotificationsEnabled,
-				mfaOtpChannel: input.mfaOtpChannel,
-			},
-			confirmed
-		)
+			return this.sms.updatePreferences(
+				userId,
+				{
+					smsNotificationsEnabled: input.smsNotificationsEnabled,
+					mfaOtpChannel: input.mfaOtpChannel,
+				},
+				confirmed
+			)
+		})
 	}
 }

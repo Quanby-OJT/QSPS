@@ -1,12 +1,5 @@
-import {
-	BadRequestException,
-	ConflictException,
-	ForbiddenException,
-	HttpException,
-	Injectable,
-	NotFoundException,
-	ServiceUnavailableException,
-} from "@nestjs/common"
+import { Injectable } from "@nestjs/common"
+import { ORPCError } from "@orpc/server"
 import { eq } from "drizzle-orm"
 
 import {
@@ -20,6 +13,7 @@ import {
 	SMS_VERIFY_ATTEMPTS,
 	SmsRateLimitError,
 } from "@repo/auth/sms"
+import type { SmsChannel, SmsSettings } from "@repo/contracts"
 import { mobileVerificationChallenges, users } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
@@ -33,30 +27,48 @@ const fields = {
 	twoFactorEnabled: users.twoFactorEnabled,
 }
 
+/**
+ * Mobile verification and SMS preferences (NTF-2, DOMAIN-MODEL.md `users`,
+ * `mobile_verification_challenges`, `sms_code_limits`). Errors are oRPC
+ * errors, so the client gets the right status and message.
+ */
 @Injectable()
 export class MeSmsService {
 	constructor(private readonly audit: AuditService) {}
 
-	async get(userId: string) {
+	async get(userId: string): Promise<SmsSettings> {
 		const [user] = await db.select(fields).from(users).where(eq(users.id, userId))
-		if (!user) throw new NotFoundException("Account not found")
-		return user
+		if (!user) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
+		return {
+			mobile: user.mobile,
+			mobileVerifiedAt: user.mobileVerifiedAt,
+			smsNotificationsEnabled: user.smsNotificationsEnabled === true,
+			mfaOtpChannel: user.mfaOtpChannel === "sms" ? "sms" : "email",
+			twoFactorEnabled: user.twoFactorEnabled === true,
+		}
 	}
 
-	async requestCode(userId: string, input: string) {
+	async requestCode(userId: string, input: string): Promise<{ ok: true }> {
 		const mobile = normalizeSmsNumber(input)
-		if (!mobile) throw new BadRequestException("Enter a valid mobile number with country code")
+		if (!mobile) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Enter a valid mobile number, like 09171234567 or +639171234567",
+			})
+		}
 		const user = await this.get(userId)
-		if (user.mfaOtpChannel === "sms" && user.mobile !== mobile)
-			throw new ConflictException(
-				"Change sign-in codes to email before changing your mobile number"
-			)
+		if (user.mfaOtpChannel === "sms" && user.mobile !== mobile) {
+			throw new ORPCError("CONFLICT", {
+				message: "Change sign-in codes to email before changing your mobile number",
+			})
+		}
 		const secret = process.env.BETTER_AUTH_SECRET ?? ""
 		try {
 			await reserveSmsCode(db, secret, mobile, userId)
 		} catch (error) {
-			if (error instanceof SmsRateLimitError) throw new HttpException(error.message, 429)
-			throw new ServiceUnavailableException("SMS verification is unavailable")
+			if (error instanceof SmsRateLimitError) {
+				throw new ORPCError("TOO_MANY_REQUESTS", { message: error.message })
+			}
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "SMS verification is unavailable" })
 		}
 		const code = newMobileCode()
 		const expiresAt = new Date(Date.now() + SMS_CODE_TTL_MS)
@@ -72,8 +84,11 @@ export class MeSmsService {
 				.from(users)
 				.where(eq(users.id, userId))
 				.for("update")
-			if (!current || (current.mfaOtpChannel === "sms" && current.mobile !== mobile))
-				throw new ConflictException("Mobile number cannot be changed while SMS sign-in is enabled")
+			if (!current || (current.mfaOtpChannel === "sms" && current.mobile !== mobile)) {
+				throw new ORPCError("CONFLICT", {
+					message: "Mobile number cannot be changed while SMS sign-in is enabled",
+				})
+			}
 			await tx
 				.insert(mobileVerificationChallenges)
 				.values({ userId, ...challenge })
@@ -95,21 +110,21 @@ export class MeSmsService {
 				`Your QSPS mobile verification code is ${code}. Valid for 5 minutes. Do not share it.`
 			)
 		} catch {
-			throw new ServiceUnavailableException(
-				"The SMS code could not be sent. Please try again later."
-			)
+			throw new ORPCError("SERVICE_UNAVAILABLE", {
+				message: "The SMS code could not be sent. Please try again later.",
+			})
 		}
 		return { ok: true }
 	}
 
-	async verifyCode(userId: string, code: string) {
+	async verifyCode(userId: string, code: string): Promise<SmsSettings> {
 		const result = await db.transaction(async tx => {
 			const [current] = await tx
 				.select(fields)
 				.from(users)
 				.where(eq(users.id, userId))
 				.for("update")
-			if (!current) throw new NotFoundException("Account not found")
+			if (!current) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
 			const [challenge] = await tx
 				.select()
 				.from(mobileVerificationChallenges)
@@ -119,8 +134,9 @@ export class MeSmsService {
 				!challenge ||
 				challenge.expiresAt.getTime() <= Date.now() ||
 				challenge.failedAttempts >= SMS_VERIFY_ATTEMPTS
-			)
+			) {
 				return false
+			}
 			if (
 				!matchesMobileCode(
 					challenge.codeDigest,
@@ -159,31 +175,40 @@ export class MeSmsService {
 			)
 			return true
 		})
-		if (!result) throw new BadRequestException("Invalid or expired verification code")
+		if (!result) {
+			throw new ORPCError("BAD_REQUEST", { message: "Invalid or expired verification code" })
+		}
 		return this.get(userId)
 	}
 
 	async updatePreferences(
 		userId: string,
-		input: { smsNotificationsEnabled: boolean; mfaOtpChannel: "email" | "sms" },
+		input: { smsNotificationsEnabled: boolean; mfaOtpChannel: SmsChannel },
 		passwordConfirmed: boolean
-	) {
+	): Promise<SmsSettings> {
 		await db.transaction(async tx => {
 			const [current] = await tx
 				.select(fields)
 				.from(users)
 				.where(eq(users.id, userId))
 				.for("update")
-			if (!current) throw new NotFoundException("Account not found")
-			if (input.mfaOtpChannel !== current.mfaOtpChannel && !passwordConfirmed)
-				throw new ForbiddenException("Confirm your password to change the sign-in code channel")
+			if (!current) throw new ORPCError("NOT_FOUND", { message: "Account not found" })
+			if (input.mfaOtpChannel !== current.mfaOtpChannel && !passwordConfirmed) {
+				throw new ORPCError("FORBIDDEN", {
+					message: "Confirm your password to change where sign-in codes are sent",
+				})
+			}
 			if (
 				(input.smsNotificationsEnabled || input.mfaOtpChannel === "sms") &&
 				(!current.mobileVerifiedAt || !current.mobile || !normalizeSmsNumber(current.mobile))
-			)
-				throw new BadRequestException("Verify your mobile number first")
-			if (input.mfaOtpChannel === "sms" && !current.twoFactorEnabled)
-				throw new BadRequestException("Set up two-factor authentication first")
+			) {
+				throw new ORPCError("BAD_REQUEST", { message: "Verify your mobile number first" })
+			}
+			if (input.mfaOtpChannel === "sms" && !current.twoFactorEnabled) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Set up two-factor authentication first",
+				})
+			}
 			await tx
 				.update(users)
 				.set({ ...input, updatedAt: new Date() })

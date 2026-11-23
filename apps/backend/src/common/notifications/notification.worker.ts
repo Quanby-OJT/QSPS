@@ -12,6 +12,7 @@ import { ReceiptService } from "@/modules/v1/payments/receipts.service"
 
 import { EMAIL_SENDER, type EmailSender } from "./email-sender.token"
 import { renderNotification } from "./notification-templates"
+import { SMS_EVENT_TEXT, type NotificationTemplate } from "./notification.service"
 
 const MAX_ATTEMPTS = 5
 const BATCH_SIZE = 20
@@ -37,10 +38,11 @@ function failureReason(error: unknown): string {
 }
 
 /**
- * The outbox worker (NTF-1). Every minute it sends due emails one at a time:
- * each row is locked with `FOR UPDATE SKIP LOCKED`, so two instances never
- * send the same row. A failed send is retried 1, 2, 4 and 8 minutes later and
- * marked `failed` on the fifth attempt.
+ * The outbox worker (NTF-1, NTF-2). Every minute it sends due emails and SMS
+ * one at a time: each row is locked with `FOR UPDATE SKIP LOCKED`, so two
+ * instances never send the same row. A failed send is retried 1, 2, 4 and 8
+ * minutes later and marked `failed` on the fifth attempt. An SMS whose number
+ * changed or was turned off since it was queued is marked `failed` unsent.
  */
 @Injectable()
 export class NotificationWorker {
@@ -124,12 +126,7 @@ export class NotificationWorker {
 							.where(eq(notifications.id, row.id))
 						return true
 					}
-					const events: Record<string, string> = {
-						booking_confirmed: "Booking confirmed",
-						payment_received: "Payment received",
-						booking_cancelled: "Booking cancelled",
-					}
-					const event = events[row.template]
+					const event = SMS_EVENT_TEXT[row.template as NotificationTemplate]
 					if (!event) throw new Error("Unsupported SMS template")
 					await createSmsSender().send(mobile, `${event}. Reference: ${referenceNumber}`)
 					await tx

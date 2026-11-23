@@ -286,18 +286,29 @@ export type {
 	ExportAuditLogResponse,
 } from "./modules/v1/rbac/rbac.schema.js"
 
-// Current-user access schemas
+// Current-user access, profile and SMS settings schemas (AUTH-1, NTF-2)
 export { meContract } from "./modules/v1/me/me.contract.js"
 export {
 	MePermissionsSchema,
 	ClientProfileSchema,
 	UpdateClientProfileSchema,
 	GENDER_OPTIONS,
+	SmsChannelSchema,
+	SmsSettingsSchema,
+	RequestSmsCodeSchema,
+	VerifySmsCodeSchema,
+	UpdateSmsPreferencesSchema,
+	SmsCodeSentSchema,
 } from "./modules/v1/me/me.schema.js"
 export type {
 	MePermissions,
 	ClientProfile,
 	UpdateClientProfileInput,
+	SmsChannel,
+	SmsSettings,
+	RequestSmsCodeInput,
+	VerifySmsCodeInput,
+	UpdateSmsPreferencesInput,
 } from "./modules/v1/me/me.schema.js"
 
 // Future versions:

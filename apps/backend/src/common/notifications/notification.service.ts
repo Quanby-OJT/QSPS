@@ -17,13 +17,24 @@ export type NotificationTemplate =
 	| "document_ready"
 
 /**
+ * Events that also go out by SMS (NTF-2), with the text sent. The message is
+ * this text plus the Reference Number, and nothing else personal.
+ */
+export const SMS_EVENT_TEXT: Partial<Record<NotificationTemplate, string>> = {
+	booking_confirmed: "Booking confirmed",
+	payment_received: "Payment received",
+	booking_cancelled: "Booking cancelled",
+}
+
+/**
  * The notification outbox (NTF-1, DOMAIN-MODEL.md `notifications`).
  *
  * `enqueue` runs inside the caller's transaction, so a change that rolls back
  * queues nothing. The recipient is the Booking's client (record ownership; no
  * permission key). `dedupe_key` is channel, recipient, template and event id,
  * so enqueuing the same event twice queues one message. Only the outbox worker
- * changes `status`.
+ * changes `status`. NTF-2: an SMS is queued beside the email for the events in
+ * `SMS_EVENT_TEXT` when the client has a verified number and SMS turned on.
  */
 export class NotificationService {
 	static async enqueue(
@@ -71,7 +82,7 @@ export class NotificationService {
 			booking.smsEnabled &&
 			booking.mobileVerifiedAt &&
 			mobile &&
-			["booking_confirmed", "payment_received", "booking_cancelled"].includes(template)
+			SMS_EVENT_TEXT[template] !== undefined
 		) {
 			await tx
 				.insert(notifications)
