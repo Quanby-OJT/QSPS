@@ -3,7 +3,15 @@ import { ORPCError } from "@orpc/server"
 import { asc, eq } from "drizzle-orm"
 
 import type { ReceiptVerification } from "@repo/contracts"
-import { bookingItems, bookings, payments, receipts, services, users } from "@repo/db/schema"
+import {
+	bookingItems,
+	bookings,
+	paymentChannels,
+	payments,
+	receipts,
+	services,
+	users,
+} from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -61,6 +69,7 @@ export class ReceiptService {
 				amountCentavos: payments.amountCentavos,
 				convenienceFeeCentavos: payments.convenienceFeeCentavos,
 				channelCode: payments.channelCode,
+				channelName: paymentChannels.name,
 				paymentStatus: payments.status,
 				bookingId: bookings.id,
 				referenceNumber: bookings.referenceNumber,
@@ -71,6 +80,7 @@ export class ReceiptService {
 			.innerJoin(payments, eq(payments.id, receipts.paymentId))
 			.innerJoin(bookings, eq(bookings.id, payments.bookingId))
 			.innerJoin(users, eq(users.id, bookings.clientId))
+			.leftJoin(paymentChannels, eq(paymentChannels.code, payments.channelCode))
 			.where(eq(receipts.paymentId, paymentId))
 			.limit(1)
 
@@ -104,7 +114,8 @@ export class ReceiptService {
 				referenceNumber: row.referenceNumber,
 				issuedAt: row.issuedAt,
 				clientName: row.clientName,
-				channelCode: row.channelCode,
+				// Payments made before PAY-5 have a channel code with no row; print the code.
+				channelName: row.channelName ?? row.channelCode,
 				items,
 				convenienceFeeCentavos: row.convenienceFeeCentavos,
 				totalCentavos: row.amountCentavos,

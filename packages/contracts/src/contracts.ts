@@ -86,7 +86,7 @@ export type {
 } from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
-export { paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export { paymentChannelsContract, paymentsContract } from "./modules/v1/payments/payments.contract.js"
 export {
 	PAYMENT_STATUSES,
 	PaymentStatusSchema,
@@ -98,6 +98,13 @@ export {
 	ReceiptTokenSchema,
 	ReceiptTokenParamSchema,
 	ReceiptVerificationSchema,
+	MAX_CONVENIENCE_FEE_CENTAVOS,
+	PaymentChannelSchema,
+	PaymentChannelSettingsSchema,
+	UpdatePaymentChannelSchema,
+	CheckoutChannelsParamSchema,
+	CheckoutChannelSchema,
+	CheckoutChannelsSchema,
 } from "./modules/v1/payments/payments.schema.js"
 export type {
 	PaymentStatus,
@@ -105,6 +112,11 @@ export type {
 	PaymentCheckout,
 	PaymentStatusResponse,
 	ReceiptVerification,
+	PaymentChannel,
+	PaymentChannelSettings,
+	UpdatePaymentChannelInput,
+	CheckoutChannel,
+	CheckoutChannels,
 } from "./modules/v1/payments/payments.schema.js"
 
 // Processing contracts + schemas (PRC-1)

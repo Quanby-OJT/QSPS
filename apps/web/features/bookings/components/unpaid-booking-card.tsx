@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import type { Booking } from "@repo/contracts"
@@ -26,10 +26,7 @@ import {
 	BookingFeeLines,
 	feeLinesFromItems,
 } from "@/features/bookings/components/booking-fee-lines"
-import {
-	DEFAULT_PAYMENT_CHANNEL,
-	useCreatePaymentMutation,
-} from "@/features/payments/api/payments.hooks"
+import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
 import { dateLabel, manilaDateKey, manilaTime } from "@/features/schedules/lib/calendar"
 
 function newIdempotencyKey(): string {
@@ -49,36 +46,21 @@ export function UnpaidBookingCard() {
 	const hydrated = useHydrated()
 	const isQueryLoading = useIsQueryLoading()
 	const unpaid = useUnpaidBookingQuery(true)
-	const createPayment = useCreatePaymentMutation()
 	const payOnsite = usePayOnsiteMutation()
 	const cancel = useCancelBookingMutation()
 
 	// One key per attempt each, so a double click sends one request.
-	const [paymentKey, setPaymentKey] = useState(newIdempotencyKey)
 	const [onsiteKey, setOnsiteKey] = useState(newIdempotencyKey)
 	const [cancelKey, setCancelKey] = useState(newIdempotencyKey)
 	const [redirecting, setRedirecting] = useState(false)
+	// PAY-5: "Pay now" opens the channel picker, which shows each fee first.
+	const [choosingChannel, setChoosingChannel] = useState(false)
 
 	if (!hydrated || isQueryLoading(unpaid)) {
 		return <Skeleton className="h-40 w-full rounded-xl" />
 	}
 	if (!unpaid.data) return null
 	const booking = unpaid.data
-
-	async function payNow() {
-		try {
-			const checkout = await createPayment.mutateAsync({
-				bookingId: booking.id,
-				channelCode: DEFAULT_PAYMENT_CHANNEL,
-				idempotencyKey: paymentKey,
-			})
-			setRedirecting(true)
-			window.location.assign(checkout.checkoutUrl)
-		} catch (error) {
-			toast.error(errorMessage(error, "Could not start the payment"))
-			setPaymentKey(newIdempotencyKey())
-		}
-	}
 
 	async function chooseOnsite() {
 		try {
@@ -105,10 +87,15 @@ export function UnpaidBookingCard() {
 	return (
 		<UnpaidBookingDetails
 			booking={booking}
-			paying={createPayment.isPending || redirecting}
+			paying={redirecting}
 			choosingOnsite={payOnsite.isPending}
 			cancelling={cancel.isPending}
-			onPayNow={() => void payNow()}
+			onPayNow={() => setChoosingChannel(true)}
+			checkout={
+				choosingChannel ? (
+					<PaymentCheckout bookingId={booking.id} onRedirect={() => setRedirecting(true)} />
+				) : null
+			}
 			onPayOnsite={() => void chooseOnsite()}
 			onCancel={() => void cancelBooking()}
 		/>
@@ -123,6 +110,8 @@ interface UnpaidBookingDetailsProps {
 	onPayNow: () => void
 	onPayOnsite: () => void
 	onCancel: () => void
+	/** The channel picker, once the client chose to pay online (PAY-5). */
+	checkout?: ReactNode
 }
 
 /** What the card shows, without the requests (tested on its own). */
@@ -134,6 +123,7 @@ export function UnpaidBookingDetails({
 	onPayNow,
 	onPayOnsite,
 	onCancel,
+	checkout,
 }: UnpaidBookingDetailsProps) {
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
 	const busy = paying || choosingOnsite || cancelling
@@ -175,6 +165,8 @@ export function UnpaidBookingDetails({
 					</p>
 				) : null}
 
+				{checkout}
+
 				{confirmingCancel ? (
 					<div className="flex flex-wrap items-center gap-2">
 						<p className="text-sm font-medium">Cancel this booking and give up the slot?</p>
@@ -192,9 +184,12 @@ export function UnpaidBookingDetails({
 					</div>
 				) : (
 					<div className="flex flex-wrap gap-2">
-						<Button type="button" onClick={onPayNow} disabled={busy}>
-							{paying ? "Opening checkout…" : "Pay now"}
-						</Button>
+						{/* Once the channel picker is open, its own button pays (PAY-5). */}
+						{checkout ? null : (
+							<Button type="button" onClick={onPayNow} disabled={busy}>
+								{paying ? "Opening checkout…" : "Pay now"}
+							</Button>
+						)}
 						{booking.payOnsite ? null : (
 							<Button type="button" variant="outline" onClick={onPayOnsite} disabled={busy}>
 								{choosingOnsite ? "Saving…" : "Pay at the office"}

@@ -8,6 +8,7 @@ import { RequirePermissions } from "@/shared/decorators/require-permissions.deco
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interceptor"
 
+import { PaymentChannelService } from "./payment-channels.service"
 import { PaymentService } from "./payments.service"
 import { ReceiptService } from "./receipts.service"
 
@@ -19,7 +20,8 @@ function actorId(session?: UserSession): string | null {
 export class PaymentsController {
 	constructor(
 		private readonly paymentService: PaymentService,
-		private readonly receiptService: ReceiptService
+		private readonly receiptService: ReceiptService,
+		private readonly channelService: PaymentChannelService
 	) {}
 
 	// Idempotent: a double click or a retried request with the same
@@ -53,6 +55,16 @@ export class PaymentsController {
 	async verifyReceipt() {
 		return implement(v1.payments.verifyReceipt).handler(({ input }) =>
 			this.receiptService.verify(input.token)
+		)
+	}
+
+	// The client picks a channel at checkout and sees its fee first (PAY-5).
+	// Same key as paying; ownership of the booking is checked in the service.
+	@RequirePermissions("payments.own:create")
+	@Implement(v1.payments.checkoutChannels)
+	async checkoutChannels(@Session() session?: UserSession) {
+		return implement(v1.payments.checkoutChannels).handler(({ input }) =>
+			this.channelService.checkoutChannels(input.bookingId, actorId(session))
 		)
 	}
 }

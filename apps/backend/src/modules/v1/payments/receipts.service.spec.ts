@@ -37,6 +37,7 @@ function queueSelects(...results: unknown[][]) {
 		const chain: Record<string, unknown> = {
 			from: () => chain,
 			innerJoin: () => chain,
+			leftJoin: () => chain,
 			where: () => chain,
 			orderBy: () => Promise.resolve(rows),
 			limit: () => Promise.resolve(rows),
@@ -52,7 +53,8 @@ const receiptRow = {
 	issuedAt: new Date("2026-11-18T01:30:00.000Z"),
 	amountCentavos: 150000,
 	convenienceFeeCentavos: 0,
-	channelCode: "fake",
+	channelCode: "gcash",
+	channelName: "GCash",
 	paymentStatus: "succeeded",
 	bookingId: 31,
 	referenceNumber: "QSPS-261117-AB12CD",
@@ -96,7 +98,7 @@ describe("ReceiptService", () => {
 					receiptNumber: "QSPS-R-261118-000090",
 					referenceNumber: "QSPS-261117-AB12CD",
 					clientName: "Alex Johnson",
-					channelCode: "fake",
+					channelName: "GCash",
 					items: [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }],
 					convenienceFeeCentavos: 0,
 					totalCentavos: 150000,
@@ -129,6 +131,14 @@ describe("ReceiptService", () => {
 			expect(audit.record).toHaveBeenCalledWith(
 				expect.objectContaining({ outcome: "denied", reason: "not_found" })
 			)
+		})
+
+		it("prints the channel code when the channel has no row", async () => {
+			queueSelects([{ ...receiptRow, channelCode: "fake", channelName: null }], [])
+
+			await service.renderForOwner(90, "client-1")
+
+			expect(drawReceipt).toHaveBeenCalledWith({}, expect.objectContaining({ channelName: "fake" }))
 		})
 
 		it("shows a refunded payment's receipt as refunded", async () => {

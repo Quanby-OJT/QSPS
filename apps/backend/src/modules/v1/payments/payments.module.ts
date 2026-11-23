@@ -3,6 +3,8 @@ import { Module } from "@nestjs/common"
 import { PdfModule } from "@/common/pdf/pdf.module"
 
 import { BookingsModule } from "../bookings/bookings.module"
+import { PaymentChannelsController } from "./payment-channels.controller"
+import { PaymentChannelService } from "./payment-channels.service"
 import { PaymentNotificationsController } from "./payment-notifications.controller"
 import { PaymentsController } from "./payments.controller"
 import { PaymentService } from "./payments.service"
@@ -13,9 +15,15 @@ import { ReceiptService } from "./receipts.service"
 
 @Module({
 	imports: [BookingsModule, PdfModule],
-	controllers: [PaymentsController, PaymentNotificationsController, ReceiptsController],
+	controllers: [
+		PaymentsController,
+		PaymentNotificationsController,
+		ReceiptsController,
+		PaymentChannelsController,
+	],
 	providers: [
 		PaymentService,
+		PaymentChannelService,
 		ReceiptService,
 		PaymentProviderRegistry,
 		{ provide: PAYMENT_PROVIDERS, useFactory: buildPaymentProviders },

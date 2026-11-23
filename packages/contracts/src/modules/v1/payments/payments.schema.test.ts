@@ -7,6 +7,7 @@ import {
 	PaymentStatusResponseSchema,
 	ReceiptTokenSchema,
 	ReceiptVerificationSchema,
+	UpdatePaymentChannelSchema,
 } from "./payments.schema.js"
 
 describe("payment schemas", () => {
@@ -59,5 +60,45 @@ describe("payment schemas", () => {
 			status: "valid",
 		})
 		expect(verified.issuedAt).toEqual(new Date("2026-11-18T01:00:00.000Z"))
+	})
+
+	describe("payment channel settings", () => {
+		const gcash = {
+			code: "gcash",
+			name: "GCash",
+			providerCode: "fake",
+			convenienceFeeCentavos: 1500,
+			convenienceFeeBps: 250,
+			isEnabled: true,
+		}
+
+		it("accepts a fixed fee, a percentage, or both", () => {
+			expect(UpdatePaymentChannelSchema.safeParse(gcash).success).toBe(true)
+			expect(
+				UpdatePaymentChannelSchema.safeParse({ ...gcash, convenienceFeeBps: 0 }).success
+			).toBe(true)
+			expect(
+				UpdatePaymentChannelSchema.safeParse({ ...gcash, convenienceFeeCentavos: 0 }).success
+			).toBe(true)
+		})
+
+		it("refuses to enable a channel with no provider", () => {
+			const result = UpdatePaymentChannelSchema.safeParse({ ...gcash, providerCode: null })
+			expect(result.success).toBe(false)
+			expect(
+				UpdatePaymentChannelSchema.safeParse({ ...gcash, providerCode: null, isEnabled: false })
+					.success
+			).toBe(true)
+		})
+
+		it("keeps fees in range", () => {
+			expect(
+				UpdatePaymentChannelSchema.safeParse({ ...gcash, convenienceFeeBps: 10_001 }).success
+			).toBe(false)
+			expect(
+				UpdatePaymentChannelSchema.safeParse({ ...gcash, convenienceFeeCentavos: -1 }).success
+			).toBe(false)
+			expect(UpdatePaymentChannelSchema.safeParse({ ...gcash, name: "  " }).success).toBe(false)
+		})
 	})
 })
