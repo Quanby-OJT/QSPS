@@ -37,6 +37,10 @@
 			"types": "./dist/auth-policies.d.ts",
 			"default": "./dist/auth-policies.js"
 		},
+		"./sms": {
+			"types": "./dist/sms.d.ts",
+			"default": "./dist/sms.js"
+		},
 		"./captcha": {
 			"types": "./dist/captcha.d.ts",
 			"default": "./dist/captcha.js"

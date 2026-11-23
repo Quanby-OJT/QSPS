@@ -18,11 +18,24 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/core/components/ui/select"
+import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { useAvailableLocationsQuery } from "@/features/locations/api/locations.hooks"
 
+/**
+ * The client's location picker on the dashboard.
+ *
+ * Hydration-safe: the server and the client's first render both show the
+ * loading line, even when the client already holds a restored copy of the
+ * locations. The list appears after hydration, so the two renders agree.
+ */
 export function ClientLocationPicker() {
 	const locations = useAvailableLocationsQuery()
+	const isQueryLoading = useIsQueryLoading()
+	const hydrated = useHydrated()
 	const [selectedCode, setSelectedCode] = useState("")
+
+	const loading = !hydrated || isQueryLoading(locations)
 	const selectedLocation = locations.data?.find(location => location.code === selectedCode)
 
 	return (
@@ -32,7 +45,7 @@ export function ClientLocationPicker() {
 				<CardDescription>Select an active office for the services you need.</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
-				{locations.isPending ? (
+				{loading || (!locations.isError && !locations.data) ? (
 					<p className="text-muted-foreground text-sm" role="status">
 						Loading locations…
 					</p>

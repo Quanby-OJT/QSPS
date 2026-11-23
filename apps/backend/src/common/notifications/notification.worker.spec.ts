@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common"
+import { createSmsSender, smsDestinationKey } from "@repo/auth/sms"
 
 import { db } from "@/common/database/database.client"
 import type { PdfService } from "@/common/pdf/pdf.service"
@@ -10,6 +11,10 @@ import { NotificationWorker } from "./notification.worker"
 jest.mock("@/common/database/database.client", () => ({ db: { transaction: jest.fn() } }))
 jest.mock("@/modules/v1/payments/receipts.service", () => ({ ReceiptService: jest.fn() }))
 jest.mock("@/common/pdf/pdf.service", () => ({ PdfService: jest.fn() }))
+jest.mock("@repo/auth/sms", () => ({
+	...jest.requireActual("@repo/auth/sms"),
+	createSmsSender: jest.fn(),
+}))
 
 describe("NotificationWorker", () => {
 	const now = new Date("2026-11-23T00:00:00Z")
@@ -30,7 +35,10 @@ describe("NotificationWorker", () => {
 	}
 	let warn: jest.SpyInstance
 
-	function transaction(rows: unknown[]) {
+	function transaction(
+		rows: unknown[],
+		recipient: Record<string, unknown> = { email: "client@example.test" }
+	) {
 		const lock = jest.fn().mockResolvedValue(rows)
 		const set = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([]) })
 		const select = jest
@@ -39,7 +47,7 @@ describe("NotificationWorker", () => {
 				from: () => ({ where: () => ({ orderBy: () => ({ limit: () => ({ for: lock }) }) }) }),
 			})
 			.mockReturnValueOnce({
-				from: () => ({ where: () => Promise.resolve([{ email: "client@example.test" }]) }),
+				from: () => ({ where: () => Promise.resolve([recipient]) }),
 			})
 		const tx = { select, update: () => ({ set }) }
 		;(db.transaction as jest.Mock).mockImplementation(async callback => callback(tx))
@@ -108,6 +116,72 @@ describe("NotificationWorker", () => {
 		send.mockRejectedValue(new Error("SMTP unavailable"))
 		await expect(worker.processOne(now)).resolves.toBe(true)
 		expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", attempts: 5 }))
+	})
+
+	it("delivers an SMS to the verified, still opted-in destination without a PDF or other personal data", async () => {
+		const mobile = "+639123456789"
+		const sender = jest.fn().mockResolvedValue(undefined)
+		;(createSmsSender as jest.Mock).mockReturnValue({ send: sender })
+		const { set } = transaction(
+			[
+				{
+					...row,
+					channel: "sms",
+					payload: {
+						referenceNumber: "QSPS-261123-ABC123",
+						destinationKey: smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", mobile),
+					},
+				},
+			],
+			{ mobile, mobileVerifiedAt: now, smsEnabled: true }
+		)
+		await expect(worker.processOne(now)).resolves.toBe(true)
+		expect(sender).toHaveBeenCalledWith(mobile, "Payment received. Reference: QSPS-261123-ABC123")
+		expect(send).not.toHaveBeenCalled()
+		expect(renderForOwner).not.toHaveBeenCalled()
+		expect(set).toHaveBeenCalledWith({ status: "sent", attempts: 1 })
+	})
+
+	it("retries a failed SMS and marks the fifth failure terminal", async () => {
+		const mobile = "+639123456789"
+		const sender = jest.fn().mockRejectedValue(new Error("Provider unavailable"))
+		;(createSmsSender as jest.Mock).mockReturnValue({ send: sender })
+		const sms = {
+			...row,
+			channel: "sms",
+			payload: {
+				referenceNumber: "QSPS-261123-ABC123",
+				destinationKey: smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", mobile),
+			},
+		}
+		const recipient = { mobile, mobileVerifiedAt: now, smsEnabled: true }
+		let { set } = transaction([sms], recipient)
+		await worker.processOne(now)
+		expect(set).toHaveBeenCalledWith({
+			status: "queued",
+			attempts: 1,
+			nextAttemptAt: new Date(now.getTime() + 60_000),
+		})
+		;({ set } = transaction([{ ...sms, attempts: 4 }], recipient))
+		await worker.processOne(now)
+		expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", attempts: 5 }))
+	})
+
+	it("does not send a queued SMS after opt-out or number change", async () => {
+		const original = "+639123456789"
+		const recipient = { mobile: "+639123456780", mobileVerifiedAt: now, smsEnabled: true }
+		const sms = {
+			...row,
+			channel: "sms",
+			payload: {
+				referenceNumber: "QSPS-261123-ABC123",
+				destinationKey: smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", original),
+			},
+		}
+		const { set } = transaction([sms], recipient)
+		await worker.processOne(now)
+		expect(createSmsSender).not.toHaveBeenCalled()
+		expect(set).toHaveBeenCalledWith({ status: "failed", attempts: 1 })
 	})
 
 	it("does not send email when no due row is available", async () => {

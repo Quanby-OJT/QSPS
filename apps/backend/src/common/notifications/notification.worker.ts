@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common"
 import { Cron, CronExpression } from "@nestjs/schedule"
-import { and, asc, eq, lte } from "drizzle-orm"
+import { and, asc, eq, inArray, lte } from "drizzle-orm"
 
 import type { MailMessage } from "@repo/auth"
+import { createSmsSender, normalizeSmsNumber, smsDestinationKey } from "@repo/auth/sms"
 import { notifications, users } from "@repo/db/schema"
 
 import { db } from "@/common/database/database.client"
@@ -11,6 +12,7 @@ import { ReceiptService } from "@/modules/v1/payments/receipts.service"
 
 import { EMAIL_SENDER, type EmailSender } from "./email-sender.token"
 import { renderNotification } from "./notification-templates"
+import { SMS_EVENT_TEXT, type NotificationTemplate } from "./notification.service"
 
 const MAX_ATTEMPTS = 5
 const BATCH_SIZE = 20
@@ -36,10 +38,11 @@ function failureReason(error: unknown): string {
 }
 
 /**
- * The outbox worker (NTF-1). Every minute it sends due emails one at a time:
- * each row is locked with `FOR UPDATE SKIP LOCKED`, so two instances never
- * send the same row. A failed send is retried 1, 2, 4 and 8 minutes later and
- * marked `failed` on the fifth attempt.
+ * The outbox worker (NTF-1, NTF-2). Every minute it sends due emails and SMS
+ * one at a time: each row is locked with `FOR UPDATE SKIP LOCKED`, so two
+ * instances never send the same row. A failed send is retried 1, 2, 4 and 8
+ * minutes later and marked `failed` on the fifth attempt. An SMS whose number
+ * changed or was turned off since it was queued is marked `failed` unsent.
  */
 @Injectable()
 export class NotificationWorker {
@@ -74,7 +77,7 @@ export class NotificationWorker {
 				.from(notifications)
 				.where(
 					and(
-						eq(notifications.channel, "email"),
+						inArray(notifications.channel, ["email", "sms"]),
 						eq(notifications.status, "queued"),
 						lte(notifications.nextAttemptAt, now)
 					)
@@ -89,7 +92,12 @@ export class NotificationWorker {
 
 			try {
 				const [user] = await tx
-					.select({ email: users.email })
+					.select({
+						email: users.email,
+						mobile: users.mobile,
+						mobileVerifiedAt: users.mobileVerifiedAt,
+						smsEnabled: users.smsNotificationsEnabled,
+					})
 					.from(users)
 					.where(eq(users.id, row.userId))
 
@@ -101,6 +109,31 @@ export class NotificationWorker {
 
 				if (typeof referenceNumber !== "string") {
 					throw new Error("Missing booking reference")
+				}
+
+				if (row.channel === "sms") {
+					const mobile = user.mobile ? normalizeSmsNumber(user.mobile) : null
+					if (
+						!mobile ||
+						!user.mobileVerifiedAt ||
+						!user.smsEnabled ||
+						row.payload.destinationKey !==
+							smsDestinationKey(process.env.BETTER_AUTH_SECRET ?? "", mobile)
+					) {
+						await tx
+							.update(notifications)
+							.set({ status: "failed", attempts })
+							.where(eq(notifications.id, row.id))
+						return true
+					}
+					const event = SMS_EVENT_TEXT[row.template as NotificationTemplate]
+					if (!event) throw new Error("Unsupported SMS template")
+					await createSmsSender().send(mobile, `${event}. Reference: ${referenceNumber}`)
+					await tx
+						.update(notifications)
+						.set({ status: "sent", attempts })
+						.where(eq(notifications.id, row.id))
+					return true
 				}
 
 				const message: MailMessage = {
