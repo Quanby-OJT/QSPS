@@ -23,6 +23,7 @@ interface FieldProps {
 	value: FormAnswerValue | undefined
 	error: string | undefined
 	onChange: (value: FormAnswerValue) => void
+	uploadPath?: string
 }
 
 function RequiredMark({ required }: { required: boolean }) {
@@ -59,7 +60,8 @@ function textOf(value: FormAnswerValue | undefined): string {
  * FRM-2: one Service's questionnaire, rendered from its field schema in
  * order. Required questions are marked, and each question shows its own
  * error. File questions upload as soon as a file is chosen; the answer then
- * holds the stored file's key.
+ * holds the stored file's key. `uploadPath` sends files to another upload
+ * route, such as the walk-in one when staff answer for a client (PRC-2).
  */
 export function QuestionnaireFields({
 	form,
@@ -67,12 +69,14 @@ export function QuestionnaireFields({
 	errors,
 	onChange,
 	idPrefix,
+	uploadPath,
 }: {
 	form: BookingForm
 	values: Values
 	errors: Readonly<Record<string, string>>
 	onChange: (fieldId: string, value: FormAnswerValue) => void
 	idPrefix: string
+	uploadPath?: string
 }) {
 	return (
 		<div className="flex flex-col gap-5">
@@ -86,6 +90,7 @@ export function QuestionnaireFields({
 						value={values[key]}
 						error={errors[key]}
 						onChange={value => onChange(key, value)}
+						uploadPath={uploadPath}
 					/>
 				)
 			})}
@@ -94,7 +99,7 @@ export function QuestionnaireFields({
 }
 
 function QuestionField(props: FieldProps) {
-	const { field, id, value, error, onChange } = props
+	const { field, id, value, error, onChange, uploadPath } = props
 	const describedBy = error ? `${id}-error` : undefined
 
 	if (
@@ -118,6 +123,7 @@ function QuestionField(props: FieldProps) {
 					invalid={Boolean(error)}
 					describedBy={describedBy}
 					onChange={onChange}
+					uploadPath={uploadPath}
 				/>
 				<FieldError id={id} error={error} />
 			</div>
@@ -211,14 +217,16 @@ function FileAnswer({
 	invalid,
 	describedBy,
 	onChange,
+	uploadPath,
 }: {
 	id: string
 	value: FormAnswerValue | undefined
 	invalid: boolean
 	describedBy: string | undefined
 	onChange: (value: FormAnswerValue) => void
+	uploadPath?: string
 }) {
-	const upload = useUploadFormFileMutation()
+	const upload = useUploadFormFileMutation(uploadPath)
 	const [fileName, setFileName] = useState<string | null>(null)
 	const [problem, setProblem] = useState<string | null>(null)
 	const attached = typeof value === "string" && value.length > 0

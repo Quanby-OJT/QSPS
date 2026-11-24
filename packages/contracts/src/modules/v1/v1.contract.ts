@@ -1,6 +1,7 @@
 import { oc } from "@orpc/contract"
 
 import { bookingsContract } from "./bookings/bookings.contract.js"
+import { walkInContract } from "./bookings/walk-in.contract.js"
 import { certificatesContract } from "./certificates/certificates.contract.js"
 import { formsContract } from "./forms/forms.contract.js"
 import { healthContract } from "./health/health.contract.js"
@@ -40,6 +41,8 @@ export const v1Contract = oc.prefix("/v1").router(
 		schedules: schedulesContract,
 		services: servicesContract,
 		support: supportContract,
+		// PRC-2: walk-in clients booked by a Processing Officer.
+		walkIn: walkInContract,
 	})
 )
 

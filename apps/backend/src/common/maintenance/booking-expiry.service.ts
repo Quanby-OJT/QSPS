@@ -31,7 +31,7 @@ export interface BookingExpiryResult {
  *
  * Every minute, in one transaction, it picks `pending_payment` Bookings whose
  * hold has passed (online only) or whose earliest slot starts within
- * `booking.arrival_cutoff_minutes`, skipping any with a Payment still in
+ * `booking.arrival_cutoff_minutes` (never a walk-in, PRC-2), skipping any with a Payment still in
  * flight. The rows are taken `FOR UPDATE SKIP LOCKED`, so a second run at the
  * same time (another instance, or an overlapping tick) skips them instead of
  * cancelling them again. Each Booking is cancelled through
@@ -80,7 +80,9 @@ export class BookingExpiryService {
 		)
 
 		const holdExpiredSql = sql<boolean>`(${bookings.payOnsite} = false and ${bookings.holdExpiresAt} is not null and ${bookings.holdExpiresAt} <= ${nowIso})`
-		const pastArrivalCutoffSql = sql<boolean>`exists (select 1 from ${bookingItems} inner join ${scheduleSlots} on ${scheduleSlots.id} = ${bookingItems.scheduleSlotId} where ${bookingItems.bookingId} = ${bookings.id} and ${scheduleSlots.startsAt} <= ${cutoffIso})`
+		// PRC-2: a walk-in is booked at the counter, often into a slot already in
+		// progress, so the arrival cutoff never applies to it; its payment hold does.
+		const pastArrivalCutoffSql = sql<boolean>`(${bookings.kind} <> 'walk-in' and exists (select 1 from ${bookingItems} inner join ${scheduleSlots} on ${scheduleSlots.id} = ${bookingItems.scheduleSlotId} where ${bookingItems.bookingId} = ${bookings.id} and ${scheduleSlots.startsAt} <= ${cutoffIso}))`
 		const paymentInFlight = sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${bookings.id} and ${payments.status} in (${inFlightStatuses}) and ${payments.createdAt} > ${inFlightSinceIso})`
 
 		return db.transaction(async tx => {

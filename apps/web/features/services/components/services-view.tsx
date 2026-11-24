@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { Add01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
@@ -9,7 +10,7 @@ import { SERVICE_DOCUMENT_TYPES, type CreateServiceInput, type Service } from "@
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
-import { Button } from "@/core/components/ui/button"
+import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
 	Dialog,
 	DialogContent,
@@ -257,6 +258,13 @@ export function ServicesView() {
 											<Button variant="outline" size="sm" onClick={() => startEdit(service)}>
 												Edit
 											</Button>
+											{/* PRC-4: the stations this service's bookings pass through. */}
+											<Link
+												href={`/services/${service.id}/steps`}
+												className={buttonVariants({ variant: "outline", size: "sm" })}
+											>
+												Steps
+											</Link>
 											<Button
 												variant={service.isActive ? "secondary" : "outline"}
 												size="sm"

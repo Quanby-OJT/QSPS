@@ -117,6 +117,11 @@ describe("navItems", () => {
 					requiredPermission: "processing.queue:read",
 				}),
 				expect.objectContaining({
+					label: "Walk-in",
+					href: "/processing/walk-in",
+					requiredPermission: "bookings.walk-in:create",
+				}),
+				expect.objectContaining({
 					label: "Approvals",
 					href: "/processing/approvals",
 					requiredPermission: "processing.assessments:approve",
@@ -205,6 +210,14 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Processing"])
 
+		// PRC-2: the Processing Officer encodes walk-ins.
+		expect(
+			getAccessibleNavItems({
+				roles: [],
+				permissions: ["processing.queue:read", "bookings.walk-in:create"],
+			}).map(item => item.label)
+		).toEqual(["Dashboard", "Processing", "Walk-in"])
+
 		// PRC-3: Approvals needs processing.assessments:approve (Module Admin), not the officer keys.
 		expect(
 			getAccessibleNavItems({
@@ -265,6 +278,7 @@ describe("navItems", () => {
 			"Book an appointment",
 			"My documents",
 			"Processing",
+			"Walk-in",
 			"Approvals",
 			"Cashier",
 			"User Management",
@@ -297,6 +311,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
+		expect(getDashboardRouteTitle("/processing/walk-in")).toBe("Walk-in")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
 	})
