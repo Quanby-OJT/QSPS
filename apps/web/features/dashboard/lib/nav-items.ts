@@ -39,6 +39,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "bookings.own:create",
 	},
 	{
+		label: "My transactions",
+		href: "/transactions",
+		icon: File01Icon,
+		requiredPermission: "bookings.own:read",
+	},
+	{
 		label: "My documents",
 		href: "/documents",
 		icon: File01Icon,

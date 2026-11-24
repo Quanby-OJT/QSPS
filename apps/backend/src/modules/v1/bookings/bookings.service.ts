@@ -1,22 +1,32 @@
 import { Inject, Injectable, Optional } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm"
 
 import type {
 	Booking,
+	BookingDetail,
+	BookingIssuedDocument,
+	BookingItem,
 	BookingItemStatus,
+	BookingPaymentDetail,
+	BookingReceiptDetail,
 	BookingStatus,
+	BookingSummary,
 	CreateBookingInput,
 	FormSubmission,
+	MyBookingsResponse,
 	UpdateBookingItemFormInput,
 } from "@repo/contracts"
 import {
 	bookingItems,
 	bookings,
+	documents,
 	formSubmissions,
 	locations,
+	paymentChannels,
 	payments,
 	policyAcceptances,
+	receipts,
 	scheduleSlots,
 	services,
 	users,
@@ -40,7 +50,7 @@ import {
 	type BookingCancelReason,
 } from "./booking-expiry"
 import { canOverrideItem, canTransitionItem, isTerminalItem } from "./booking-item-state"
-import { canTransition, initialStatus } from "./booking-state"
+import { canTransition, initialStatus, toClientBookingStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
 const AUDIT_DOMAIN_BOOKINGS = "bookings"
@@ -57,6 +67,8 @@ export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /** The database, or a transaction: anything that can run a select. */
 type Reader = typeof db | Transaction
+
+type BookingItemsById = Map<number, BookingItem[]>
 
 /** One Service in a checkout, with the rows it was checked against (BKG-3). */
 interface CheckoutLine {
@@ -79,7 +91,7 @@ export type CheckInResult =
  * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
  * (DOMAIN-MODEL.md section 6). BKG-2 adds cancelling: by the client, and by
  * the expiry job in `common/maintenance/`. BKG-3 books several Services in
- * one checkout.
+ * one checkout. BKG-4 adds My Transactions and Booking details.
  */
 @Injectable()
 export class BookingService {
@@ -90,6 +102,76 @@ export class BookingService {
 		// BookingsModule always provides it through FormsModule.
 		@Optional() @Inject(FORM_SUBMISSIONS) private readonly formSubmissions?: FormSubmissionPreparer
 	) {}
+
+	/**
+	 * BKG-4: list all bookings owned by the signed-in client, newest first.
+	 * Enforces `clientId = actorId` at the database layer.
+	 */
+	async listOwn(actorId: string | null): Promise<MyBookingsResponse> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your transactions" })
+		}
+
+		const rows = await db
+			.select()
+			.from(bookings)
+			.where(eq(bookings.clientId, actorId))
+			.orderBy(desc(bookings.createdAt), desc(bookings.id))
+
+		if (rows.length === 0) return { bookings: [] }
+
+		const itemsByBooking = await this.loadItemsForBookings(
+			db,
+			rows.map(row => row.id)
+		)
+
+		const summaries: BookingSummary[] = rows.map(row => ({
+			id: row.id,
+			referenceNumber: row.referenceNumber,
+			status: row.status,
+			clientStatus: toClientBookingStatus(row.status),
+			totalCentavos: row.totalCentavos,
+			payOnsite: row.payOnsite,
+			holdExpiresAt: row.holdExpiresAt,
+			createdAt: row.createdAt,
+			items: itemsByBooking.get(row.id) ?? [],
+		}))
+
+		return { bookings: summaries }
+	}
+
+	/**
+	 * BKG-4: read one booking owned by the signed-in client, including each
+	 * item's processing status, payment details, e-Receipt, and issued
+	 * Documents. Someone else's Booking answers like a missing one (`404
+	 * NOT_FOUND`) and the attempt is audited as denied.
+	 */
+	async getOwn(bookingId: number, actorId: string | null): Promise<BookingDetail> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your booking" })
+		}
+
+		const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1)
+
+		if (!row || row.clientId !== actorId) {
+			await this.recordDenial(actorId, "booking.read", bookingId, row ? "not_owner" : "not_found")
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+
+		const booking = await this.loadBooking(db, row.id)
+		const payment = await this.loadLatestPayment(db, booking.id)
+		const receipt = payment ? await this.loadReceiptForPayment(db, payment.id) : null
+		const issuedDocuments = await this.loadDocumentsForItems(db, booking.items)
+
+		return {
+			...booking,
+			clientStatus: toClientBookingStatus(booking.status),
+			// payments has no paid-at column: the e-Receipt is issued when the payment succeeds.
+			payment: payment && receipt ? { ...payment, paidAt: receipt.issuedAt } : payment,
+			receipt,
+			documents: issuedDocuments,
+		}
+	}
 
 	/**
 	 * Book one or more Services in one checkout (Flow B, steps 1 to 3; BKG-1,
@@ -261,6 +343,8 @@ export class BookingService {
 					totalCentavos,
 					holdExpiresAt,
 					createdBy: actorId,
+					// Set here, in UTC, rather than by the database clock (DOMAIN-MODEL.md: timestamps are UTC).
+					createdAt: now,
 				})
 				.returning()
 			if (!booking) {
@@ -524,6 +608,7 @@ export class BookingService {
 		}
 		return outcome.submission
 	}
+
 	/**
 	 * Mark a Booking paid (Flow C step 5, PAY-1).
 	 *
@@ -1086,6 +1171,157 @@ export class BookingService {
 			)
 			.limit(1)
 		return Boolean(inFlight)
+	}
+
+	private async loadItemsForBookings(
+		reader: Reader,
+		bookingIds: number[]
+	): Promise<BookingItemsById> {
+		const rows = await reader
+			.select({
+				id: bookingItems.id,
+				bookingId: bookingItems.bookingId,
+				serviceId: bookingItems.serviceId,
+				serviceName: services.name,
+				locationId: bookingItems.locationId,
+				locationName: locations.name,
+				scheduleSlotId: bookingItems.scheduleSlotId,
+				startsAt: scheduleSlots.startsAt,
+				endsAt: scheduleSlots.endsAt,
+				feeCentavos: bookingItems.feeCentavos,
+				status: bookingItems.status,
+			})
+			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
+			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
+			.where(inArray(bookingItems.bookingId, bookingIds))
+			.orderBy(asc(bookingItems.id))
+
+		const map: BookingItemsById = new Map()
+		for (const item of rows) {
+			const list = map.get(item.bookingId) ?? []
+			list.push({
+				id: item.id,
+				serviceId: item.serviceId,
+				serviceName: item.serviceName,
+				locationId: item.locationId,
+				locationName: item.locationName,
+				scheduleSlotId: item.scheduleSlotId,
+				startsAt: item.startsAt,
+				endsAt: item.endsAt,
+				feeCentavos: item.feeCentavos,
+				status: item.status,
+			})
+			map.set(item.bookingId, list)
+		}
+		return map
+	}
+
+	private async loadLatestPayment(
+		reader: Reader,
+		bookingId: number
+	): Promise<BookingPaymentDetail | null> {
+		// The succeeded payment when there is one, otherwise the latest attempt.
+		const [row] = await reader
+			.select({
+				id: payments.id,
+				amountCentavos: payments.amountCentavos,
+				convenienceFeeCentavos: payments.convenienceFeeCentavos,
+				providerCode: payments.providerCode,
+				channelCode: payments.channelCode,
+				channelName: paymentChannels.name,
+				status: payments.status,
+				createdAt: payments.createdAt,
+			})
+			.from(payments)
+			.leftJoin(paymentChannels, eq(paymentChannels.code, payments.channelCode))
+			.where(eq(payments.bookingId, bookingId))
+			.orderBy(
+				sql`(${payments.status} = 'succeeded') desc`,
+				desc(payments.createdAt),
+				desc(payments.id)
+			)
+			.limit(1)
+
+		if (!row) return null
+		return {
+			id: row.id,
+			amountCentavos: row.amountCentavos,
+			convenienceFeeCentavos: row.convenienceFeeCentavos,
+			providerCode: row.providerCode,
+			channelCode: row.channelCode,
+			channelName:
+				row.providerCode === "onsite" ? "BOQ cashier" : (row.channelName ?? row.channelCode),
+			status: row.status,
+			paidAt: null,
+			createdAt: row.createdAt,
+		}
+	}
+
+	private async loadReceiptForPayment(
+		reader: Reader,
+		paymentId: number
+	): Promise<BookingReceiptDetail | null> {
+		const [row] = await reader
+			.select({
+				id: receipts.id,
+				paymentId: receipts.paymentId,
+				receiptNumber: receipts.receiptNumber,
+				verificationToken: receipts.verificationToken,
+				issuedAt: receipts.issuedAt,
+			})
+			.from(receipts)
+			.where(eq(receipts.paymentId, paymentId))
+			.limit(1)
+
+		if (!row) return null
+		return {
+			id: row.id,
+			paymentId: row.paymentId,
+			receiptNumber: row.receiptNumber,
+			verificationToken: row.verificationToken,
+			issuedAt: row.issuedAt,
+		}
+	}
+
+	private async loadDocumentsForItems(
+		reader: Reader,
+		items: readonly BookingItem[]
+	): Promise<BookingIssuedDocument[]> {
+		if (items.length === 0) return []
+		const serviceByItemId = new Map(items.map(item => [item.id, item.serviceName]))
+		const itemIds = items.map(item => item.id)
+
+		const rows = await reader
+			.select({
+				id: documents.id,
+				bookingItemId: documents.bookingItemId,
+				documentType: documents.documentType,
+				documentNumber: documents.documentNumber,
+				status: documents.status,
+				issuedAt: documents.issuedAt,
+				validUntil: documents.validUntil,
+			})
+			.from(documents)
+			.where(inArray(documents.bookingItemId, itemIds))
+			.orderBy(desc(documents.issuedAt), desc(documents.id))
+
+		return rows.flatMap(row => {
+			if (row.bookingItemId === null) return []
+			return [
+				{
+					id: row.id,
+					bookingItemId: row.bookingItemId,
+					serviceName: serviceByItemId.get(row.bookingItemId) ?? "Service",
+					documentType: row.documentType as BookingIssuedDocument["documentType"],
+					documentNumber: row.documentNumber,
+					status: row.status,
+					issuedAt: row.issuedAt,
+					validUntil: row.validUntil,
+				},
+			]
+		})
 	}
 
 	/** One Booking with its items, as the API returns it. */
