@@ -140,3 +140,83 @@ export function drawReceipt(doc: PdfDocument, data: ReceiptPdfData): void {
 			{ width }
 		)
 }
+
+/**
+ * The passbook-printer page (PAY-4): A6, 105 × 148 mm, the size of a
+ * passbook page and of most cashier slip printers. In PDF points.
+ */
+export const PASSBOOK_PAGE: [number, number] = [297.64, 419.53]
+
+/**
+ * The same e-Receipt on a narrow page, one column, for the cashier's
+ * passbook printer. Same figures and QR code as the A4 layout.
+ */
+export function drawPassbookReceipt(doc: PdfDocument, data: ReceiptPdfData): void {
+	const left = doc.page.margins.left
+	const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
+	const qrSize = 64
+	let y = doc.page.margins.top
+
+	doc.font("Helvetica-Bold").fontSize(13).fillColor("#000000").text("e-Receipt", left, y)
+	doc.image(data.qrPng, left + width - qrSize, y, { width: qrSize, height: qrSize })
+	y += 17
+	doc
+		.font("Helvetica")
+		.fontSize(6.5)
+		.fillColor(LABEL_COLOR)
+		.text("Bureau of Quarantine - QSPS", left, y, { width: width - qrSize - 6 })
+	y = doc.page.margins.top + qrSize + 6
+
+	const details: [string, string][] = [
+		["Receipt No.", data.receiptNumber],
+		["Reference No.", data.referenceNumber],
+		["Date and time", formatManilaDateTime(data.issuedAt)],
+		["Client", data.clientName],
+		["Payment channel", data.channelName],
+		["Status", data.status === "valid" ? "PAID" : "REFUNDED"],
+	]
+	for (const [label, value] of details) {
+		doc.font("Helvetica").fontSize(6.5).fillColor(LABEL_COLOR).text(label, left, y, { width: 70 })
+		doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#000000")
+		const height = doc.heightOfString(value, { width: width - 74 })
+		doc.text(value, left + 74, y, { width: width - 74 })
+		y += Math.max(11, height + 2)
+	}
+
+	const rule = (at: number) =>
+		doc
+			.moveTo(left, at)
+			.lineTo(left + width, at)
+			.lineWidth(0.5)
+			.strokeColor(RULE_COLOR)
+			.stroke()
+
+	y += 4
+	rule(y)
+	y += 5
+	const amountWidth = 80
+	const row = (label: string, amount: string, bold = false) => {
+		doc
+			.font(bold ? "Helvetica-Bold" : "Helvetica")
+			.fontSize(bold ? 8.5 : 7.5)
+			.fillColor("#000000")
+		const height = doc.heightOfString(label, { width: width - amountWidth - 6 })
+		doc.text(label, left, y, { width: width - amountWidth - 6 })
+		doc.text(amount, left + width - amountWidth, y, { width: amountWidth, align: "right" })
+		y += Math.max(bold ? 13 : 11, height + 2)
+	}
+	for (const item of data.items) {
+		row(item.serviceName, formatPesos(item.feeCentavos))
+	}
+	row("Convenience fee", formatPesos(data.convenienceFeeCentavos))
+	rule(y)
+	y += 5
+	row("Total paid", formatPesos(data.totalCentavos), true)
+
+	y += 6
+	doc
+		.font("Helvetica")
+		.fontSize(6)
+		.fillColor(LABEL_COLOR)
+		.text(`Verify: scan the QR code or open ${data.verifyUrl}`, left, y, { width })
+}

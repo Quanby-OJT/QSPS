@@ -122,6 +122,11 @@ describe("navItems", () => {
 					requiredPermission: "processing.assessments:approve",
 				}),
 				expect.objectContaining({
+					label: "Cashier",
+					href: "/cashier",
+					requiredPermission: "payments.onsite:collect",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -234,6 +239,20 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Forms"])
 
+		// PAY-4: the Cashier role sees the Cashier link and nothing that edits clients or schedules.
+		expect(
+			getAccessibleNavItems({
+				roles: ["Cashier"],
+				permissions: [
+					"payments.onsite:collect",
+					"payments.transactions:read",
+					"payments.refunds:request",
+					"bookings.all:read",
+					"reports.dashboard:read",
+				],
+			}).map(item => item.label)
+		).toEqual(["Dashboard", "Cashier"])
+
 		// ADM-3: the Audit log link needs audit.logs:read.
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["audit.logs:read"] }).map(item => item.label)
@@ -247,6 +266,7 @@ describe("navItems", () => {
 			"My documents",
 			"Processing",
 			"Approvals",
+			"Cashier",
 			"User Management",
 			"Locations",
 			"Services",
@@ -278,6 +298,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
+		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
 	})
 
 	it("marks only the most specific link active (PRC-3)", () => {

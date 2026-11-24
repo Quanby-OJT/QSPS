@@ -3,7 +3,8 @@ import { Inject, Injectable } from "@nestjs/common"
 import { env } from "@/config/env.config"
 
 import { FakePaymentProvider } from "./fake"
-import { PAYMENT_PROVIDERS, type PaymentProvider } from "./payment-provider"
+import { OnsitePaymentProvider } from "./onsite"
+import { ONSITE_PROVIDER_CODE, PAYMENT_PROVIDERS, type PaymentProvider } from "./payment-provider"
 
 /**
  * The gateways this deployment can use, built once at startup.
@@ -14,7 +15,9 @@ import { PAYMENT_PROVIDERS, type PaymentProvider } from "./payment-provider"
  * `providers/<code>/index.ts`, and add one line below.
  */
 export function buildPaymentProviders(): PaymentProvider[] {
-	const providers: PaymentProvider[] = []
+	// PAY-4: cashier payments. Always present: it takes no notifications and
+	// is never offered to clients at checkout (PaymentChannelService).
+	const providers: PaymentProvider[] = [new OnsitePaymentProvider()]
 
 	// The fake gateway keeps local development and tests working until a real
 	// gateway is selected. It needs PAYMENT_FAKE_ENABLED=true and is never
@@ -53,5 +56,19 @@ export class PaymentProviderRegistry {
 
 	codes(): string[] {
 		return [...this.byCode.keys()]
+	}
+
+	/**
+	 * A provider a client may pay through online. The onsite cashier provider
+	 * (PAY-4) is left out: it has no checkout page, so a payment channel can
+	 * never be pointed at it.
+	 */
+	findOnline(code: string): PaymentProvider | undefined {
+		return code === ONSITE_PROVIDER_CODE ? undefined : this.byCode.get(code)
+	}
+
+	/** Codes of the online providers, for the Payment Channels settings screen. */
+	onlineCodes(): string[] {
+		return this.codes().filter(code => code !== ONSITE_PROVIDER_CODE)
 	}
 }

@@ -65,7 +65,7 @@ export class PaymentChannelService {
 	/** Every channel, for the settings screen, plus the providers it may pick. */
 	async listForSettings(): Promise<PaymentChannelSettings> {
 		const rows = await db.select().from(paymentChannels).orderBy(asc(paymentChannels.name))
-		return { channels: rows.map(toPaymentChannel), providerCodes: this.providers.codes() }
+		return { channels: rows.map(toPaymentChannel), providerCodes: this.providers.onlineCodes() }
 	}
 
 	/**
@@ -73,7 +73,7 @@ export class PaymentChannelService {
 	 * stores the fee it was charged. Audited with old and new values.
 	 */
 	async update(input: UpdatePaymentChannelInput, actorId: string | null): Promise<PaymentChannel> {
-		if (input.providerCode !== null && !this.providers.find(input.providerCode)) {
+		if (input.providerCode !== null && !this.providers.findOnline(input.providerCode)) {
 			throw new ORPCError("BAD_REQUEST", {
 				message: `No payment provider "${input.providerCode}" is available in this deployment`,
 			})
@@ -135,7 +135,7 @@ export class PaymentChannelService {
 			.from(paymentChannels)
 			.where(and(eq(paymentChannels.code, code), eq(paymentChannels.isEnabled, true)))
 			.limit(1)
-		const provider = channel?.providerCode ? this.providers.find(channel.providerCode) : undefined
+		const provider = channel?.providerCode ? this.providers.findOnline(channel.providerCode) : undefined
 		return channel && provider ? { channel, provider } : undefined
 	}
 
@@ -176,7 +176,7 @@ export class PaymentChannelService {
 			.orderBy(asc(paymentChannels.name))
 
 		const channels = rows
-			.filter(row => row.providerCode !== null && this.providers.find(row.providerCode))
+			.filter(row => row.providerCode !== null && this.providers.findOnline(row.providerCode))
 			.map(row => {
 				const charge = chargeFor(booking.totalCentavos, row)
 				return {

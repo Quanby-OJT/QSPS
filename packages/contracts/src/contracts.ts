@@ -119,6 +119,31 @@ export type {
 	CheckoutChannels,
 } from "./modules/v1/payments/payments.schema.js"
 
+// Cashier contracts + schemas (PAY-4)
+export { cashierContract } from "./modules/v1/payments/cashier.contract.js"
+export {
+	TENDER_TYPES,
+	TenderTypeSchema,
+	MAX_AMOUNT_RECEIVED_CENTAVOS,
+	CashierSearchSchema,
+	isReferenceNumber,
+	CashierBookingIdParamSchema,
+	CashierBookingItemSchema,
+	CashierBookingSchema,
+	CashierSearchResultSchema,
+	CollectOnsiteSchema,
+	CollectOnsiteResultSchema,
+} from "./modules/v1/payments/cashier.schema.js"
+export type {
+	TenderType,
+	CashierSearchInput,
+	CashierBookingItem,
+	CashierBooking,
+	CashierSearchResult,
+	CollectOnsiteInput,
+	CollectOnsiteResult,
+} from "./modules/v1/payments/cashier.schema.js"
+
 // Processing contracts + schemas (PRC-1)
 export { processingContract } from "./modules/v1/processing/processing.contract.js"
 export {

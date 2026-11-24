@@ -732,6 +732,8 @@ export const payments = createTable(
 		needsReview: t.boolean("needs_review").notNull().default(false),
 		/** The cashier who took an onsite payment; null for online payments. */
 		collectedBy: t.text("collected_by").references(() => users.id, { onDelete: "restrict" }),
+		/** PAY-4: how an onsite payment was tendered at the cashier; null for online payments. */
+		tenderType: t.text("tender_type").$type<"cash" | "card" | "check">(),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),

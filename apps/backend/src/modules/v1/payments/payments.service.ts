@@ -4,6 +4,8 @@ import { ORPCError } from "@orpc/server"
 import { and, asc, eq } from "drizzle-orm"
 
 import type {
+	CollectOnsiteInput,
+	CollectOnsiteResult,
 	CreatePaymentInput,
 	PaymentCheckout,
 	PaymentStatus,
@@ -25,11 +27,15 @@ import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { env } from "@/config/env.config"
 
-import { BookingService } from "../bookings/bookings.service"
+import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { chargeFor } from "./convenience-fee"
 import { PaymentChannelService } from "./payment-channels.service"
 import { canTransitionPayment } from "./payment-state"
-import type { ParsedNotification, RawNotification } from "./providers/payment-provider"
+import {
+	ONSITE_PROVIDER_CODE,
+	type ParsedNotification,
+	type RawNotification,
+} from "./providers/payment-provider"
 import { PaymentProviderRegistry } from "./providers/provider-registry"
 import { newVerificationToken, receiptNumberFor } from "./receipt-number"
 
@@ -48,6 +54,18 @@ export interface ConfirmResult {
 	alreadyConfirmed: boolean
 	/** True when money arrived for a Booking that can no longer be paid. */
 	needsReview: boolean
+}
+
+/** How each tender type reads on the e-Receipt's "Payment channel" line (PAY-4). */
+const TENDER_LABELS: Record<CollectOnsiteInput["tenderType"], string> = {
+	cash: "Cash",
+	card: "Card",
+	check: "Check",
+}
+
+/** The receipt's channel name for a payment taken at the cashier, e.g. "Onsite cashier - Cash". */
+export function onsiteChannelName(tenderType: CollectOnsiteInput["tenderType"] | null): string {
+	return tenderType ? `Onsite cashier - ${TENDER_LABELS[tenderType]}` : "Onsite cashier"
 }
 
 function sha256(text: string): string {
@@ -385,133 +403,274 @@ export class PaymentService {
 		options: { actorId: string | null; paymentEventId?: number },
 		now: Date = new Date()
 	): Promise<ConfirmResult> {
-		return db.transaction(async tx => {
-			const [payment] = await tx
-				.select()
-				.from(payments)
-				.where(eq(payments.id, paymentId))
-				.for("update")
-			if (!payment) {
-				throw new ORPCError("NOT_FOUND", { message: "Payment not found" })
-			}
+		const { alreadyConfirmed, needsReview } = await db.transaction(tx =>
+			this.confirmInTx(tx, paymentId, options, now)
+		)
+		return { alreadyConfirmed, needsReview }
+	}
 
-			const markEventProcessed = async () => {
-				if (options.paymentEventId === undefined) return
-				await tx
-					.update(paymentEvents)
-					.set({ processedAt: now })
-					.where(eq(paymentEvents.id, options.paymentEventId))
-			}
+	/**
+	 * `confirm` inside a transaction the caller already holds. The cashier flow
+	 * (PAY-4) uses it so the onsite Payment is created and confirmed together:
+	 * either the booking is paid with its receipt, or nothing was written.
+	 */
+	private async confirmInTx(
+		tx: Transaction,
+		paymentId: number,
+		options: { actorId: string | null; paymentEventId?: number },
+		now: Date
+	): Promise<ConfirmResult & { receiptNumber: string | null }> {
+		const [payment] = await tx
+			.select()
+			.from(payments)
+			.where(eq(payments.id, paymentId))
+			.for("update")
+		if (!payment) {
+			throw new ORPCError("NOT_FOUND", { message: "Payment not found" })
+		}
 
-			if (payment.status === "succeeded") {
-				await markEventProcessed()
-				return { alreadyConfirmed: true, needsReview: payment.needsReview }
-			}
-			if (!canTransitionPayment(payment.status, "succeeded")) {
-				throw new ORPCError("CONFLICT", {
-					message: `A ${payment.status} payment cannot be confirmed`,
-				})
-			}
-
-			// Locks the Booking row. False when the Booking can no longer be paid
-			// (cancelled, or already paid by another Payment): the money is
-			// recorded, the Booking is left alone, and staff review it (D7).
-			const bookingPaid = await this.bookingService.markPaid(
-				tx,
-				payment.bookingId,
-				options.actorId,
-				now
-			)
-			const needsReview = !bookingPaid
-
+		const markEventProcessed = async () => {
+			if (options.paymentEventId === undefined) return
 			await tx
-				.update(payments)
-				.set({ status: "succeeded", needsReview, updatedAt: now })
-				.where(eq(payments.id, paymentId))
+				.update(paymentEvents)
+				.set({ processedAt: now })
+				.where(eq(paymentEvents.id, options.paymentEventId))
+		}
 
-			// PAY-2a: the receipt keeps the names as they are right now, so a later
-			// rename of the client, channel or Service never changes a reprint.
-			const [names] = await tx
-				.select({ clientName: users.name, channelName: paymentChannels.name })
-				.from(bookings)
-				.innerJoin(users, eq(users.id, bookings.clientId))
-				.leftJoin(paymentChannels, eq(paymentChannels.code, payment.channelCode))
-				.where(eq(bookings.id, payment.bookingId))
-				.limit(1)
-			if (!names) {
-				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking not found for payment" })
-			}
-			const serviceLines = await tx
-				.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
-				.from(bookingItems)
-				.innerJoin(services, eq(services.id, bookingItems.serviceId))
-				.where(eq(bookingItems.bookingId, payment.bookingId))
-				.orderBy(asc(bookingItems.id))
-			// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
-			// transaction. The unique payment_id makes a second insert a no-op.
-			const [receipt] = await tx
-				.insert(receipts)
-				.values({
-					paymentId,
-					receiptNumber: receiptNumberFor(paymentId, now),
-					verificationToken: newVerificationToken(),
-					clientName: names.clientName,
-					// Payments made before PAY-5 have a channel code with no row; keep the code.
-					channelName: names.channelName ?? payment.channelCode,
-					serviceLines,
-					issuedAt: now,
-				})
-				.onConflictDoNothing({ target: receipts.paymentId })
-				.returning({ id: receipts.id, receiptNumber: receipts.receiptNumber })
-			if (receipt) {
-				await this.auditService.record(
-					{
-						domain: AUDIT_DOMAIN_PAYMENTS,
-						action: "receipt.issue",
-						actorId: options.actorId,
-						targetType: "receipt",
-						targetId: String(receipt.id),
-						oldValue: null,
-						newValue: { paymentId, receiptNumber: receipt.receiptNumber },
-					},
-					tx
-				)
-			}
+		if (payment.status === "succeeded") {
+			await markEventProcessed()
+			return { alreadyConfirmed: true, needsReview: payment.needsReview, receiptNumber: null }
+		}
+		if (!canTransitionPayment(payment.status, "succeeded")) {
+			throw new ORPCError("CONFLICT", {
+				message: `A ${payment.status} payment cannot be confirmed`,
+			})
+		}
 
-			// NTF-1: the client always gets the e-Receipt. The booking QR goes only
-			// with a Booking that actually became paid; late money on a cancelled
-			// (or already paid) Booking gets the review message instead (D7).
-			await NotificationService.enqueue(
-				tx,
-				payment.bookingId,
-				bookingPaid ? "payment_received" : "payment_received_review",
-				`payment:${paymentId}:succeeded`,
-				{ paymentId }
-			)
+		// Locks the Booking row. False when the Booking can no longer be paid
+		// (cancelled, or already paid by another Payment): the money is
+		// recorded, the Booking is left alone, and staff review it (D7).
+		const bookingPaid = await this.bookingService.markPaid(
+			tx,
+			payment.bookingId,
+			options.actorId,
+			now
+		)
+		const needsReview = !bookingPaid
 
+		await tx
+			.update(payments)
+			.set({ status: "succeeded", needsReview, updatedAt: now })
+			.where(eq(payments.id, paymentId))
+
+		// PAY-2a: the receipt keeps the names as they are right now, so a later
+		// rename of the client, channel or Service never changes a reprint.
+		const [names] = await tx
+			.select({ clientName: users.name, channelName: paymentChannels.name })
+			.from(bookings)
+			.innerJoin(users, eq(users.id, bookings.clientId))
+			.leftJoin(paymentChannels, eq(paymentChannels.code, payment.channelCode))
+			.where(eq(bookings.id, payment.bookingId))
+			.limit(1)
+		if (!names) {
+			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking not found for payment" })
+		}
+		const serviceLines = await tx
+			.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
+			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.where(eq(bookingItems.bookingId, payment.bookingId))
+			.orderBy(asc(bookingItems.id))
+		// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
+		// transaction. The unique payment_id makes a second insert a no-op.
+		const [receipt] = await tx
+			.insert(receipts)
+			.values({
+				paymentId,
+				receiptNumber: receiptNumberFor(paymentId, now),
+				verificationToken: newVerificationToken(),
+				clientName: names.clientName,
+				// Payments made before PAY-5 have a channel code with no row; keep the code.
+				// Cashier payments (PAY-4) name the tender instead.
+				channelName:
+					names.channelName ??
+					(payment.providerCode === ONSITE_PROVIDER_CODE
+						? onsiteChannelName(payment.tenderType)
+						: payment.channelCode),
+				serviceLines,
+				issuedAt: now,
+			})
+			.onConflictDoNothing({ target: receipts.paymentId })
+			.returning({ id: receipts.id, receiptNumber: receipts.receiptNumber })
+		if (receipt) {
 			await this.auditService.record(
 				{
 					domain: AUDIT_DOMAIN_PAYMENTS,
-					action: "payment.succeeded",
+					action: "receipt.issue",
 					actorId: options.actorId,
+					targetType: "receipt",
+					targetId: String(receipt.id),
+					oldValue: null,
+					newValue: { paymentId, receiptNumber: receipt.receiptNumber },
+				},
+				tx
+			)
+		}
+
+		// NTF-1: the client always gets the e-Receipt. The booking QR goes only
+		// with a Booking that actually became paid; late money on a cancelled
+		// (or already paid) Booking gets the review message instead (D7).
+		await NotificationService.enqueue(
+			tx,
+			payment.bookingId,
+			bookingPaid ? "payment_received" : "payment_received_review",
+			`payment:${paymentId}:succeeded`,
+			{ paymentId }
+		)
+
+		await this.auditService.record(
+			{
+				domain: AUDIT_DOMAIN_PAYMENTS,
+				action: "payment.succeeded",
+				actorId: options.actorId,
+				targetType: "payment",
+				targetId: String(paymentId),
+				oldValue: { status: payment.status },
+				newValue: {
+					status: "succeeded",
+					bookingId: payment.bookingId,
+					amountCentavos: payment.amountCentavos,
+					needsReview,
+				},
+			},
+			tx
+		)
+		await markEventProcessed()
+
+		if (needsReview) {
+			this.alert("paid_unpayable_booking", { paymentId, bookingId: payment.bookingId })
+		}
+		return { alreadyConfirmed: false, needsReview, receiptNumber: receipt?.receiptNumber ?? null }
+	}
+
+	/**
+	 * Record a payment taken at a BOQ cashier (PAY-4, Flow C cashier branch).
+	 *
+	 * One transaction: lock the Booking, check it is still awaiting payment and
+	 * still costs what the cashier saw, create a Payment with provider
+	 * `onsite` and `collected_by` set to the cashier, then confirm it through
+	 * the same `confirm` online payments use (Booking paid, e-Receipt issued).
+	 * Onsite payments carry no convenience fee.
+	 *
+	 * Scope is checked by the caller (CashierService) before this runs.
+	 */
+	async collectOnsite(
+		input: CollectOnsiteInput,
+		cashierId: string,
+		now: Date = new Date()
+	): Promise<CollectOnsiteResult> {
+		const provider = this.providers.find(ONSITE_PROVIDER_CODE)
+		if (!provider) {
+			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Onsite payments are not set up" })
+		}
+
+		return db.transaction(async (tx): Promise<CollectOnsiteResult> => {
+			const [booking] = await tx
+				.select({
+					id: bookings.id,
+					status: bookings.status,
+					referenceNumber: bookings.referenceNumber,
+					totalCentavos: bookings.totalCentavos,
+				})
+				.from(bookings)
+				.where(eq(bookings.id, input.bookingId))
+				.for("update")
+			if (!booking) {
+				throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+			}
+			// A second click, another cashier, or an online payment may have got
+			// here first. Refuse and say what the booking is now.
+			if (booking.status !== "pending_payment") {
+				throw new ORPCError("CONFLICT", {
+					message: `Booking ${booking.referenceNumber} cannot be paid: it is ${booking.status.replace(/_/g, " ")}`,
+					data: { status: booking.status },
+				})
+			}
+			if (booking.totalCentavos !== input.amountDueCentavos) {
+				throw new ORPCError("CONFLICT", {
+					message: "The amount due has changed. Open the booking again before collecting.",
+					data: { status: booking.status, totalCentavos: booking.totalCentavos },
+				})
+			}
+
+			const amountCentavos = booking.totalCentavos
+			const [row] = await tx
+				.insert(payments)
+				.values({
+					bookingId: booking.id,
+					channelCode: ONSITE_PROVIDER_CODE,
+					providerCode: ONSITE_PROVIDER_CODE,
+					amountCentavos,
+					convenienceFeeCentavos: 0,
+					status: "pending",
+					collectedBy: cashierId,
+					tenderType: input.tenderType,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning({ id: payments.id })
+			if (!row) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Payment could not be created" })
+			}
+
+			const session = await provider.createCheckout({
+				paymentId: row.id,
+				referenceNumber: booking.referenceNumber,
+				amountCentavos,
+				description: `QSPS booking ${booking.referenceNumber}`,
+				returnUrl: `${env.APP_WEB_URL}/cashier`,
+				notifyUrl: `${env.PAYMENT_NOTIFY_BASE_URL}/v1/payments/notifications/${provider.code}`,
+			})
+			await tx
+				.update(payments)
+				.set({ providerReference: session.providerReference })
+				.where(eq(payments.id, row.id))
+
+			const changeCentavos = input.amountReceivedCentavos - amountCentavos
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_PAYMENTS,
+					action: "payment.collect_onsite",
+					actorId: cashierId,
 					targetType: "payment",
-					targetId: String(paymentId),
-					oldValue: { status: payment.status },
+					targetId: String(row.id),
+					oldValue: null,
 					newValue: {
-						status: "succeeded",
-						bookingId: payment.bookingId,
-						amountCentavos: payment.amountCentavos,
-						needsReview,
+						id: row.id,
+						bookingId: booking.id,
+						providerCode: ONSITE_PROVIDER_CODE,
+						amountCentavos,
+						tenderType: input.tenderType,
+						amountReceivedCentavos: input.amountReceivedCentavos,
+						changeCentavos,
+						collectedBy: cashierId,
 					},
 				},
 				tx
 			)
-			await markEventProcessed()
 
-			if (needsReview) {
-				this.alert("paid_unpayable_booking", { paymentId, bookingId: payment.bookingId })
+			const confirmed = await this.confirmInTx(tx, row.id, { actorId: cashierId }, now)
+			if (!confirmed.receiptNumber) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "The receipt could not be issued" })
 			}
-			return { alreadyConfirmed: false, needsReview }
+
+			return {
+				paymentId: row.id,
+				receiptNumber: confirmed.receiptNumber,
+				amountCentavos,
+				changeCentavos,
+				bookingStatus: "paid",
+			}
 		})
 	}
 
