@@ -29,6 +29,23 @@ function newKey(): string {
 }
 
 /**
+ * PRC-4 (Sir Sean, 24 Nov): the required steps still without a result. Approving
+ * and overriding are refused until they are recorded, like the officer's Clear.
+ */
+function missingStepNames(item: ProcessingItem): string[] {
+	return item.steps.filter(step => step.required && step.status !== "done").map(step => step.name)
+}
+
+function MissingStepsNote({ names, action }: { names: string[]; action: string }) {
+	if (names.length === 0) return null
+	return (
+		<p className="text-destructive text-sm" role="alert">
+			Record the result of every required step before {action}: {names.join(", ")}.
+		</p>
+	)
+}
+
+/**
  * The document a clearing action issues at once (CRT-1a), with CRT-3's choice
  * between the vaccination details and a medical exemption.
  */
@@ -81,6 +98,7 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 	const decide = useDecideApprovalMutation(item.bookingItemId)
 	const [notes, setNotes] = useState("")
 	const clearing = useClearingDocument(item)
+	const missingSteps = missingStepNames(item)
 	// One key per decision, so a double click records one decision, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
 
@@ -89,8 +107,12 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 			toast.error("Write a note telling the officer what to check again")
 			return
 		}
-		if (decision === "approve" && clearing.missing) {
-			toast.error("Enter the certificate details before approving")
+		if (decision === "approve" && (clearing.missing || missingSteps.length > 0)) {
+			toast.error(
+				missingSteps.length > 0
+					? "Every required step needs a result before approving"
+					: "Enter the certificate details before approving"
+			)
 			return
 		}
 		try {
@@ -131,6 +153,7 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 						: "Approve it, or send it back with a note."}
 				</p>
 			</div>
+			<MissingStepsNote names={missingSteps} action="approving" />
 			{clearing.needsCertificate ? (
 				<DocumentDetailsFields
 					form={clearing.form}
@@ -152,7 +175,7 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
 			<div className="flex flex-wrap gap-2">
 				<Button
 					type="button"
-					disabled={decide.isPending || clearing.missing}
+					disabled={decide.isPending || clearing.missing || missingSteps.length > 0}
 					onClick={() => void submit("approve")}
 				>
 					{decide.isPending
@@ -180,18 +203,21 @@ function ApprovalForm({ item }: { item: ProcessingItem }) {
  * PRC-3: an approver may override a rejected item to cleared, with a reason.
  * CRT-1a: when the Service issues its document automatically, the override
  * issues it at once: the vaccination details, or a medical exemption (CRT-3).
+ * PRC-4: not while a required step has no result.
  */
 export function OverridePanel({ item }: { item: ProcessingItem }) {
 	const override = useOverrideItemMutation(item.bookingItemId)
 	const [reason, setReason] = useState("")
 	const clearing = useClearingDocument(item)
+	const missingSteps = missingStepNames(item)
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
 
 	const tooShort = reason.trim().length < MIN_OVERRIDE_REASON_LENGTH
+	const blocked = tooShort || clearing.missing || missingSteps.length > 0
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
-		if (tooShort || clearing.missing) return
+		if (blocked) return
 		try {
 			const saved = await override.mutateAsync({
 				reason: reason.trim(),
@@ -229,6 +255,7 @@ export function OverridePanel({ item }: { item: ProcessingItem }) {
 					{clearing.needsCertificate ? " The client's certificate is issued at once." : ""}
 				</p>
 			</div>
+			<MissingStepsNote names={missingSteps} action="overriding" />
 			{clearing.needsCertificate ? (
 				<DocumentDetailsFields
 					form={clearing.form}
@@ -250,11 +277,7 @@ export function OverridePanel({ item }: { item: ProcessingItem }) {
 					aria-invalid={(reason.length > 0 && tooShort) || undefined}
 				/>
 			</div>
-			<Button
-				type="submit"
-				disabled={override.isPending || tooShort || clearing.missing}
-				className="self-start"
-			>
+			<Button type="submit" disabled={override.isPending || blocked} className="self-start">
 				{override.isPending
 					? "Saving…"
 					: clearing.exempt
