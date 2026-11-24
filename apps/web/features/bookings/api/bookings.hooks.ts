@@ -10,7 +10,7 @@ import { env } from "@/env"
 const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
 
 /** JSON turns dates into text; this is a Booking as it arrives. */
-type BookingJson = Omit<Booking, "holdExpiresAt" | "cancelledAt" | "createdAt" | "items"> & {
+export type BookingJson = Omit<Booking, "holdExpiresAt" | "cancelledAt" | "createdAt" | "items"> & {
 	holdExpiresAt: string | null
 	cancelledAt: string | null
 	createdAt: string
@@ -20,7 +20,7 @@ type BookingJson = Omit<Booking, "holdExpiresAt" | "cancelledAt" | "createdAt" |
 	})[]
 }
 
-function toBooking(booking: BookingJson): Booking {
+export function toBooking(booking: BookingJson): Booking {
 	return {
 		...booking,
 		holdExpiresAt: booking.holdExpiresAt ? new Date(booking.holdExpiresAt) : null,
@@ -88,7 +88,8 @@ function stringRecord(value: unknown): Record<string, string> | null {
 	return Object.fromEntries(entries)
 }
 
-async function readError(response: Response): Promise<ApiError> {
+/** The API's refusal as the matching error class (also used by the walk-in screen, PRC-2). */
+export async function readError(response: Response): Promise<ApiError> {
 	let message = `Request failed (${response.status})`
 	let data: ErrorBody["data"]
 	try {
@@ -209,16 +210,20 @@ export function useBookingFormsQuery(serviceIds: readonly number[]): CheckoutFor
 	})
 }
 
+/** Where a client uploads a file answer for their own booking (FRM-2). */
+export const BOOKING_FORM_UPLOAD_PATH = "/bookings/form-uploads"
+
 /**
  * FRM-2: upload a file answer. The answer then holds the returned `fileKey`.
  * Sent as multipart form data, so no Content-Type header is set by hand.
+ * `path` is the walk-in upload route when staff answer for a client (PRC-2).
  */
-export function useUploadFormFileMutation() {
+export function useUploadFormFileMutation(path: string = BOOKING_FORM_UPLOAD_PATH) {
 	return useMutation({
 		mutationFn: async (file: File): Promise<FormUpload> => {
 			const body = new FormData()
 			body.append("file", file)
-			const response = await fetch(`${API_BASE}/bookings/form-uploads`, {
+			const response = await fetch(`${API_BASE}${path}`, {
 				method: "POST",
 				credentials: "include",
 				body,

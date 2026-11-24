@@ -161,6 +161,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 		slotStartsAt: Date
 		payOnsite?: boolean
 		bookedCount?: number
+		kind?: "regular" | "walk-in"
 	}) {
 		// Each slot gets its own start second: slots are unique per start time.
 		const startsAt = new Date(options.slotStartsAt.getTime() + slotOffset++ * 1000)
@@ -184,7 +185,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 				referenceNumber: `QSPS-010101-${suffix}`,
 				clientId: fixture.userId,
 				status: "pending_payment",
-				kind: "regular",
+				kind: options.kind ?? "regular",
 				totalCentavos: 10000,
 				holdExpiresAt: options.holdExpiresAt,
 				payOnsite: options.payOnsite ?? false,
@@ -269,6 +270,36 @@ describe("BookingExpiryService (BKG-2)", () => {
 		const row = await bookingRow(bookingId)
 		expect(row.status).toBe("cancelled")
 		expect(row.cancelReason).toBe("no_show")
+		expect(await bookedCount(slotId)).toBe(1)
+	})
+
+	itDb(
+		"never cancels a walk-in at the arrival cutoff, even in a slot in progress (PRC-2)",
+		async () => {
+			const { bookingId, slotId } = await makeBooking({
+				holdExpiresAt: minutes(45),
+				slotStartsAt: minutes(-30),
+				kind: "walk-in",
+			})
+
+			await jobs[0].expireDue(NOW)
+
+			expect((await bookingRow(bookingId)).status).toBe("pending_payment")
+			expect(await bookedCount(slotId)).toBe(2)
+		}
+	)
+
+	itDb("still releases an unpaid walk-in once its payment hold passes (PRC-2)", async () => {
+		const { bookingId, slotId } = await makeBooking({
+			holdExpiresAt: minutes(-1),
+			slotStartsAt: minutes(-30),
+			kind: "walk-in",
+		})
+
+		await expect(jobs[0].expireDue(NOW)).resolves.toEqual({ holdExpired: 1, noShow: 0, failed: 0 })
+
+		const row = await bookingRow(bookingId)
+		expect(row.cancelReason).toBe("hold_expired")
 		expect(await bookedCount(slotId)).toBe(1)
 	})
 
