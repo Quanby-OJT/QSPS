@@ -260,7 +260,10 @@ function AssessmentBody({
 				{/* PRC-4: the Service's steps, recorded before the item can be cleared. */}
 				{/* `?? []`: an item cached before steps existed has none until it refetches. */}
 				{(item.steps ?? []).length > 0 ? (
-					<StepsPanel item={item} canRecord={item.status === "in_assessment"} />
+					<StepsPanel
+						item={item}
+						canRecord={item.status === "in_assessment" || item.status === "checked_in"}
+					/>
 				) : null}
 
 				{canOpen(item.status) ? (

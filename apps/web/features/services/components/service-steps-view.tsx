@@ -138,7 +138,7 @@ export function ServiceStepsView({ serviceId }: { serviceId: number }) {
 				All services
 			</Link>
 			<PageHeader
-				title={query.data ? `${query.data.serviceName} steps` : "Service steps"}
+				title={hydrated && query.data ? `${query.data.serviceName} steps` : "Service steps"}
 				description="The stations each booking of this service passes through, in order, such as Laboratory, X-ray and Physician evaluation. Staff record each step's result on the assessment screen, and an item can be cleared only when every required step is done. Leave the list empty if the service has no steps."
 			/>
 			{loading ? (

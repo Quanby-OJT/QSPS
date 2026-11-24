@@ -2,6 +2,7 @@ import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import type { PdfService } from "@/common/pdf/pdf.service"
 
+import type { BookingService } from "../../bookings/bookings.service"
 import type { ProcessingService } from "../processing.service"
 import { fieldsByTemplate, publishedStepForms } from "./item-steps"
 import { StepResultsService } from "./step-results.service"
@@ -25,6 +26,7 @@ jest.mock("@repo/contracts", () =>
 
 // Passed in by hand below; mocked so the bookings and certificates modules are not loaded.
 jest.mock("../processing.service", () => ({ ProcessingService: jest.fn() }))
+jest.mock("../../bookings/bookings.service", () => ({ BookingService: jest.fn() }))
 
 jest.mock("@/common/database/database.client", () => ({
 	db: { select: jest.fn(), transaction: jest.fn() },
@@ -66,6 +68,7 @@ const resultField = {
 describe("StepResultsService (PRC-4)", () => {
 	let service: StepResultsService
 	let processing: { requireItemInScope: jest.Mock; loadItem: jest.Mock }
+	let booking: { transitionItem: jest.Mock }
 	let audit: { record: jest.Mock }
 	let pdf: { render: jest.Mock }
 	let values: jest.Mock
@@ -81,6 +84,9 @@ describe("StepResultsService (PRC-4)", () => {
 		processing = {
 			requireItemInScope: jest.fn().mockResolvedValue(undefined),
 			loadItem: jest.fn().mockResolvedValue({ bookingItemId: 44, steps: [] }),
+		}
+		booking = {
+			transitionItem: jest.fn().mockResolvedValue({ from: "checked_in", to: "in_assessment" }),
 		}
 		audit = { record: jest.fn().mockResolvedValue(undefined) }
 		pdf = {
@@ -117,7 +123,8 @@ describe("StepResultsService (PRC-4)", () => {
 		service = new StepResultsService(
 			processing as unknown as ProcessingService,
 			audit as unknown as AuditService,
-			pdf as unknown as PdfService
+			pdf as unknown as PdfService,
+			booking as unknown as BookingService
 		)
 	})
 
@@ -161,7 +168,31 @@ describe("StepResultsService (PRC-4)", () => {
 				}),
 				tx
 			)
+			// Already in assessment: the status is left alone.
+			expect(booking.transitionItem).not.toHaveBeenCalled()
 			expect(item).toEqual({ bookingItemId: 44, steps: [] })
+		})
+
+		it("records right after check-in and moves the item to in assessment (Sir Sean, 24 Nov)", async () => {
+			txSelects([{ status: "checked_in", serviceId: 1 }], [{ id: 3, name: "Laboratory" }], [])
+
+			await service.record(input, "staff-1", SCOPE as never, NOW)
+
+			expect(booking.transitionItem).toHaveBeenCalledWith(tx, 44, "in_assessment", {
+				actorId: "staff-1",
+				allowedFrom: ["checked_in"],
+				now: NOW,
+			})
+			expect(values).toHaveBeenCalledWith(expect.objectContaining({ version: 1 }))
+		})
+
+		it("does not move a checked-in item when its answers are refused", async () => {
+			txSelects([{ status: "checked_in", serviceId: 1 }], [{ id: 3, name: "Laboratory" }])
+
+			await expect(
+				service.record({ ...input, answers: {} }, "staff-1", SCOPE as never, NOW)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(booking.transitionItem).not.toHaveBeenCalled()
 		})
 
 		it("keeps the earlier version and audits a correction with the old and new answers", async () => {
@@ -196,13 +227,17 @@ describe("StepResultsService (PRC-4)", () => {
 			expect(audit.record).not.toHaveBeenCalled()
 		})
 
-		it("refuses a result unless the item is in assessment", async () => {
-			txSelects([{ status: "cleared", serviceId: 1 }])
-			await expect(service.record(input, "staff-1", SCOPE as never, NOW)).rejects.toMatchObject({
-				code: "CONFLICT",
-			})
-			expect(values).not.toHaveBeenCalled()
-		})
+		it.each(["booked", "cleared", "returned", "rejected"])(
+			"refuses a result while the item is %s",
+			async status => {
+				txSelects([{ status, serviceId: 1 }])
+				await expect(service.record(input, "staff-1", SCOPE as never, NOW)).rejects.toMatchObject({
+					code: "CONFLICT",
+				})
+				expect(values).not.toHaveBeenCalled()
+				expect(booking.transitionItem).not.toHaveBeenCalled()
+			}
+		)
 
 		it("answers 404 for a step of another Service or a disabled step", async () => {
 			txSelects([{ status: "in_assessment", serviceId: 1 }], [])
@@ -246,7 +281,7 @@ describe("StepResultsService (PRC-4)", () => {
 			serviceId: 1,
 		}
 
-		it("prints the current result, readable by question, after the Scope check", async () => {
+		it("prints the current result, readable by question, after the Scope check, and audits it", async () => {
 			jest
 				.mocked(db.select)
 				.mockReturnValueOnce(query([itemRow]) as never)
@@ -281,9 +316,18 @@ describe("StepResultsService (PRC-4)", () => {
 				{ title: "Physician evaluation result QSPS-261124-AB12CD" },
 				expect.any(Function)
 			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "step_result.print",
+					actorId: "staff-1",
+					targetType: "booking_item",
+					targetId: "44",
+					newValue: { stepId: 3, stepName: "Physician evaluation", version: 2 },
+				})
+			)
 		})
 
-		it("answers 404 when no result is recorded for the step", async () => {
+		it("answers 404 when no result is recorded for the step, without auditing a print", async () => {
 			jest
 				.mocked(db.select)
 				.mockReturnValueOnce(query([itemRow]) as never)
@@ -294,6 +338,7 @@ describe("StepResultsService (PRC-4)", () => {
 				{ code: "NOT_FOUND" }
 			)
 			expect(pdf.render).not.toHaveBeenCalled()
+			expect(audit.record).not.toHaveBeenCalled()
 		})
 	})
 })

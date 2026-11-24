@@ -117,7 +117,8 @@ describe("StepResultsService (PRC-4)", () => {
 		service = new StepResultsService(
 			processing as unknown as ProcessingService,
 			audit as unknown as AuditService,
-			pdf as unknown as PdfService
+			pdf as unknown as PdfService,
+			{ transitionItem: jest.fn() } as never
 		)
 	})
 

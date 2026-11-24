@@ -38,7 +38,8 @@ function recordedAtLabel(value: Date | string): string {
 
 /**
  * PRC-4: the stations this item passes through, each with its status and
- * result. Staff record or correct a result while the item is in assessment;
+ * result. A station records a result as soon as the client is checked in (the\r
+ * first one starts the assessment) and can correct it while it is in assessment;
  * a correction is saved as the next version and the earlier one is kept.
  */
 export function StepsPanel({ item, canRecord }: { item: ProcessingItem; canRecord: boolean }) {

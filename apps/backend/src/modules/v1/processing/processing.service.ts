@@ -298,12 +298,7 @@ export class ProcessingService {
 			// PRC-4: an item stays in_assessment until every required step has a
 			// result. Returning or rejecting it is still allowed.
 			if (input.outcome === "cleared") {
-				const missing = await missingRequiredSteps(tx, input.bookingItemId)
-				if (missing.length > 0) {
-					throw new ORPCError("BAD_REQUEST", {
-						message: `Record the result of every required step before clearing: ${missing.join(", ")}.`,
-					})
-				}
+				await this.requireStepsDone(tx, input.bookingItemId, "clearing")
 			}
 
 			const moved = await this.bookingService.transitionItem(
@@ -488,6 +483,8 @@ export class ProcessingService {
 		const notes = input.notes.length > 0 ? input.notes : null
 
 		await db.transaction(async tx => {
+			// PRC-4 (Sir Sean, 24 Nov): every required step needs a result, whoever clears.
+			if (to === "cleared") await this.requireStepsDone(tx, input.bookingItemId, "approving")
 			const moved = await this.bookingService.transitionItem(tx, input.bookingItemId, to, {
 				actorId: approverId,
 				allowedFrom: ["pending_head_approval"],
@@ -543,6 +540,8 @@ export class ProcessingService {
 		})
 
 		await db.transaction(async tx => {
+			// PRC-4 (Sir Sean, 24 Nov): an override does not waive required steps.
+			await this.requireStepsDone(tx, input.bookingItemId, "overriding")
 			const moved = await this.bookingService.overrideItem(tx, input.bookingItemId, "cleared", {
 				actorId: approverId,
 				reason: input.reason,
@@ -582,6 +581,23 @@ export class ProcessingService {
 		return this.loadItem(input.bookingItemId)
 	}
 
+	/**
+	 * PRC-4: refuse to make an item cleared while an active required step has no
+	 * result. Applies to the officer's clear, a head approval and an override
+	 * (Sir Sean, 24 Nov: an override does not waive a step).
+	 */
+	private async requireStepsDone(
+		tx: Transaction,
+		bookingItemId: number,
+		action: "clearing" | "approving" | "overriding"
+	): Promise<void> {
+		const missing = await missingRequiredSteps(tx, bookingItemId)
+		if (missing.length > 0) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: `Record the result of every required step before ${action}: ${missing.join(", ")}.`,
+			})
+		}
+	}
 	/** Insert one decision row (PRC-3) and return its id. */
 	private async insertDecision(
 		tx: Transaction,

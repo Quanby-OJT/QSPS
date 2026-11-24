@@ -440,6 +440,31 @@ describe("ProcessingService", () => {
 			expect(auditService.record).not.toHaveBeenCalled()
 		})
 
+		it("refuses a head approval while a required step has no result (PRC-4, Sir Sean)", async () => {
+			selects([{ id: 44, locationId: 2, serviceCategoryId: 1 }], [{ staffId: "officer-1" }])
+			jest.mocked(missingRequiredSteps).mockResolvedValueOnce(["X-ray"])
+
+			await expect(
+				processingService.decide({ bookingItemId: 44, decision: "approve", notes: "" }, "head-1")
+			).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("X-ray") })
+			expect(bookingService.transitionItem).not.toHaveBeenCalled()
+		})
+
+		it("refuses an override while a required step has no result (PRC-4, Sir Sean)", async () => {
+			selects([{ id: 44, locationId: 2, serviceCategoryId: 1 }])
+			jest.mocked(missingRequiredSteps).mockResolvedValueOnce(["Laboratory"])
+
+			await expect(
+				processingService.override(
+					{ bookingItemId: 44, reason: "Head reviewed the case again" },
+					"head-1"
+				)
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("Laboratory"),
+			})
+			expect(bookingService.overrideItem).not.toHaveBeenCalled()
+		})
 		it("still returns an item whose steps are not done (PRC-4)", async () => {
 			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "returned" }], [])
 			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "returned" })

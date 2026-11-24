@@ -8,8 +8,8 @@ import {
 	bookings,
 	formTemplates,
 	locations,
-	serviceSteps,
 	services,
+	serviceSteps,
 	stepResults,
 	users,
 } from "@repo/db/schema"
@@ -19,11 +19,19 @@ import { db } from "@/common/database/database.client"
 import { PdfService } from "@/common/pdf/pdf.service"
 import { NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
 
+import { BookingService } from "../../bookings/bookings.service"
 import { manilaDateOf } from "../../schedules/manila-time"
 import { ProcessingService } from "../processing.service"
 import { fieldsByTemplate, publishedStepForms, readableStepAnswers } from "./item-steps"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
+
+/**
+ * When a station may record a result (Sir Sean, 24 Nov): as soon as the client
+ * is checked in, and while the item is being assessed. The first result on a
+ * checked-in item moves it to `in_assessment`, so the officer need not open it.
+ */
+const RECORDABLE_STATUSES = ["checked_in", "in_assessment"] as const
 
 /** The same answer for a missing step, a step of another Service and a disabled one. */
 function stepNotFound() {
@@ -62,7 +70,8 @@ export class StepResultsService {
 	constructor(
 		private readonly processingService: ProcessingService,
 		private readonly auditService: AuditService,
-		private readonly pdfService: PdfService
+		private readonly pdfService: PdfService,
+		private readonly bookingService: BookingService
 	) {}
 
 	async record(
@@ -87,9 +96,10 @@ export class StepResultsService {
 				.where(eq(bookingItems.id, input.bookingItemId))
 				.for("update")
 			if (!item) throw stepNotFound()
-			if (item.status !== "in_assessment") {
+			if (!(RECORDABLE_STATUSES as readonly string[]).includes(item.status)) {
 				throw new ORPCError("CONFLICT", {
-					message: "Step results can be recorded only while the item is in assessment",
+					message:
+						"Step results can be recorded once the client is checked in, until the item is cleared, returned or rejected",
 				})
 			}
 
@@ -121,6 +131,16 @@ export class StepResultsService {
 				throw new ORPCError("BAD_REQUEST", {
 					message: `Some answers for ${step.name} need fixing.`,
 					data: { fieldErrors: check.fieldErrors },
+				})
+			}
+
+			// The first result recorded at a station starts the assessment, through
+			// BookingService like every other item status change.
+			if (item.status === "checked_in") {
+				await this.bookingService.transitionItem(tx, input.bookingItemId, "in_assessment", {
+					actorId: staffId,
+					allowedFrom: ["checked_in"],
+					now,
 				})
 			}
 
@@ -192,8 +212,9 @@ export class StepResultsService {
 	/**
 	 * A printable copy of one step's result: the current one, or `version`
 	 * when given. Same Scope rule as reading the item (no station needed).
-	 * Called from a plain route, so it throws Nest-friendly oRPC errors that
-	 * the controller converts.
+	 * Every print is audited as `step_result.print`, like FRM-2c's downloads.
+	 * Called from a plain route, so it throws oRPC errors that the controller
+	 * converts.
 	 */
 	async resultPdf(
 		bookingItemId: number,
@@ -319,6 +340,17 @@ export class StepResultsService {
 				for (const [label, value] of Object.entries(answers)) row(label, value)
 			}
 		)
+
+		// A lab or X-ray result is personal health data: every print is recorded.
+		await this.auditService.record({
+			domain: AUDIT_DOMAIN_PROCESSING,
+			action: "step_result.print",
+			actorId: staffId,
+			targetType: "booking_item",
+			targetId: String(bookingItemId),
+			oldValue: null,
+			newValue: { stepId: step.id, stepName: step.name, version: result.version },
+		})
 
 		return {
 			fileName: `${item.referenceNumber}-${slug(step.name)}-v${result.version}-${manilaDateOf(result.createdAt)}.pdf`,
