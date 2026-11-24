@@ -803,9 +803,8 @@ export class PaymentService {
 		})
 	}
 
-	/** A notification that needs a person to look at it. No personal data here. */
 	/**
-	 * The re-query job (PAY-6, Flow C failure branch). For each Payment still
+	 * The re-query job (PAY-6, Flow C failure branch).For each Payment still
 	 * `pending` and not heard from for `PAYMENT_REQUERY_MINUTES`, ask the
 	 * provider (`queryStatus`) and apply the answer:
 	 *
@@ -871,6 +870,25 @@ export class PaymentService {
 				if (status.status === "succeeded") {
 					if (status.amountCentavos !== payment.amountCentavos) {
 						result.amountMismatch++
+						// Sir Sean (24 Nov): store the event, then alert. Same table as a
+						// notification; the id dedupes, so a repeat re-query stores it once.
+						await db
+							.insert(paymentEvents)
+							.values({
+								paymentId: payment.id,
+								providerCode: payment.providerCode,
+								providerEventId: `requery:amount_mismatch:${payment.id}:${String(status.amountCentavos)}`,
+								payload: {
+									source: "requery",
+									status: "succeeded",
+									amountCentavos: status.amountCentavos,
+								},
+								signatureValid: true,
+								createdAt: now,
+							})
+							.onConflictDoNothing({
+								target: [paymentEvents.providerCode, paymentEvents.providerEventId],
+							})
 						this.alert("amount_mismatch", {
 							source: "requery",
 							paymentId: payment.id,
@@ -916,7 +934,11 @@ export class PaymentService {
 		input: ResolvePaymentReviewInput,
 		actorId: string,
 		now: Date = new Date()
-	): Promise<{ paymentId: number; resolution: ResolvePaymentReviewInput["resolution"]; refundRequestId: number | null }> {
+	): Promise<{
+		paymentId: number
+		resolution: ResolvePaymentReviewInput["resolution"]
+		refundRequestId: number | null
+	}> {
 		return db.transaction(async tx => {
 			const [payment] = await tx
 				.select({
@@ -1028,6 +1050,7 @@ export class PaymentService {
 			.where(and(eq(payments.id, paymentId), eq(payments.status, "pending")))
 	}
 
+	/** A notification that needs a person to look at it. No personal data here. */
 	private alert(reason: string, details: Record<string, unknown>): void {
 		this.logger.error({ event: "payments.notification.alert", reason, ...details })
 	}
