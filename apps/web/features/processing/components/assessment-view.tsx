@@ -32,6 +32,7 @@ import {
 	IssueDocumentPanel,
 	useDocumentDetailsForm,
 } from "@/features/processing/components/document-panels"
+import { PrintoutsPanel } from "@/features/processing/components/printouts-panel"
 import { StepsPanel } from "@/features/processing/components/steps-panel"
 import {
 	allowsExemption,
@@ -45,6 +46,7 @@ import {
 	outcomeLabel,
 	pendingRequiredSteps,
 } from "@/features/processing/lib/labels"
+import { printoutsFor } from "@/features/processing/lib/printouts"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
 
 const OUTCOMES: { value: AssessmentOutcome; label: string; hint: string }[] = [
@@ -300,6 +302,13 @@ function AssessmentBody({
 						allowExemption={allowsExemption(item.service.documentType)}
 					/>
 				) : null}
+
+				{/* CRT-4: the application form and the Request for Payment, for Physical Examination. */}
+				<PrintoutsPanel
+					bookingId={item.booking.id}
+					bookingItemId={item.bookingItemId}
+					{...printoutsFor(item, canPrint)}
+				/>
 
 				<div className="bg-card flex flex-col gap-4 rounded-xl border p-4">
 					<h2 className="font-semibold">Assessment history</h2>
