@@ -16,6 +16,8 @@ export type NotificationTemplate =
 	| "assessment_returned"
 	| "assessment_rejected"
 	| "document_ready"
+	| "document_revoked"
+	| "document_reissued"
 
 /**
  * Events that also go out by SMS (NTF-2), with the text sent. The message is
