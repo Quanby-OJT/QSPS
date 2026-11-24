@@ -10,6 +10,7 @@ import {
 	itemStatusLabel,
 	needsIssuing,
 	outcomeLabel,
+	pendingRequiredSteps,
 	printCountLabel,
 } from "./labels"
 
@@ -88,5 +89,17 @@ describe("head approval labels (PRC-3)", () => {
 		expect(
 			needsIssuing({ status: "cleared", service: { documentType: null }, document: null })
 		).toBe(false)
+	})
+
+	it("lists the required steps still pending, in order (PRC-4)", () => {
+		expect(
+			pendingRequiredSteps([
+				{ name: "Laboratory", required: true, status: "done" },
+				{ name: "X-ray", required: true, status: "pending" },
+				{ name: "Dental", required: false, status: "pending" },
+				{ name: "Physician evaluation", required: true, status: "pending" },
+			])
+		).toEqual(["X-ray", "Physician evaluation"])
+		expect(pendingRequiredSteps([])).toEqual([])
 	})
 })

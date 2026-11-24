@@ -27,6 +27,13 @@ type Executor = typeof db | Transaction
 type TemplateRow = typeof formTemplates.$inferSelect
 type FieldRow = typeof formFields.$inferSelect
 
+/**
+ * PRC-4: Service Steps keep their result forms in `form_templates` too
+ * (`purpose = step_result`). Every questionnaire query here is limited to
+ * questionnaires, so those rows never show up in the Forms screens.
+ */
+const isQuestionnaire = eq(formTemplates.purpose, "questionnaire")
+
 /** What the audit log keeps of a question list: shape only, no answers. */
 function auditFields(fields: readonly Pick<FieldRow, "type" | "label" | "required" | "options">[]) {
 	return fields.map(field => ({
@@ -75,7 +82,8 @@ export class FormsService {
 						formTemplates.serviceId,
 						serviceRows.map(row => row.id)
 					),
-					inArray(formTemplates.status, ["draft", "published"])
+					inArray(formTemplates.status, ["draft", "published"]),
+					isQuestionnaire
 				)
 			)
 
@@ -104,7 +112,7 @@ export class FormsService {
 		const rows = await db
 			.select()
 			.from(formTemplates)
-			.where(eq(formTemplates.serviceId, serviceId))
+			.where(and(eq(formTemplates.serviceId, serviceId), isQuestionnaire))
 			.orderBy(desc(formTemplates.version))
 		return Promise.all(rows.map(row => this.summarize(db, row)))
 	}
@@ -135,14 +143,26 @@ export class FormsService {
 			const [existing] = await tx
 				.select()
 				.from(formTemplates)
-				.where(and(eq(formTemplates.serviceId, serviceId), eq(formTemplates.status, "draft")))
+				.where(
+					and(
+						eq(formTemplates.serviceId, serviceId),
+						eq(formTemplates.status, "draft"),
+						isQuestionnaire
+					)
+				)
 				.limit(1)
 			if (existing) return this.withFields(tx, existing)
 
 			const [published] = await tx
 				.select()
 				.from(formTemplates)
-				.where(and(eq(formTemplates.serviceId, serviceId), eq(formTemplates.status, "published")))
+				.where(
+					and(
+						eq(formTemplates.serviceId, serviceId),
+						eq(formTemplates.status, "published"),
+						isQuestionnaire
+					)
+				)
 				.limit(1)
 			const startingFields = published ? await this.fieldsOf(tx, published.id) : []
 
@@ -185,7 +205,11 @@ export class FormsService {
 					.select({ version: formTemplates.version })
 					.from(formTemplates)
 					.where(
-						and(eq(formTemplates.serviceId, template.serviceId), eq(formTemplates.status, "draft"))
+						and(
+							eq(formTemplates.serviceId, template.serviceId),
+							eq(formTemplates.status, "draft"),
+							isQuestionnaire
+						)
 					)
 					.limit(1)
 				if (draft) {
@@ -250,7 +274,8 @@ export class FormsService {
 				.where(
 					and(
 						eq(formTemplates.serviceId, template.serviceId),
-						eq(formTemplates.status, "published")
+						eq(formTemplates.status, "published"),
+						isQuestionnaire
 					)
 				)
 				.returning({ id: formTemplates.id, version: formTemplates.version })
@@ -379,7 +404,7 @@ export class FormsService {
 		const [latest] = await tx
 			.select({ version: max(formTemplates.version) })
 			.from(formTemplates)
-			.where(eq(formTemplates.serviceId, serviceId))
+			.where(and(eq(formTemplates.serviceId, serviceId), isQuestionnaire))
 		const version = (latest?.version ?? 0) + 1
 
 		const [draft] = await tx
@@ -523,7 +548,7 @@ export class FormsService {
 		const [template] = await executor
 			.select()
 			.from(formTemplates)
-			.where(eq(formTemplates.id, templateId))
+			.where(and(eq(formTemplates.id, templateId), isQuestionnaire))
 			.limit(1)
 		if (!template) {
 			throw new ORPCError("NOT_FOUND", { message: notFound })
