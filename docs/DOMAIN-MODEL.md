@@ -174,7 +174,7 @@ pending_approval ───┤                         (expedite only)
 | `paid` → `forfeited` | Forfeiture Policy applies after a no-show | Refund Request of kind `forfeiture` approved |
 | `paid` → `refund_requested` → `refunded` | Refund Request approved, then marked settled | `payments.refunds:approve` |
 
-The three client-facing statuses required by Annex B map as: Pending = `pending_approval` or `pending_payment`; Paid = `paid` or `completed`; Cancelled = `cancelled`, `rejected`, `forfeited`, or `refunded`.
+The three client-facing statuses required by Annex B map as: Pending = `pending_approval` or `pending_payment`; Paid = `paid`, `completed` or `refund_requested` (BOQ still holds the money; the client sees a "Refund in progress" label, per Sir Sean); Cancelled = `cancelled`, `rejected`, `forfeited`, or `refunded`.
 
 Every transition writes the Booking row, then an Audit Entry in the same transaction, then queues Notifications.
 

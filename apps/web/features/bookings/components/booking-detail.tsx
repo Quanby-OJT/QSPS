@@ -108,6 +108,12 @@ export function BookingDetailContent({
 							<Badge variant={clientStatusBadgeVariant(booking.clientStatus)}>
 								{booking.clientStatus}
 							</Badge>
+							{booking.status === "refund_requested" ? (
+								<Badge variant="outline">Refund in progress</Badge>
+							) : null}
+							{booking.status === "refund_requested" ? (
+								<Badge variant="outline">Refund in progress</Badge>
+							) : null}
 							{booking.status === "pending_payment" && booking.payOnsite ? (
 								<Badge variant="outline">Pay at BOQ cashier</Badge>
 							) : null}
