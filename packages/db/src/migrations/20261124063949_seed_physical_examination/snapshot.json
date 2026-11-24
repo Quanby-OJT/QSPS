@@ -1,10 +1,10 @@
 {
+  "id": "6e842341-73c0-4ec8-81dc-781a311dae99",
+  "prevIds": [
+    "bf9522ac-3e00-4001-bd62-f2b8bf6f3ba3"
+  ],
   "version": "8",
   "dialect": "postgres",
-  "id": "9ce842bd-23b6-43f2-8e74-60c9b08615fa",
-  "prevIds": [
-    "767e2490-296d-4bfc-a038-c13f7c56e212"
-  ],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -141,12 +141,6 @@
     {
       "isRlsEnabled": false,
       "name": "receipts",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "refund_requests",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2341,71 +2335,6 @@
       "table": "payments"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "review_resolution",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "review_note",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "rebooked_booking_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reviewed_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reviewed_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -2898,136 +2827,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "receipts"
-    },
-    {
-      "type": "serial",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "booking_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "payment_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "kind",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'requested'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "requested_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "decided_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_requests"
     },
     {
       "type": "integer",
@@ -5093,34 +4892,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "updated_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "payments_status_updated_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "provider_code",
           "isExpression": false,
           "asc": true,
@@ -5247,7 +5018,14 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "booking_id",
+          "value": "issued_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "payment_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -5259,31 +5037,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "refund_requests_booking_idx",
+      "name": "receipts_issued_at_payment_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "payment_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"status\" in ('requested', 'approved')",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "refund_requests_payment_open_uq",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "refund_requests"
+      "table": "receipts"
     },
     {
       "nameExplicit": true,
@@ -6021,40 +5778,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "rebooked_booking_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "bookings",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "payments_rebooked_booking_id_bookings_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "reviewed_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "payments_reviewed_by_users_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "payments"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "updated_by"
       ],
       "schemaTo": "public",
@@ -6153,74 +5876,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "receipts"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "booking_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "bookings",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "refund_requests_booking_id_bookings_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "payment_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "payments",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "refund_requests_payment_id_payments_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "requested_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "refund_requests_requested_by_users_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_requests"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "decided_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "refund_requests_decided_by_users_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_requests"
     },
     {
       "nameExplicit": false,
@@ -6774,16 +6429,6 @@
       "name": "receipts_pkey",
       "schema": "public",
       "table": "receipts",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "refund_requests_pkey",
-      "schema": "public",
-      "table": "refund_requests",
       "entityType": "pks"
     },
     {

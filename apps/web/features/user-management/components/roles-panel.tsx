@@ -143,7 +143,10 @@ export function RolesPanel() {
 											<div className="flex items-center gap-2 font-medium">
 												{role.name}
 												{role.isSystem ? (
-													<Badge variant="outline" className="border-navy/30 text-navy text-[10px]">
+													<Badge
+														variant="outline"
+														className="border-navy/30 text-navy dark:border-border dark:text-muted-foreground text-[10px]"
+													>
 														Built-in
 													</Badge>
 												) : null}
