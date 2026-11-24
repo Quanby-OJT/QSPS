@@ -14,6 +14,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { PdfService } from "@/common/pdf/pdf.service"
 import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import { displayEmail, NO_EMAIL_LABEL } from "@/common/users/placeholder-email"
 import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
@@ -277,7 +278,8 @@ export class PrintoutService {
 			locationName: row.locationName,
 			profile: {
 				name: row.clientName,
-				email: row.email,
+				// A mobile-only walk-in client has no email to print (PRC-2b).
+				email: displayEmail(row.email) ?? NO_EMAIL_LABEL,
 				mobile: row.mobile,
 				birthDate: row.birthDate,
 				gender: row.gender,

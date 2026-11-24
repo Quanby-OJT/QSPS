@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { PRIVACY_NOTICE_VERSION } from "../../../common/privacy-notice.js"
 import { PermissionNameSchema } from "../rbac/rbac.catalog.js"
 
 export const MePermissionsSchema = z.object({
@@ -52,7 +53,8 @@ export const UpdateClientProfileSchema = z.object({
 
 export const ClientProfileSchema = z.object({
 	name: z.string(),
-	email: z.string(),
+	/** Null for a mobile-only walk-in account (show "No email"). */
+	email: z.string().nullable(),
 	mobile: z.string().nullable(),
 	/** YYYY-MM-DD */
 	birthDate: z.string().nullable(),
@@ -61,8 +63,18 @@ export const ClientProfileSchema = z.object({
 	/** Set the first time the profile is completed; null keeps the portal closed. */
 	profileCompletedAt: z.coerce.date().nullable(),
 	isComplete: z.boolean(),
+	/** No consent on record, or an older Privacy Notice than the current one (PRC-2b). */
+	privacyConsentRequired: z.boolean(),
 })
 
+/** Accept the Privacy Notice now shown; it must be the current version. */
+export const AcceptPrivacyNoticeSchema = z.object({
+	privacyNoticeVersion: z.literal(PRIVACY_NOTICE_VERSION, {
+		error: "Please read and accept the current Privacy Notice",
+	}),
+})
+
+export type AcceptPrivacyNoticeInput = z.infer<typeof AcceptPrivacyNoticeSchema>
 export type UpdateClientProfileInput = z.infer<typeof UpdateClientProfileSchema>
 export type ClientProfile = z.infer<typeof ClientProfileSchema>
 

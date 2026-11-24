@@ -18,7 +18,10 @@ import {
 	useCashierSearchQuery,
 	useCollectOnsiteMutation,
 } from "@/features/payments/api/cashier.hooks"
-import { canScanWithCamera, QrCameraScanner } from "@/features/payments/components/qr-camera-scanner"
+import {
+	canScanWithCamera,
+	QrCameraScanner,
+} from "@/features/payments/components/qr-camera-scanner"
 import {
 	bookingStatusLabel,
 	canCollect,
@@ -107,9 +110,14 @@ export function CashierView() {
 				description="Find the client's booking, check the fees, record the payment and print the receipt."
 			/>
 
-			<form onSubmit={submit} className="bg-card flex flex-wrap items-end gap-3 rounded-xl border p-4">
+			<form
+				onSubmit={submit}
+				className="bg-card flex flex-wrap items-end gap-3 rounded-xl border p-4"
+			>
 				<div className="flex min-w-0 flex-1 basis-64 flex-col gap-2">
-					<Label htmlFor="cashier-search">Scan the QR code, or enter the Reference Number, email or name</Label>
+					<Label htmlFor="cashier-search">
+						Scan the QR code, or enter the Reference Number, email or name
+					</Label>
 					<Input
 						id="cashier-search"
 						value={text}
@@ -152,7 +160,9 @@ export function CashierView() {
 					{search.error.message}
 				</p>
 			) : query && !search.isFetching && results.length === 0 ? (
-				<p className="text-muted-foreground text-sm">No booking matches “{query}” at your location.</p>
+				<p className="text-muted-foreground text-sm">
+					No booking matches “{query}” at your location.
+				</p>
 			) : null}
 
 			{results.length > 1 && !selected ? (
@@ -167,7 +177,7 @@ export function CashierView() {
 								<span className="flex flex-col">
 									<span className="font-mono text-sm font-semibold">{booking.referenceNumber}</span>
 									<span className="text-muted-foreground text-sm">
-										{booking.clientName} · {booking.clientEmail}
+										{booking.clientName} · {booking.clientEmail ?? "No email"}
 									</span>
 								</span>
 								<span className="flex items-center gap-3">
@@ -194,7 +204,11 @@ export function CashierView() {
 
 function StatusBadge({ status }: { status: CashierBooking["status"] }) {
 	const variant =
-		status === "pending_payment" ? "default" : status === "paid" || status === "completed" ? "secondary" : "destructive"
+		status === "pending_payment"
+			? "default"
+			: status === "paid" || status === "completed"
+				? "secondary"
+				: "destructive"
 	return <Badge variant={variant}>{bookingStatusLabel(status)}</Badge>
 }
 
@@ -236,7 +250,7 @@ function BookingPanel({
 				<div className="flex flex-col gap-1">
 					<span className="font-mono text-lg font-semibold">{booking.referenceNumber}</span>
 					<span className="text-muted-foreground text-sm">
-						{booking.clientName} · {booking.clientEmail}
+						{booking.clientName} · {booking.clientEmail ?? "No email"}
 					</span>
 				</div>
 				<StatusBadge status={result ? "paid" : booking.status} />
@@ -270,7 +284,9 @@ function BookingPanel({
 						<td colSpan={2} className="pt-3 font-semibold">
 							Amount due (no convenience fee at the cashier)
 						</td>
-						<td className="pt-3 text-right text-base font-semibold">{pesos(booking.totalCentavos)}</td>
+						<td className="pt-3 text-right text-base font-semibold">
+							{pesos(booking.totalCentavos)}
+						</td>
 					</tr>
 				</tfoot>
 			</table>
@@ -288,12 +304,14 @@ function BookingPanel({
 			) : (
 				<div className="flex flex-col gap-3">
 					<p role="status" className="text-sm">
-						This booking cannot be paid here: it is {bookingStatusLabel(booking.status).toLowerCase()}.
+						This booking cannot be paid here: it is{" "}
+						{bookingStatusLabel(booking.status).toLowerCase()}.
 					</p>
 					{booking.paidPayment ? (
 						<>
 							<p className="text-muted-foreground text-sm">
-								Receipt {booking.paidPayment.receiptNumber ?? "not issued yet"}. You can print it again.
+								Receipt {booking.paidPayment.receiptNumber ?? "not issued yet"}. You can print it
+								again.
 							</p>
 							<ReceiptButtons paymentId={booking.paidPayment.paymentId} />
 						</>

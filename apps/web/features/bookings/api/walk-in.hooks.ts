@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
+	AddWalkInClientEmailInput,
 	Booking,
 	BookingForm,
 	CreateWalkInBookingInput,
@@ -13,8 +14,8 @@ import type {
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
-import { env } from "@/env"
 import { readError, toBooking, type BookingJson } from "@/features/bookings/api/bookings.hooks"
+import { env } from "@/env"
 
 const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
 
@@ -104,6 +105,30 @@ export function useCreateWalkInClientMutation() {
 				}
 				throw new ApiError(409, message)
 			}
+			if (!response.ok) throw await readError(response)
+			return (await response.json()) as WalkInClient
+		},
+	})
+}
+
+/**
+ * Give a mobile-only client a real email address (PRC-2b). The API replaces
+ * the placeholder and emails the invitation if the client has not set a
+ * password yet. An address another client has arrives as
+ * `WalkInDuplicateClientError`.
+ */
+export function useAddWalkInClientEmailMutation() {
+	return useMutation({
+		mutationFn: async ({ clientId, email }: AddWalkInClientEmailInput): Promise<WalkInClient> => {
+			const response = await fetch(
+				`${API_BASE}/walk-in/clients/${encodeURIComponent(clientId)}/email`,
+				{
+					method: "PUT",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ email }),
+				}
+			)
 			if (!response.ok) throw await readError(response)
 			return (await response.json()) as WalkInClient
 		},

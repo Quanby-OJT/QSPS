@@ -25,6 +25,7 @@ const PRIVATE_PATHS = [
 	"/settings",
 	"/security",
 	"/complete-profile",
+	"/privacy-notice",
 	"/two-factor",
 	"/reset-password",
 	"/verify-email",

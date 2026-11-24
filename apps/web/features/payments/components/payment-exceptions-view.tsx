@@ -37,7 +37,8 @@ const DATE_TIME = new Intl.DateTimeFormat("en-PH", {
 const REASON_LABELS: Record<PaymentException["reason"], { label: string; detail: string }> = {
 	late_payment: {
 		label: "Late payment",
-		detail: "Paid after the booking was closed. The booking stays closed; the client has a receipt.",
+		detail:
+			"Paid after the booking was closed. The booking stays closed; the client has a receipt.",
 	},
 	duplicate: {
 		label: "Duplicate payment",
@@ -101,12 +102,14 @@ function ExceptionCard({ exception }: { exception: PaymentException }) {
 				<div className="flex flex-col gap-1">
 					<span className="font-mono text-base font-semibold">{exception.referenceNumber}</span>
 					<span className="text-muted-foreground text-sm">
-						{exception.clientName} · {exception.clientEmail}
+						{exception.clientName} · {exception.clientEmail ?? "No email"}
 					</span>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
 					<Badge variant="destructive">{reason.label}</Badge>
-					<Badge variant="secondary">Booking {bookingStatusLabel(exception.bookingStatus).toLowerCase()}</Badge>
+					<Badge variant="secondary">
+						Booking {bookingStatusLabel(exception.bookingStatus).toLowerCase()}
+					</Badge>
 				</div>
 			</div>
 
@@ -145,7 +148,13 @@ function ExceptionCard({ exception }: { exception: PaymentException }) {
 	)
 }
 
-function ResolveForm({ exception, onCancel }: { exception: PaymentException; onCancel: () => void }) {
+function ResolveForm({
+	exception,
+	onCancel,
+}: {
+	exception: PaymentException
+	onCancel: () => void
+}) {
 	const resolve = useResolvePaymentExceptionMutation()
 	const [resolution, setResolution] = useState<PaymentReviewResolution>("refund_requested")
 	const [note, setNote] = useState("")
@@ -211,7 +220,9 @@ function ResolveForm({ exception, onCancel }: { exception: PaymentException; onC
 
 			{resolution === "rebooked" ? (
 				<div className="flex max-w-sm flex-col gap-2">
-					<Label htmlFor={`rebooked-${exception.paymentId}`}>Reference Number of the new booking</Label>
+					<Label htmlFor={`rebooked-${exception.paymentId}`}>
+						Reference Number of the new booking
+					</Label>
 					<Input
 						id={`rebooked-${exception.paymentId}`}
 						value={reference}

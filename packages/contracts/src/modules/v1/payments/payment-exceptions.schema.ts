@@ -28,7 +28,8 @@ export const PaymentExceptionSchema = z.object({
 	referenceNumber: ReferenceNumberSchema,
 	bookingStatus: BookingStatusSchema,
 	clientName: z.string(),
-	clientEmail: z.string(),
+	/** Null when the client has no email (a mobile-only walk-in): show "No email". */
+	clientEmail: z.string().nullable(),
 	amountCentavos: z.number().int().min(0),
 	channelCode: z.string(),
 	providerCode: z.string(),

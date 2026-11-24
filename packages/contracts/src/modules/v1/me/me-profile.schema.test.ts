@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { ClientProfileSchema, UpdateClientProfileSchema } from "./me.schema"
+import { PRIVACY_NOTICE_VERSION, privacyConsentRequired } from "../../../common/privacy-notice"
+import {
+	AcceptPrivacyNoticeSchema,
+	ClientProfileSchema,
+	UpdateClientProfileSchema,
+} from "./me.schema"
 
 const valid = {
 	name: "Juan Dela Cruz",
@@ -53,7 +58,50 @@ describe("ClientProfileSchema", () => {
 			gender: null,
 			profileCompletedAt: null,
 			isComplete: false,
+			privacyConsentRequired: true,
 		})
 		expect(result.isComplete).toBe(false)
+	})
+
+	it("reads a mobile-only account with no email (PRC-2b)", () => {
+		const result = ClientProfileSchema.parse({
+			name: "Walk-in Client",
+			email: null,
+			mobile: "09171234567",
+			birthDate: "1990-02-01",
+			nationality: "Filipino",
+			gender: "Male",
+			profileCompletedAt: null,
+			isComplete: false,
+			privacyConsentRequired: false,
+		})
+		expect(result.email).toBeNull()
+	})
+})
+
+describe("Privacy Notice consent (PRC-2b)", () => {
+	it("is required with no consent on record", () => {
+		expect(privacyConsentRequired(null)).toBe(true)
+		expect(privacyConsentRequired(undefined)).toBe(true)
+		expect(privacyConsentRequired("")).toBe(true)
+	})
+
+	it("is required when the current notice is newer than the one accepted", () => {
+		expect(privacyConsentRequired("2026-11-16", "2027-01-05")).toBe(true)
+	})
+
+	it("is not required for the current version", () => {
+		expect(privacyConsentRequired(PRIVACY_NOTICE_VERSION)).toBe(false)
+		expect(privacyConsentRequired("2027-01-05", "2027-01-05")).toBe(false)
+	})
+
+	it("accepts only the current version", () => {
+		expect(
+			AcceptPrivacyNoticeSchema.safeParse({ privacyNoticeVersion: PRIVACY_NOTICE_VERSION }).success
+		).toBe(true)
+		expect(
+			AcceptPrivacyNoticeSchema.safeParse({ privacyNoticeVersion: "2020-01-01" }).success
+		).toBe(false)
+		expect(AcceptPrivacyNoticeSchema.safeParse({}).success).toBe(false)
 	})
 })

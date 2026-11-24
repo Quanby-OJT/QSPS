@@ -73,7 +73,8 @@ export const UserExportFormatSchema = z.enum(["csv", "xlsx", "pdf"])
 export const UserWithRolesSchema = z.object({
 	id: z.string(),
 	name: z.string().nullable(),
-	email: z.string(),
+	/** Null when the account has no email (a mobile-only walk-in client): show "No email". */
+	email: z.string().nullable(),
 	accountType: UserAccountTypeSchema,
 	status: UserAccountStatusSchema,
 	roles: z.array(z.string()),
@@ -218,9 +219,7 @@ export const AuditLogEntryDetailSchema = AuditLogEntrySchema.extend({
 })
 
 /** A business date, YYYY-MM-DD, read in Asia/Manila. */
-const AuditDateSchema = z
-	.string()
-	.regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD")
+const AuditDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD")
 
 const optionalText = (max: number) => z.string().trim().min(1).max(max).optional()
 
