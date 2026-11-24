@@ -14,6 +14,8 @@ import { cn } from "@/core/lib/utils"
 import {
 	useIssueDocumentMutation,
 	usePrintDocumentMutation,
+	useReissueDocumentMutation,
+	useRevokeDocumentMutation,
 } from "@/features/processing/api/processing.hooks"
 import { documentTypeLabel, printCountLabel } from "@/features/processing/lib/labels"
 import { manilaDateKey } from "@/features/schedules/lib/calendar"
@@ -280,9 +282,12 @@ export function DocumentDetailsFields({
 export function IssuedDocumentPanel({
 	item,
 	canPrint,
+	canRevoke = false,
 }: {
 	item: ProcessingItem & { document: NonNullable<ProcessingItem["document"]> }
 	canPrint: boolean
+	/** CRT-8: the caller holds certificates.documents:revoke. */
+	canRevoke?: boolean
 }) {
 	const print = usePrintDocumentMutation(item.bookingItemId)
 	const { document } = item
@@ -334,6 +339,7 @@ export function IssuedDocumentPanel({
 					</p>
 				</div>
 			) : null}
+			{canRevoke ? <DocumentStatusActions item={item} /> : null}
 		</div>
 	)
 }
@@ -396,6 +402,118 @@ export function IssueDocumentPanel({
 						? "Issue exemption certificate"
 						: "Issue certificate"}
 			</Button>
+		</form>
+	)
+}
+
+/**
+ * CRT-8: withdraw the document, or replace it with a corrected one. Shown to
+ * staff with certificates.documents:revoke; the API checks the key and the
+ * Scope on every call. A reason is always required and is kept in the audit.
+ */
+function DocumentStatusActions({
+	item,
+}: {
+	item: ProcessingItem & { document: NonNullable<ProcessingItem["document"]> }
+}) {
+	const revoke = useRevokeDocumentMutation(item.bookingItemId)
+	const reissue = useReissueDocumentMutation(item.bookingItemId)
+	const form = useDocumentDetailsForm()
+	const [action, setAction] = useState<"none" | "revoke" | "reissue">("none")
+	const [reason, setReason] = useState("")
+	const { document } = item
+	const exemptionDocument = document.documentType === "medical-exemption"
+	const busy = revoke.isPending || reissue.isPending
+
+	function close() {
+		setAction("none")
+		setReason("")
+	}
+
+	async function submit(event: React.FormEvent) {
+		event.preventDefault()
+		const trimmed = reason.trim()
+		if (!trimmed) return
+		try {
+			if (action === "revoke") {
+				await revoke.mutateAsync({ documentId: document.id, reason: trimmed })
+				toast.success(`Document ${document.documentNumber} revoked`)
+			} else {
+				if (form.missing) return
+				const replacement = await reissue.mutateAsync({
+					documentId: document.id,
+					reason: trimmed,
+					details: exemptionDocument ? null : form.details(),
+					exemption: exemptionDocument ? form.exemptionDetails() : null,
+				})
+				toast.success(`Reissued as ${replacement.documentNumber}`)
+			}
+			close()
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Could not change the document")
+		}
+	}
+
+	if (action === "none") {
+		return (
+			<div className="flex flex-wrap gap-2 border-t pt-3">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => {
+						form.setMode(exemptionDocument ? "exempt" : "vaccinated")
+						setAction("reissue")
+					}}
+				>
+					Reissue with corrections
+				</Button>
+				<Button type="button" variant="destructive" onClick={() => setAction("revoke")}>
+					Revoke
+				</Button>
+			</div>
+		)
+	}
+
+	return (
+		<form onSubmit={event => void submit(event)} className="flex flex-col gap-3 border-t pt-3">
+			<h3 className="text-sm font-medium">
+				{action === "revoke" ? "Revoke this document" : "Reissue a corrected document"}
+			</h3>
+			<p className="text-muted-foreground text-xs">
+				{action === "revoke"
+					? "It stops being valid at once and the verification page says so. It stays on record, and the client is told."
+					: "This document becomes superseded. A new one with a new number and QR code replaces it, and the client is told."}
+			</p>
+			{action === "reissue" ? (
+				<DocumentDetailsFields
+					form={form}
+					allowExemption={exemptionDocument}
+					idPrefix="reissue"
+					intro="Enter the corrected details. The client's name and details come from their profile."
+				/>
+			) : null}
+			<div className="flex flex-col gap-1.5">
+				<Label htmlFor="document-status-reason">Reason *</Label>
+				<Textarea
+					id="document-status-reason"
+					value={reason}
+					maxLength={MAX_REASON_LENGTH}
+					rows={2}
+					onChange={event => setReason(event.target.value)}
+				/>
+			</div>
+			<div className="flex flex-wrap gap-2">
+				<Button
+					type="submit"
+					variant={action === "revoke" ? "destructive" : "default"}
+					disabled={busy || !reason.trim() || (action === "reissue" && form.missing)}
+				>
+					{busy ? "Savingâ€¦" : action === "revoke" ? "Revoke document" : "Reissue document"}
+				</Button>
+				<Button type="button" variant="ghost" disabled={busy} onClick={close}>
+					Cancel
+				</Button>
+			</div>
 		</form>
 	)
 }
