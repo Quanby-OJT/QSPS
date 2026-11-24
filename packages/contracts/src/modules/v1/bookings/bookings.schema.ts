@@ -1,13 +1,11 @@
 import { z } from "zod"
 
-import { DocumentStatusSchema, DocumentTypeSchema } from "../certificates/certificates.schema.js"
 import {
 	FORM_UPLOAD_CONTENT_TYPES,
 	FORM_UPLOAD_MAX_BYTES,
 	FormAnswersSchema,
 } from "../forms/form-answers.js"
 import { FormFieldSchema } from "../forms/forms.schema.js"
-import { PaymentStatusSchema } from "../payments/payment-status.js"
 
 const dateField = z
 	.union([z.date(), z.string()])
@@ -25,14 +23,6 @@ export const BOOKING_STATUSES = [
 	"refund_requested",
 	"refunded",
 ] as const
-
-/**
- * Client-facing Booking status labels (BKG-4, DOMAIN-MODEL.md section 5.1):
- * - Pending: pending_approval, pending_payment
- * - Paid: paid, completed, refund_requested (money still held until refunded)
- * - Cancelled: cancelled, rejected, forfeited, refunded
- */
-export const CLIENT_BOOKING_STATUSES = ["Pending", "Paid", "Cancelled"] as const
 
 export const BOOKING_KINDS = ["regular", "expedite", "vip", "walk-in"] as const
 
@@ -56,7 +46,6 @@ export const BOOKING_CANCEL_REASONS = ["hold_expired", "no_show", "client_cancel
 export const MAX_BOOKING_ITEMS = 10
 
 export const BookingStatusSchema = z.enum(BOOKING_STATUSES)
-export const ClientBookingStatusSchema = z.enum(CLIENT_BOOKING_STATUSES)
 export const BookingCancelReasonSchema = z.enum(BOOKING_CANCEL_REASONS)
 export const BookingKindSchema = z.enum(BOOKING_KINDS)
 export const BookingItemStatusSchema = z.enum(BOOKING_ITEM_STATUSES)
@@ -97,71 +86,6 @@ export const BookingSchema = z.object({
 	cancelledAt: dateField.nullable(),
 	createdAt: dateField,
 	items: z.array(BookingItemSchema).min(1),
-})
-
-/**
- * One Booking row in the client's "My Transactions" list (BKG-4).
- * Lists Reference Number, Services, schedule, total, and client-facing status.
- */
-export const BookingSummarySchema = z.object({
-	id: z.number().int().positive(),
-	referenceNumber: ReferenceNumberSchema,
-	status: BookingStatusSchema,
-	clientStatus: ClientBookingStatusSchema,
-	totalCentavos: z.number().int().min(0),
-	payOnsite: z.boolean(),
-	holdExpiresAt: dateField.nullable(),
-	createdAt: dateField,
-	items: z.array(BookingItemSchema).min(1),
-})
-
-export const MyBookingsResponseSchema = z.object({
-	bookings: z.array(BookingSummarySchema),
-})
-
-/** Payment details shown on the client's Booking detail view (BKG-4). */
-export const BookingPaymentDetailSchema = z.object({
-	id: z.number().int().positive(),
-	amountCentavos: z.number().int().min(0),
-	convenienceFeeCentavos: z.number().int().min(0),
-	providerCode: z.string(),
-	channelCode: z.string().nullable(),
-	channelName: z.string().nullable(),
-	status: PaymentStatusSchema,
-	paidAt: dateField.nullable(),
-	createdAt: dateField,
-})
-
-/** e-Receipt metadata linked from the client's Booking detail view (BKG-4). */
-export const BookingReceiptDetailSchema = z.object({
-	id: z.number().int().positive(),
-	paymentId: z.number().int().positive(),
-	receiptNumber: z.string(),
-	verificationToken: z.string(),
-	issuedAt: dateField,
-})
-
-/** Issued Document summary shown on the client's Booking detail view (BKG-4). */
-export const BookingIssuedDocumentSchema = z.object({
-	id: z.number().int().positive(),
-	bookingItemId: z.number().int().positive(),
-	serviceName: z.string(),
-	documentType: DocumentTypeSchema,
-	documentNumber: z.string(),
-	status: DocumentStatusSchema,
-	issuedAt: dateField,
-	validUntil: z.string().nullable(),
-})
-
-/**
- * Full client Booking details (BKG-4): Booking header, each item's processing
- * status, payment details, e-Receipt, and any issued Documents.
- */
-export const BookingDetailSchema = BookingSchema.extend({
-	clientStatus: ClientBookingStatusSchema,
-	payment: BookingPaymentDetailSchema.nullable(),
-	receipt: BookingReceiptDetailSchema.nullable(),
-	documents: z.array(BookingIssuedDocumentSchema),
 })
 
 /**
@@ -207,7 +131,7 @@ export const CreateBookingSchema = z.object({
 		.transform(ids => [...new Set(ids)]),
 })
 
-/** One of the caller's own Bookings, by id (BKG-2, BKG-4). */
+/** One of the caller's own Bookings, by id (BKG-2). */
 export const BookingIdParamSchema = z.object({
 	bookingId: z.coerce.number().int().positive(),
 })
@@ -261,18 +185,11 @@ export const FormSubmissionSchema = z.object({
 })
 
 export type BookingStatus = z.infer<typeof BookingStatusSchema>
-export type ClientBookingStatus = z.infer<typeof ClientBookingStatusSchema>
 export type BookingCancelReason = z.infer<typeof BookingCancelReasonSchema>
 export type BookingKind = z.infer<typeof BookingKindSchema>
 export type BookingItemStatus = z.infer<typeof BookingItemStatusSchema>
 export type BookingItem = z.infer<typeof BookingItemSchema>
 export type Booking = z.infer<typeof BookingSchema>
-export type BookingSummary = z.infer<typeof BookingSummarySchema>
-export type MyBookingsResponse = z.infer<typeof MyBookingsResponseSchema>
-export type BookingPaymentDetail = z.infer<typeof BookingPaymentDetailSchema>
-export type BookingReceiptDetail = z.infer<typeof BookingReceiptDetailSchema>
-export type BookingIssuedDocument = z.infer<typeof BookingIssuedDocumentSchema>
-export type BookingDetail = z.infer<typeof BookingDetailSchema>
 export type BookingItemFormInput = z.infer<typeof BookingItemFormInputSchema>
 export type CreateBookingItemInput = z.infer<typeof CreateBookingItemSchema>
 export type CreateBookingInput = z.infer<typeof CreateBookingSchema>

@@ -1,4 +1,4 @@
-import type { BookingKind, BookingStatus, ClientBookingStatus } from "@repo/contracts"
+import type { BookingKind, BookingStatus } from "@repo/contracts"
 
 /**
  * Booking state machine (DOMAIN-MODEL.md section 5.1).
@@ -40,28 +40,4 @@ export function isTerminal(status: BookingStatus): boolean {
  */
 export function initialStatus(kind: BookingKind): BookingStatus {
 	return kind === "expedite" ? "pending_approval" : "pending_payment"
-}
-
-/**
- * The client-facing status of a Booking (BKG-4, Annex B, DOMAIN-MODEL.md 5.1):
- * Pending = pending_approval or pending_payment; Paid = paid or completed;
- * Cancelled = cancelled, rejected, forfeited or refunded. `refund_requested`
- * is not listed there: it stays Paid until the refund is settled, since the
- * client's money is still held (to confirm with Sir Sean).
- */
-export function toClientBookingStatus(status: BookingStatus): ClientBookingStatus {
-	switch (status) {
-		case "pending_approval":
-		case "pending_payment":
-			return "Pending"
-		case "paid":
-		case "completed":
-		case "refund_requested":
-			return "Paid"
-		case "cancelled":
-		case "rejected":
-		case "forfeited":
-		case "refunded":
-			return "Cancelled"
-	}
 }

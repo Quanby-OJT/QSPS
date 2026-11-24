@@ -1,9 +1,18 @@
 import { z } from "zod"
 
 import { BookingStatusSchema, ReferenceNumberSchema } from "../bookings/bookings.schema.js"
-import { PAYMENT_STATUSES, PaymentStatusSchema } from "./payment-status.js"
 
-export { PAYMENT_STATUSES, PaymentStatusSchema }
+/** Payment statuses, state machine 5.3 in DOMAIN-MODEL.md. */
+export const PAYMENT_STATUSES = [
+	"initiated",
+	"pending",
+	"succeeded",
+	"failed",
+	"expired",
+	"refunded",
+] as const
+
+export const PaymentStatusSchema = z.enum(PAYMENT_STATUSES)
 
 /** A provider or channel code: lowercase letters, digits and dashes, e.g. "fake", "linkbiz". */
 export const PaymentCodeSchema = z
