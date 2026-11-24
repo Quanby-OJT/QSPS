@@ -54,4 +54,10 @@ describe("buildPaymentProviders", () => {
 		mutableEnv.NODE_ENV = "production"
 		expect(buildPaymentProviders().map(p => p.code)).not.toContain("fake")
 	})
+
+	it("always includes the onsite cashier provider, in production too (PAY-4)", () => {
+		mutableEnv.NODE_ENV = "production"
+		mutableEnv.PAYMENT_FAKE_ENABLED = false
+		expect(buildPaymentProviders().map(p => p.code)).toEqual(["onsite"])
+	})
 })

@@ -18,6 +18,7 @@ const PRIVATE_PATHS = [
 	"/locations",
 	"/services",
 	"/forms",
+	"/cashier",
 	"/schedules",
 	"/audit-log",
 	"/settings",

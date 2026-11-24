@@ -104,3 +104,14 @@ export function needsIssuing(item: {
 }): boolean {
 	return item.status === "cleared" && item.service.documentType !== null && item.document === null
 }
+
+/**
+ * PRC-4: the names of the active required steps with no result yet, in
+ * order. The item can be cleared only when this is empty; the API checks the
+ * same rule.
+ */
+export function pendingRequiredSteps(
+	steps: readonly { name: string; required: boolean; status: "pending" | "done" }[]
+): string[] {
+	return steps.filter(step => step.required && step.status === "pending").map(step => step.name)
+}
