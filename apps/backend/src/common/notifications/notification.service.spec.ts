@@ -159,4 +159,50 @@ describe("NotificationService.enqueue (NTF-1)", () => {
 			)
 		).rejects.toThrow("Notification booking not found")
 	})
+	itDb(
+		"queues no email for a mobile-only client with the placeholder address (PRC-2b)",
+		async () => {
+			const mobileOnlyId = `${marker}-mobile-only`
+			await db.insert(users).values({
+				id: mobileOnlyId,
+				name: "Mobile-only test client",
+				email: `${mobileOnlyId}@no-email.invalid`,
+			})
+			try {
+				const suffix = `${process.pid % 1000}${referenceCounter++}`.padStart(6, "0").slice(-6)
+				const [booking] = await db
+					.insert(bookings)
+					.values({
+						referenceNumber: `QSPS-010103-${suffix}`,
+						clientId: mobileOnlyId,
+						status: "pending_payment",
+						kind: "walk-in",
+						totalCentavos: 10000,
+						holdExpiresAt: null,
+						createdBy: mobileOnlyId,
+					})
+					.returning({ id: bookings.id })
+				if (!booking) throw new Error("Expected a booking")
+
+				await db.transaction(async tx => {
+					await NotificationService.enqueue(
+						tx,
+						booking.id,
+						"booking_confirmed",
+						"prc2b-placeholder"
+					)
+				})
+
+				const rows = await db
+					.select()
+					.from(notifications)
+					.where(eq(notifications.userId, mobileOnlyId))
+				expect(rows.filter(row => row.channel === "email")).toEqual([])
+			} finally {
+				await db.delete(notifications).where(eq(notifications.userId, mobileOnlyId))
+				await db.delete(bookings).where(eq(bookings.clientId, mobileOnlyId))
+				await db.delete(users).where(eq(users.id, mobileOnlyId))
+			}
+		}
+	)
 })
