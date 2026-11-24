@@ -50,6 +50,10 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 	// CRT-6
 	"food-safety-training": "Food Safety Training Certificate",
 	"haccp": "HACCP Certificate",
+	// CRT-7
+	"human-remains": "Human Remains Certificate",
+	"biological-certification": "Biological Substance Certification",
+	"biological-permit": "Biological Substance Permit",
 }
 
 function isDocumentType(value: string | null): value is DocumentType {

@@ -1,6 +1,9 @@
+import { biologicalCertification } from "./biological-certification"
+import { biologicalPermit } from "./biological-permit"
 import type { RenderableDocumentType } from "./document-type"
 import { foodSafetyTraining } from "./food-safety-training"
 import { haccp } from "./haccp"
+import { humanRemains } from "./human-remains"
 import { icvRecord } from "./icv-record"
 import { medicalExemption } from "./medical-exemption"
 import { sanitaryPermit } from "./sanitary-permit"
@@ -20,6 +23,11 @@ const REGISTRY: Record<string, RenderableDocumentType> = {
 	// CRT-6: issued by food safety Services. Wording and numbering await BOQ sign-off (PRD open item 6).
 	[foodSafetyTraining.type]: foodSafetyTraining,
 	[haccp.type]: haccp,
+	// CRT-7: issued by human remains and biological substance Services. Their payload is
+	// stored encrypted. Wording and numbering await BOQ sign-off (PRD open item 6).
+	[humanRemains.type]: humanRemains,
+	[biologicalCertification.type]: biologicalCertification,
+	[biologicalPermit.type]: biologicalPermit,
 }
 
 /**
@@ -33,6 +41,9 @@ const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
 	[shipSanitation.type]: shipSanitation,
 	[foodSafetyTraining.type]: foodSafetyTraining,
 	[haccp.type]: haccp,
+	[humanRemains.type]: humanRemains,
+	[biologicalCertification.type]: biologicalCertification,
+	[biologicalPermit.type]: biologicalPermit,
 }
 
 /**
@@ -42,7 +53,17 @@ const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
  */
 const VACCINATION_TYPES: readonly string[] = [icvRecord.type]
 
-export { foodSafetyTraining, haccp, icvRecord, medicalExemption, sanitaryPermit, shipSanitation }
+export {
+	biologicalCertification,
+	biologicalPermit,
+	foodSafetyTraining,
+	haccp,
+	humanRemains,
+	icvRecord,
+	medicalExemption,
+	sanitaryPermit,
+	shipSanitation,
+}
 
 /** The definition of an existing document's type, or undefined when QSPS cannot draw it. */
 export function documentTypeFor(
