@@ -29,8 +29,8 @@ export const BOOKING_STATUSES = [
 /**
  * Client-facing Booking status labels (BKG-4, DOMAIN-MODEL.md section 5.1):
  * - Pending: pending_approval, pending_payment
- * - Paid: paid, completed
- * - Cancelled: cancelled, rejected, forfeited, refund_requested, refunded
+ * - Paid: paid, completed, refund_requested (money still held until refunded)
+ * - Cancelled: cancelled, rejected, forfeited, refunded
  */
 export const CLIENT_BOOKING_STATUSES = ["Pending", "Paid", "Cancelled"] as const
 

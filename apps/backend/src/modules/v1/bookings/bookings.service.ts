@@ -150,19 +150,10 @@ export class BookingService {
 			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your booking" })
 		}
 
-		const [row] = await db
-			.select()
-			.from(bookings)
-			.where(eq(bookings.id, bookingId))
-			.limit(1)
+		const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1)
 
 		if (!row || row.clientId !== actorId) {
-			await this.recordDenial(
-				actorId,
-				"booking.read",
-				bookingId,
-				row ? "not_owner" : "not_found"
-			)
+			await this.recordDenial(actorId, "booking.read", bookingId, row ? "not_owner" : "not_found")
 			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
 		}
 
