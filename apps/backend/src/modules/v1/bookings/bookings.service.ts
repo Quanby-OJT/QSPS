@@ -68,6 +68,17 @@ interface CheckoutLine {
 /** A saved Booking Item and the checkout line it came from. */
 type SavedItem = typeof bookingItems.$inferSelect & { line: CheckoutLine }
 
+/**
+ * PRC-2: a checkout a Processing Officer makes for a walk-in client. The
+ * Booking belongs to `clientId`, is recorded as created by the officer, and
+ * every slot must be at the officer's Location. A slot already in progress
+ * may be chosen, since the client is at the counter.
+ */
+export interface WalkInCheckout {
+	clientId: string
+	locationId: number
+}
+
 /** What happened when staff tried to check a Booking in (PRC-1). */
 export type CheckInResult =
 	| { ok: true; bookingItemIds: number[]; checkedInIds: number[] }
@@ -114,11 +125,15 @@ export class BookingService {
 	async create(
 		input: CreateBookingInput,
 		actorId: string | null,
-		now: Date = new Date()
+		now: Date = new Date(),
+		walkIn?: WalkInCheckout
 	): Promise<Booking> {
 		if (!actorId) {
 			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to book" })
 		}
+		// PRC-2: a walk-in Booking is the client's; the officer only creates it.
+		const clientId = walkIn?.clientId ?? actorId
+		const kind = walkIn ? "walk-in" : "regular"
 
 		// ADM-6: the hold comes from the `booking.hold_minutes` Policy.
 		const holdMinutes = await this.policyService.get("booking.hold_minutes")
@@ -126,16 +141,18 @@ export class BookingService {
 		return db.transaction(async tx => {
 			// Locks the client's own row so two requests from the same client are
 			// handled one after the other, and the unpaid-booking check below holds.
-			await tx.select({ id: users.id }).from(users).where(eq(users.id, actorId)).for("update")
+			await tx.select({ id: users.id }).from(users).where(eq(users.id, clientId)).for("update")
 
 			const [unpaid] = await tx
 				.select({ referenceNumber: bookings.referenceNumber })
 				.from(bookings)
-				.where(and(eq(bookings.clientId, actorId), eq(bookings.status, "pending_payment")))
+				.where(and(eq(bookings.clientId, clientId), eq(bookings.status, "pending_payment")))
 				.limit(1)
 			if (unpaid) {
 				throw new ORPCError("CONFLICT", {
-					message: `You already have a booking awaiting payment (${unpaid.referenceNumber}). Pay or cancel it before booking again.`,
+					message: walkIn
+						? `This client already has a booking awaiting payment (${unpaid.referenceNumber}). Collect its payment at the cashier, or cancel it, before booking again.`
+						: `You already have a booking awaiting payment (${unpaid.referenceNumber}). Pay or cancel it before booking again.`,
 				})
 			}
 
@@ -202,9 +219,16 @@ export class BookingService {
 						`The slot you chose for ${service.name} is no longer available. Choose a new slot for it.`
 					)
 				}
-				if (slot.startsAt.getTime() <= now.getTime()) {
+				// PRC-2: a walk-in may join a slot already in progress, until it ends.
+				const walkInMayJoin = walkIn !== undefined && slot.endsAt.getTime() > now.getTime()
+				if (slot.startsAt.getTime() <= now.getTime() && !walkInMayJoin) {
 					throw refuse(
 						`The slot you chose for ${service.name} has already started. Choose a new slot for it.`
+					)
+				}
+				if (walkIn && slot.locationId !== walkIn.locationId) {
+					throw refuse(
+						`The slot you chose for ${service.name} is not at your location. Choose one of today's slots here.`
 					)
 				}
 				if (slot.bookedCount >= slot.capacity) {
@@ -255,11 +279,12 @@ export class BookingService {
 				.insert(bookings)
 				.values({
 					referenceNumber,
-					clientId: actorId,
-					status: initialStatus("regular"),
-					kind: "regular",
+					clientId,
+					status: initialStatus(kind),
+					kind,
 					totalCentavos,
 					holdExpiresAt,
+					// PRC-2: the officer for a walk-in; the client for their own booking.
 					createdBy: actorId,
 				})
 				.returning()
@@ -295,7 +320,7 @@ export class BookingService {
 					acceptedPolicies.map(policy => ({
 						bookingId: booking.id,
 						policyDocumentId: policy.id,
-						clientId: actorId,
+						clientId,
 						acceptedAt: now,
 					}))
 				)
@@ -336,6 +361,7 @@ export class BookingService {
 						id: booking.id,
 						referenceNumber: booking.referenceNumber,
 						clientId: booking.clientId,
+						createdBy: booking.createdBy,
 						status: booking.status,
 						kind: booking.kind,
 						totalCentavos: booking.totalCentavos,

@@ -144,6 +144,29 @@ export type {
 	CollectOnsiteResult,
 } from "./modules/v1/payments/cashier.schema.js"
 
+// Walk-in contracts + schemas (PRC-2)
+export { walkInContract } from "./modules/v1/bookings/walk-in.contract.js"
+export {
+	MIN_WALK_IN_LOOKUP_LENGTH,
+	MAX_WALK_IN_LOOKUP_RESULTS,
+	WalkInClientLookupSchema,
+	WalkInClientSchema,
+	CreateWalkInClientSchema,
+	WalkInSlotsRequestSchema,
+	WalkInSlotSchema,
+	WalkInSlotsSchema,
+	CreateWalkInBookingSchema,
+} from "./modules/v1/bookings/walk-in.schema.js"
+export type {
+	WalkInClientLookup,
+	WalkInClient,
+	CreateWalkInClientInput,
+	WalkInSlotsRequest,
+	WalkInSlot,
+	WalkInSlots,
+	CreateWalkInBookingInput,
+} from "./modules/v1/bookings/walk-in.schema.js"
+
 // Processing contracts + schemas (PRC-1)
 export { processingContract } from "./modules/v1/processing/processing.contract.js"
 export {

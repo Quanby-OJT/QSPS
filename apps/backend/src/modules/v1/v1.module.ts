@@ -15,6 +15,7 @@ import { RbacAdminModule } from "./rbac/rbac.module"
 import { SchedulesModule } from "./schedules/schedules.module"
 import { ServicesModule } from "./services/services.module"
 import { SupportModule } from "./support/support.module"
+import { WalkInModule } from "./walk-in/walk-in.module"
 
 @Module({
 	imports: [
@@ -30,6 +31,8 @@ import { SupportModule } from "./support/support.module"
 		RbacAdminModule,
 		SchedulesModule,
 		ServicesModule,
+		// PRC-2: walk-in clients booked by a Processing Officer.
+		WalkInModule,
 		// Sentry diagnostics exist ONLY in development. Conditional import rather
 		// than a runtime guard on the handler: the routes are then absent from the
 		// router entirely (404), so there is no guard to misconfigure and no

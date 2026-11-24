@@ -47,7 +47,15 @@ export function shouldDehydrateMutation(mutation: { state: { isPaused: boolean }
  */
 // "payments": a payment's status belongs to one signed-in user and changes
 // while the return page polls; it must never be saved to browser storage.
-export const NON_PERSISTED_QUERY_ROOTS = ["session", "rbac", "payments", "certificates"] as const
+// "walk-in": client lookups at the counter (PRC-2) carry other people's names,
+// emails, mobile numbers and birth dates.
+export const NON_PERSISTED_QUERY_ROOTS = [
+	"session",
+	"rbac",
+	"payments",
+	"certificates",
+	"walk-in",
+] as const
 
 /**
  * The string labels in a query key's first segment. Handles both plain keys
