@@ -12,6 +12,11 @@ export interface IssueContext {
 	locationName: string
 	/** When the document is issued; its Manila date is the date given. */
 	issuedAt: Date
+	/**
+	 * The client's questionnaire answers for this item, by question label (CRT-5).
+	 * Only loaded for types built from the questionnaire, such as the Sanitary Permit.
+	 */
+	answers?: Record<string, string>
 }
 
 /** Printed around the payload on every document. */
