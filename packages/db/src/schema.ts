@@ -1004,6 +1004,9 @@ export type FormFieldType =
 	| "yes_no"
 	| "file"
 
+/** What a Form Template is for (PRC-4). Same list as FORM_TEMPLATE_PURPOSES in @repo/contracts. */
+export type FormTemplatePurpose = "questionnaire" | "step_result"
+
 /**
  * One version of the questionnaire a client answers for a Service (FRM-1).
  *
@@ -1022,7 +1025,21 @@ export const formTemplates = createTable(
 			.integer("service_id")
 			.notNull()
 			.references(() => services.id, { onDelete: "restrict" }),
-		/** 1, 2, 3… per Service, in the order versions were created. */
+		/**
+		 * PRC-4: `questionnaire` is the client's form for the Service (FRM-1);
+		 * `step_result` is the form staff fill at one Service Step, named by
+		 * `service_step_id`. Questionnaire screens and queries see only
+		 * questionnaires.
+		 */
+		purpose: t.text("purpose").notNull().default("questionnaire").$type<FormTemplatePurpose>(),
+		/** PRC-4: the Service Step this result form belongs to; null for questionnaires. */
+		serviceStepId: t
+			.integer("service_step_id")
+			.references(() => serviceSteps.id, { onDelete: "restrict" }),
+		/**
+		 * 1, 2, 3… in the order versions were created: per Service for a
+		 * questionnaire, per Service Step for a step result form.
+		 */
 		version: t.integer("version").notNull(),
 		status: t.text("status").notNull().default("draft").$type<"draft" | "published" | "retired">(),
 		isActive: t.boolean("is_active").notNull().default(true),
@@ -1031,14 +1048,23 @@ export const formTemplates = createTable(
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
 	t => [
-		uniqueIndex("form_templates_service_version_uq").on(t.serviceId, t.version),
-		// At most one draft and one published version per Service.
+		uniqueIndex("form_templates_service_version_uq")
+			.on(t.serviceId, t.version)
+			.where(sql`${t.purpose} = 'questionnaire'`),
+		// At most one draft and one published questionnaire version per Service.
 		uniqueIndex("form_templates_one_draft_per_service_uq")
 			.on(t.serviceId)
-			.where(sql`${t.status} = 'draft'`),
+			.where(sql`${t.status} = 'draft' and ${t.purpose} = 'questionnaire'`),
 		uniqueIndex("form_templates_one_published_per_service_uq")
 			.on(t.serviceId)
-			.where(sql`${t.status} = 'published'`),
+			.where(sql`${t.status} = 'published' and ${t.purpose} = 'questionnaire'`),
+		// PRC-4: a step's result form is versioned per step, with one published version.
+		uniqueIndex("form_templates_step_version_uq")
+			.on(t.serviceStepId, t.version)
+			.where(sql`${t.serviceStepId} is not null`),
+		uniqueIndex("form_templates_one_published_per_step_uq")
+			.on(t.serviceStepId)
+			.where(sql`${t.status} = 'published' and ${t.serviceStepId} is not null`),
 	]
 )
 
@@ -1090,6 +1116,74 @@ export const formSubmissions = createTable(
 	]
 )
 
+/**
+ * An ordered station a Service's Booking Items pass through before
+ * clearance, such as Laboratory, X-ray or Physician evaluation (PRC-4, PRD
+ * assumption A3). Its result form is a `form_templates` row with
+ * `purpose = step_result`. A step with recorded results is never deleted,
+ * only disabled (`is_active` false), so old results keep their step.
+ */
+export const serviceSteps = createTable(
+	"service_steps",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		serviceId: t
+			.integer("service_id")
+			.notNull()
+			.references(() => services.id, { onDelete: "restrict" }),
+		name: t.text("name").notNull(),
+		/** 0-based order of the active steps. */
+		position: t.integer("position").notNull(),
+		/** A required step must have a result before the item can be cleared. */
+		required: t.boolean("required").notNull().default(true),
+		isActive: t.boolean("is_active").notNull().default(true),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [index("service_steps_service_idx").on(t.serviceId, t.position)]
+)
+
+/**
+ * The result recorded at one Service Step for one Booking Item (PRC-4).
+ * Insert-only: a correction adds the next `version`, and earlier versions
+ * are kept. The current result is the highest version. Points at the exact
+ * result form version filled, so an edited form never changes old results.
+ */
+export const stepResults = createTable(
+	"step_results",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingItemId: t
+			.integer("booking_item_id")
+			.notNull()
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		serviceStepId: t
+			.integer("service_step_id")
+			.notNull()
+			.references(() => serviceSteps.id, { onDelete: "restrict" }),
+		formTemplateId: t
+			.integer("form_template_id")
+			.notNull()
+			.references(() => formTemplates.id, { onDelete: "restrict" }),
+		/** 1 for the first result, 2, 3… for each correction. */
+		version: t.integer("version").notNull(),
+		answers: t.jsonb("answers").notNull().$type<Record<string, unknown>>(),
+		recordedBy: t
+			.text("recorded_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("step_results_item_step_version_uq").on(
+			t.bookingItemId,
+			t.serviceStepId,
+			t.version
+		),
+		index("step_results_step_idx").on(t.serviceStepId),
+	]
+)
+
 // ============================================================================
 // RELATIONS
 // ============================================================================
@@ -1130,6 +1224,8 @@ export const relations = defineRelations(
 		formTemplates,
 		formFields,
 		formSubmissions,
+		serviceSteps,
+		stepResults,
 	},
 	r => ({
 		users: {
@@ -1373,6 +1469,8 @@ export const schema = Object.assign(
 		formTemplates,
 		formFields,
 		formSubmissions,
+		serviceSteps,
+		stepResults,
 	},
 	relations
 )

@@ -4,6 +4,7 @@ import { db } from "@/common/database/database.client"
 import type { BookingService } from "../bookings/bookings.service"
 import type { DocumentService } from "../certificates/documents.service"
 import { ProcessingService } from "./processing.service"
+import { itemSteps, missingRequiredSteps } from "./steps/item-steps"
 
 // ADM-6: BookingService now reads PolicyService, which loads @repo/contracts
 // (and the ESM-only @orpc/contract). This spec does not test policies.
@@ -417,6 +418,112 @@ describe("ProcessingService", () => {
 				tx
 			)
 			expect(item.status).toBe("returned")
+		})
+
+		it("refuses to clear while a required step has no result, saving nothing (PRC-4)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA])
+			jest.mocked(missingRequiredSteps).mockResolvedValueOnce(["Laboratory", "X-ray"])
+			const values = mockInsert()
+
+			await expect(
+				processingService.assess(
+					{ bookingItemId: 44, outcome: "cleared", notes: "", corrections: {} },
+					"staff-1"
+				)
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("Laboratory, X-ray"),
+			})
+			expect(missingRequiredSteps).toHaveBeenCalledWith(tx, 44)
+			expect(bookingService.transitionItem).not.toHaveBeenCalled()
+			expect(values).not.toHaveBeenCalled()
+			expect(auditService.record).not.toHaveBeenCalled()
+		})
+
+		it("refuses a head approval while a required step has no result (PRC-4, Sir Sean)", async () => {
+			selects([{ id: 44, locationId: 2, serviceCategoryId: 1 }], [{ staffId: "officer-1" }])
+			jest.mocked(missingRequiredSteps).mockResolvedValueOnce(["X-ray"])
+
+			await expect(
+				processingService.decide({ bookingItemId: 44, decision: "approve", notes: "" }, "head-1")
+			).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("X-ray") })
+			expect(bookingService.transitionItem).not.toHaveBeenCalled()
+		})
+
+		it("refuses an override while a required step has no result (PRC-4, Sir Sean)", async () => {
+			selects([{ id: 44, locationId: 2, serviceCategoryId: 1 }])
+			jest.mocked(missingRequiredSteps).mockResolvedValueOnce(["Laboratory"])
+
+			await expect(
+				processingService.override(
+					{ bookingItemId: 44, reason: "Head reviewed the case again" },
+					"head-1"
+				)
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("Laboratory"),
+			})
+			expect(bookingService.overrideItem).not.toHaveBeenCalled()
+		})
+		it("still returns an item whose steps are not done (PRC-4)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "returned" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "returned" })
+			mockInsert()
+
+			await processingService.assess(
+				{ bookingItemId: 44, outcome: "returned", notes: "Redo the X-ray", corrections: {} },
+				"staff-1"
+			)
+
+			expect(missingRequiredSteps).not.toHaveBeenCalled()
+			expect(bookingService.transitionItem).toHaveBeenCalled()
+		})
+
+		it("clears as before when every required step is done or the Service has none (PRC-4)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "cleared" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "cleared" })
+			mockInsert()
+
+			await processingService.assess(
+				{ bookingItemId: 44, outcome: "cleared", notes: "", corrections: {} },
+				"staff-1"
+			)
+
+			expect(missingRequiredSteps).toHaveBeenCalledWith(tx, 44)
+			expect(bookingService.transitionItem).toHaveBeenCalledWith(
+				tx,
+				44,
+				"cleared",
+				expect.anything()
+			)
+		})
+
+		it("lists the item's steps on the assessment screen (PRC-4)", async () => {
+			selects([{ id: 44, locationId: 2 }], [MANILA], [{ ...detailRow, status: "returned" }], [])
+			bookingService.transitionItem.mockResolvedValue({ from: "in_assessment", to: "returned" })
+			mockInsert()
+			const steps = [
+				{
+					stepId: 3,
+					name: "Laboratory",
+					position: 0,
+					required: true,
+					isActive: true,
+					status: "pending" as const,
+					form: null,
+					result: null,
+					history: [],
+				},
+			]
+			jest.mocked(itemSteps).mockResolvedValueOnce(steps)
+
+			const item = await processingService.assess(
+				{ bookingItemId: 44, outcome: "returned", notes: "", corrections: {} },
+				"staff-1"
+			)
+
+			expect(itemSteps).toHaveBeenCalledWith(db, 44, 1)
+			expect(item.steps).toEqual(steps)
 		})
 
 		it("stores an empty note as null", async () => {
@@ -904,4 +1011,10 @@ describe("ProcessingService", () => {
 jest.mock("@/modules/v1/forms/form-answers-display", () => ({
 	fileAnswers: jest.fn().mockResolvedValue([]),
 	readableAnswers: jest.fn().mockResolvedValue({}),
+}))
+
+// PRC-4: steps are read by item-steps, tested in its own spec. No steps by default.
+jest.mock("./steps/item-steps", () => ({
+	itemSteps: jest.fn().mockResolvedValue([]),
+	missingRequiredSteps: jest.fn().mockResolvedValue([]),
 }))
