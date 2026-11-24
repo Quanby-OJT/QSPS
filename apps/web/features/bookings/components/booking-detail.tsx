@@ -36,8 +36,8 @@ function statusBadge(status: Booking["status"]) {
 			return <Badge variant="secondary">Pending payment</Badge>
 		case "cancelled":
 			return <Badge variant="destructive">Cancelled</Badge>
-		case "expired":
-			return <Badge variant="outline">Expired</Badge>
+		case "forfeited":
+			return <Badge variant="outline">Forfeited</Badge>
 		default:
 			return <Badge variant="outline">{status}</Badge>
 	}
@@ -73,8 +73,8 @@ export function BookingDetail({ bookingId }: { bookingId: number }) {
 						<Button type="button" variant="outline" onClick={() => void bookingQuery.refetch()}>
 							Retry
 						</Button>
-						<Button asChild variant="ghost">
-							<Link href="/dashboard">Back to dashboard</Link>
+						<Button variant="ghost" render={<Link href="/dashboard" />}>
+							Back to dashboard
 						</Button>
 					</div>
 				</div>
@@ -185,8 +185,8 @@ export function BookingDetail({ bookingId }: { bookingId: number }) {
 			/>
 
 			<div>
-				<Button asChild variant="outline">
-					<Link href="/dashboard">Back to dashboard</Link>
+				<Button variant="outline" render={<Link href="/dashboard" />}>
+					Back to dashboard
 				</Button>
 			</div>
 		</section>
