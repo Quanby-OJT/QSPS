@@ -74,6 +74,7 @@ describe("certificate schemas", () => {
 			issuingLocation: "Manila",
 			issuedAt: "2026-11-19T02:00:00.000Z",
 			status: "valid",
+			validUntil: null,
 			statusChangedAt: null,
 		}
 
@@ -140,7 +141,7 @@ describe("certificate schemas", () => {
 		})
 
 		it("is never a type a Service can be set to issue", () => {
-			expect(SERVICE_DOCUMENT_TYPES).toEqual(["icv-record"])
+			expect(SERVICE_DOCUMENT_TYPES as readonly string[]).not.toContain("medical-exemption")
 		})
 	})
 })

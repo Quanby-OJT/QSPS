@@ -101,7 +101,10 @@ export type {
 } from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
-export { paymentChannelsContract, paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export {
+	paymentChannelsContract,
+	paymentsContract,
+} from "./modules/v1/payments/payments.contract.js"
 export {
 	PAYMENT_STATUSES,
 	PaymentStatusSchema,
@@ -296,6 +299,9 @@ export {
 	DocumentStatusSchema,
 	IcvIssueDetailsSchema,
 	MedicalExemptionDetailsSchema,
+	SanitaryPermitDetailsSchema,
+	ShipSanitationDetailsSchema,
+	MAX_SHIP_FINDINGS_LENGTH,
 	IssueDocumentSchema,
 	DocumentSummarySchema,
 	MyDocumentsSchema,
@@ -309,6 +315,8 @@ export type {
 	DocumentStatus,
 	IcvIssueDetails,
 	MedicalExemptionDetails,
+	SanitaryPermitDetails,
+	ShipSanitationDetails,
 	IssueDocumentInput,
 	DocumentSummary,
 	MyDocuments,
