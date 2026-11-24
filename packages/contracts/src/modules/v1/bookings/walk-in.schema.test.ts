@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
+import { PRIVACY_NOTICE_VERSION } from "../../../common/privacy-notice.js"
 import {
+	AddWalkInClientEmailSchema,
 	CreateWalkInBookingSchema,
 	CreateWalkInClientSchema,
 	WalkInClientLookupSchema,
@@ -13,6 +15,7 @@ const client = {
 	birthDate: "1990-02-01",
 	nationality: "Filipino",
 	gender: "Male",
+	privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
 }
 
 describe("walk-in schemas (PRC-2)", () => {
@@ -23,14 +26,60 @@ describe("walk-in schemas (PRC-2)", () => {
 		})
 	})
 
-	it("requires an email and lowercases it", () => {
+	it("lowercases the email and refuses one that is not valid", () => {
 		expect(CreateWalkInClientSchema.parse(client)).toMatchObject({
 			name: "Juan Dela Cruz",
 			email: "juan@example.com",
 			mobile: null,
 		})
-		expect(CreateWalkInClientSchema.safeParse({ ...client, email: "" }).success).toBe(false)
 		expect(CreateWalkInClientSchema.safeParse({ ...client, email: "juan" }).success).toBe(false)
+	})
+
+	it("needs an email or a mobile number (PRC-2b)", () => {
+		const mobileOnly = CreateWalkInClientSchema.parse({
+			...client,
+			email: "",
+			mobile: "0917 123 4567",
+		})
+		expect(mobileOnly).toMatchObject({ email: null, mobile: "09171234567" })
+		expect(
+			CreateWalkInClientSchema.parse({ ...client, email: undefined, mobile: "09171234567" })
+		).toMatchObject({ email: null })
+
+		const neither = CreateWalkInClientSchema.safeParse({ ...client, email: " ", mobile: "" })
+		expect(neither.success).toBe(false)
+		expect(neither.error?.issues[0]).toMatchObject({
+			path: ["email"],
+			message: "Enter the client's email address or mobile number",
+		})
+	})
+
+	it("refuses a .invalid address typed at the counter", () => {
+		expect(
+			CreateWalkInClientSchema.safeParse({ ...client, email: "abc@no-email.invalid" }).success
+		).toBe(false)
+		expect(
+			AddWalkInClientEmailSchema.safeParse({ clientId: "c-1", email: "abc@no-email.invalid" })
+				.success
+		).toBe(false)
+	})
+
+	it("refuses the account without the Privacy Notice tick (PRC-2b)", () => {
+		const unticked: Partial<typeof client> = { ...client }
+		delete unticked.privacyNoticeVersion
+		const missing = CreateWalkInClientSchema.safeParse(unticked)
+		expect(missing.success).toBe(false)
+		expect(missing.error?.issues.map(issue => issue.path)).toContainEqual(["privacyNoticeVersion"])
+		expect(
+			CreateWalkInClientSchema.safeParse({ ...client, privacyNoticeVersion: "2020-01-01" }).success
+		).toBe(false)
+	})
+
+	it("adds a real email to a client, lowercased", () => {
+		expect(
+			AddWalkInClientEmailSchema.parse({ clientId: " c-1 ", email: " Juan@Example.COM " })
+		).toEqual({ clientId: "c-1", email: "juan@example.com" })
+		expect(AddWalkInClientEmailSchema.safeParse({ clientId: "c-1", email: "" }).success).toBe(false)
 	})
 
 	it("takes an optional mobile number without spaces or dashes", () => {

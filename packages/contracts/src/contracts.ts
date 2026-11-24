@@ -101,7 +101,10 @@ export type {
 } from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
-export { paymentChannelsContract, paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export {
+	paymentChannelsContract,
+	paymentsContract,
+} from "./modules/v1/payments/payments.contract.js"
 export {
 	PAYMENT_STATUSES,
 	PaymentStatusSchema,
@@ -188,6 +191,7 @@ export {
 	WalkInClientLookupSchema,
 	WalkInClientSchema,
 	CreateWalkInClientSchema,
+	AddWalkInClientEmailSchema,
 	WalkInSlotsRequestSchema,
 	WalkInSlotSchema,
 	WalkInSlotsSchema,
@@ -197,6 +201,7 @@ export type {
 	WalkInClientLookup,
 	WalkInClient,
 	CreateWalkInClientInput,
+	AddWalkInClientEmailInput,
 	WalkInSlotsRequest,
 	WalkInSlot,
 	WalkInSlots,
@@ -492,6 +497,7 @@ export {
 	MePermissionsSchema,
 	ClientProfileSchema,
 	UpdateClientProfileSchema,
+	AcceptPrivacyNoticeSchema,
 	GENDER_OPTIONS,
 	SmsChannelSchema,
 	SmsSettingsSchema,
@@ -504,6 +510,7 @@ export type {
 	MePermissions,
 	ClientProfile,
 	UpdateClientProfileInput,
+	AcceptPrivacyNoticeInput,
 	SmsChannel,
 	SmsSettings,
 	RequestSmsCodeInput,

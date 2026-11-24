@@ -13,6 +13,7 @@ import {
 	FormUploadSchema,
 } from "./bookings.schema.js"
 import {
+	AddWalkInClientEmailSchema,
 	CreateWalkInBookingSchema,
 	CreateWalkInClientSchema,
 	WalkInClientLookupSchema,
@@ -45,10 +46,22 @@ export const walkInContract = {
 			path: "/walk-in/clients",
 			summary: "Create a client account for a walk-in",
 			description:
-				"Creates a client account with no password, flagged to set one at first sign-in, and emails the client an invitation link to set it (staff never set credentials). Refused with 409 when an account already has this email or mobile number; the error data carries its clientId so staff can select it instead. Audited without personal data. Needs bookings.walk-in:create.",
+				"Creates a client account with no password, flagged to set one at first sign-in, and emails the client an invitation link to set it (staff never set credentials). The client needs an email address or a mobile number; without an email no invitation is sent and `email` is null. `privacyNoticeVersion` records that the client accepted the current Privacy Notice at the counter (400 without it). Refused with 409 when an account already has this email or mobile number; the error data carries its clientId so staff can select it instead. Audited without personal data. Needs bookings.walk-in:create.",
 			tags: ["Walk-in"],
 		})
 		.input(CreateWalkInClientSchema)
+		.output(WalkInClientSchema),
+
+	addClientEmail: oc
+		.route({
+			method: "PUT",
+			path: "/walk-in/clients/{clientId}/email",
+			summary: "Add an email address to a client who has none",
+			description:
+				"For a mobile-only walk-in client: replaces the stored placeholder with a real email address and, when the client has not set a password yet, emails the invitation. Refused with 409 when the client already has an email address or another account has this one. Audited without personal data. Needs bookings.walk-in:create.",
+			tags: ["Walk-in"],
+		})
+		.input(AddWalkInClientEmailSchema)
 		.output(WalkInClientSchema),
 
 	slots: oc

@@ -156,7 +156,8 @@ export const ProcessingItemSchema = z.object({
 	client: z.object({
 		id: z.string(),
 		name: z.string(),
-		email: z.string(),
+		/** Null when the client has no email (a mobile-only walk-in): show "No email". */
+		email: z.string().nullable(),
 		mobile: z.string().nullable(),
 		birthDate: z.string().nullable(),
 		gender: z.string().nullable(),

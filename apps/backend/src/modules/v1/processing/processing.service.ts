@@ -41,6 +41,7 @@ import {
 } from "@/common/scope/scope-match"
 import { sniffContentType } from "@/common/storage/content-type"
 import { FILE_STORAGE, type FileStorage } from "@/common/storage/file-storage"
+import { displayEmail } from "@/common/users/placeholder-email"
 import { fileAnswers, readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
@@ -821,7 +822,7 @@ export class ProcessingService {
 			client: {
 				id: row.clientId,
 				name: row.clientName,
-				email: row.clientEmail,
+				email: displayEmail(row.clientEmail),
 				mobile: row.clientMobile,
 				birthDate: row.clientBirthDate,
 				gender: row.clientGender,

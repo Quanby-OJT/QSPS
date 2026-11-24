@@ -214,7 +214,7 @@ function AssessmentBody({
 					<h2 className="font-semibold">Client profile</h2>
 					<dl className="grid grid-cols-2 gap-3">
 						<Detail label="Name" value={item.client.name} />
-						<Detail label="Email" value={item.client.email} />
+						<Detail label="Email" value={item.client.email ?? "No email"} />
 						<Detail label="Mobile" value={item.client.mobile} />
 						<Detail label="Birth date" value={item.client.birthDate} />
 						<Detail label="Gender" value={item.client.gender} />

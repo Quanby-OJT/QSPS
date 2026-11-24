@@ -38,6 +38,7 @@ function query(rows: unknown[]) {
 		innerJoin: () => chain,
 		where: () => chain,
 		orderBy: () => chain,
+		for: () => Promise.resolve(rows),
 		limit: () => Promise.resolve(rows),
 		then: (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
 			Promise.resolve(rows).then(resolve, reject),
@@ -76,6 +77,48 @@ const newClient = {
 	birthDate: "1990-02-01",
 	nationality: "Filipino",
 	gender: "Male",
+	privacyNoticeVersion: "2026-11-16" as const,
+}
+
+/**
+ * A transaction: selects answer in order; inserts and updates are recorded.
+ * An update returns `updateBase` with the new values.
+ */
+function mockTransaction(...rowSets: unknown[][]) {
+	const inserts: { table: unknown; values: unknown }[] = []
+	const updates: { table: unknown; values: unknown }[] = []
+	let updateBase: object = clientRow
+	const select = jest.fn()
+	for (const rows of rowSets) select.mockReturnValueOnce(query(rows))
+	const tx = {
+		select,
+		insert: jest.fn((table: unknown) => ({
+			values: (values: unknown) => {
+				inserts.push({ table, values })
+				const returned = Promise.resolve([{ ...clientRow, ...(values as object) }])
+				return { returning: () => returned, then: returned.then.bind(returned) }
+			},
+		})),
+		update: jest.fn((table: unknown) => ({
+			set: (values: unknown) => {
+				updates.push({ table, values })
+				return {
+					where: () => ({
+						returning: () => Promise.resolve([{ ...updateBase, ...(values as object) }]),
+					}),
+				}
+			},
+		})),
+	}
+	jest.mocked(db.transaction).mockImplementation(callback => callback(tx as never) as never)
+	return {
+		tx,
+		inserts,
+		updates,
+		setUpdateBase: (row: object) => {
+			updateBase = row
+		},
+	}
 }
 
 describe("WalkInService (PRC-2)", () => {
@@ -129,25 +172,6 @@ describe("WalkInService (PRC-2)", () => {
 	})
 
 	describe("createClient", () => {
-		/** A transaction: selects answer in order; inserts are recorded. */
-		function mockTransaction(...rowSets: unknown[][]) {
-			const inserts: { table: unknown; values: unknown }[] = []
-			const select = jest.fn()
-			for (const rows of rowSets) select.mockReturnValueOnce(query(rows))
-			const tx = {
-				select,
-				insert: jest.fn((table: unknown) => ({
-					values: (values: unknown) => {
-						inserts.push({ table, values })
-						const returned = Promise.resolve([{ ...clientRow, ...(values as object) }])
-						return { returning: () => returned, then: returned.then.bind(returned) }
-					},
-				})),
-			}
-			jest.mocked(db.transaction).mockImplementation(callback => callback(tx as never) as never)
-			return { tx, inserts }
-		}
-
 		it("creates a client account with no password, flagged to set one, and invites them", async () => {
 			const { tx, inserts } = mockTransaction([], [{ id: 3 }])
 
@@ -165,6 +189,8 @@ describe("WalkInService (PRC-2)", () => {
 				createdAt: NOW,
 			})
 			expect(inserts[0]?.values).not.toHaveProperty("password")
+			const values = inserts[0]?.values as { id: string }
+			expect(audit.record.mock.calls[0]?.[0]).toMatchObject({ targetId: values.id })
 			expect(inserts[1]?.values).toEqual({ userId: expect.any(String), roleId: 3 })
 			expect(audit.record).toHaveBeenCalledWith(
 				{
@@ -179,6 +205,8 @@ describe("WalkInService (PRC-2)", () => {
 						mustResetPassword: true,
 						roles: ["Client"],
 						hasMobile: true,
+						hasEmail: true,
+						privacyNoticeVersion: "2026-11-16",
 					},
 				},
 				tx
@@ -228,6 +256,184 @@ describe("WalkInService (PRC-2)", () => {
 			await expect(service.createClient(newClient, "officer-7", NOW)).resolves.toMatchObject({
 				email: "juan@example.com",
 			})
+		})
+
+		it("saves the Privacy Notice version and time on the account, in the transaction (PRC-2b)", async () => {
+			const { tx, inserts } = mockTransaction([], [{ id: 3 }])
+			jest.mocked(db.transaction).mockImplementationOnce(callback => {
+				// Everything is written through `tx`, never the shared connection.
+				expect(db.select).not.toHaveBeenCalled()
+				return callback(tx as never) as never
+			})
+
+			await service.createClient(newClient, "officer-7", NOW)
+
+			expect(inserts[0]?.values).toMatchObject({
+				privacyNoticeVersion: "2026-11-16",
+				privacyAcceptedAt: NOW,
+			})
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "walk_in.client.create",
+					newValue: expect.objectContaining({ privacyNoticeVersion: "2026-11-16" }),
+				}),
+				tx
+			)
+		})
+
+		it("audits no personal data", async () => {
+			mockTransaction([], [{ id: 3 }])
+			await service.createClient(newClient, "officer-7", NOW)
+			const recorded = JSON.stringify(audit.record.mock.calls[0]?.[0])
+			for (const personal of ["Juan", "juan@example.com", "09171234567", "1990-02-01"]) {
+				expect(recorded).not.toContain(personal)
+			}
+		})
+
+		describe("a mobile-only client (PRC-2b)", () => {
+			const mobileOnly = { ...newClient, email: null }
+
+			it("stores the placeholder <userId>@no-email.invalid and sends no email", async () => {
+				const { tx, inserts } = mockTransaction([], [{ id: 3 }])
+
+				const client = await service.createClient(mobileOnly, "officer-7", NOW)
+
+				const values = inserts[0]?.values as { id: string; email: string }
+				expect(values.email).toBe(`${values.id}@no-email.invalid`)
+				expect(values).toMatchObject({ emailVerified: false, mustResetPassword: true })
+				expect(mockRequestPasswordReset).not.toHaveBeenCalled()
+				expect(audit.record).toHaveBeenCalledWith(
+					expect.objectContaining({
+						newValue: expect.objectContaining({ hasEmail: false, hasMobile: true }),
+					}),
+					tx
+				)
+				// Never shown as an email.
+				expect(client.email).toBeNull()
+				expect(JSON.stringify(client)).not.toContain("no-email.invalid")
+			})
+
+			it("checks duplicates by mobile only", async () => {
+				mockTransaction([{ id: "client-2", email: "x@no-email.invalid", accountType: "client" }])
+				await expect(service.createClient(mobileOnly, "officer-7", NOW)).rejects.toMatchObject({
+					code: "CONFLICT",
+					options: expect.objectContaining({ data: { clientId: "client-2", matchedBy: "mobile" } }),
+				})
+			})
+
+			it("is refused with neither an email nor a mobile number", async () => {
+				await expect(
+					service.createClient({ ...mobileOnly, mobile: null }, "officer-7", NOW)
+				).rejects.toMatchObject({ code: "BAD_REQUEST" })
+				expect(db.transaction).not.toHaveBeenCalled()
+			})
+		})
+	})
+
+	describe("lookup of a placeholder (PRC-2b)", () => {
+		it("finds no one by the placeholder address", async () => {
+			selects()
+			await expect(service.lookup("client-1@no-email.invalid")).resolves.toEqual([])
+			expect(db.select).not.toHaveBeenCalled()
+		})
+
+		it("shows a mobile-only client with no email", async () => {
+			selects([{ ...clientRow, email: "client-1@no-email.invalid" }])
+			const [found] = await service.lookup("09171234567")
+			expect(found?.email).toBeNull()
+		})
+	})
+
+	describe("addClientEmail (PRC-2b)", () => {
+		const placeholderClient = { ...clientRow, email: "client-1@no-email.invalid" }
+		const input = { clientId: "client-1", email: "Juan@Example.com" }
+
+		it("replaces the placeholder with the real email and sends the invitation", async () => {
+			const { tx, updates, setUpdateBase } = mockTransaction(
+				[{ id: "client-1", email: "client-1@no-email.invalid" }],
+				[]
+			)
+			setUpdateBase(placeholderClient)
+
+			const client = await service.addClientEmail(input, "officer-7", NOW)
+
+			expect(updates).toEqual([
+				{
+					table: users,
+					values: { email: "juan@example.com", emailVerified: true, updatedAt: NOW },
+				},
+			])
+			expect(audit.record).toHaveBeenCalledWith(
+				{
+					domain: "bookings",
+					action: "walk_in.client.email_add",
+					actorId: "officer-7",
+					targetType: "user",
+					targetId: "client-1",
+					oldValue: { hasEmail: false },
+					newValue: { hasEmail: true, invitationSent: true },
+				},
+				tx
+			)
+			expect(mockRequestPasswordReset).toHaveBeenCalledWith({
+				body: {
+					email: "juan@example.com",
+					redirectTo: "http://localhost:3001/reset-password",
+				},
+			})
+			expect(client).toMatchObject({ email: "juan@example.com", invitationPending: true })
+		})
+
+		it("sends no invitation to a client who already set a password", async () => {
+			const { setUpdateBase } = mockTransaction(
+				[{ id: "client-1", email: "client-1@no-email.invalid" }],
+				[]
+			)
+			setUpdateBase({ ...placeholderClient, mustResetPassword: false })
+			await service.addClientEmail(input, "officer-7", NOW)
+			expect(mockRequestPasswordReset).not.toHaveBeenCalled()
+		})
+
+		it("does not change an email the client already has", async () => {
+			const { updates } = mockTransaction([{ id: "client-1", email: "juan@example.com" }])
+			await expect(service.addClientEmail(input, "officer-7", NOW)).rejects.toMatchObject({
+				code: "CONFLICT",
+			})
+			expect(updates).toEqual([])
+			expect(mockRequestPasswordReset).not.toHaveBeenCalled()
+		})
+
+		it("refuses an email another account has, naming a client but never staff", async () => {
+			mockTransaction(
+				[{ id: "client-1", email: "client-1@no-email.invalid" }],
+				[{ id: "client-2", accountType: "client" }]
+			)
+			await expect(service.addClientEmail(input, "officer-7", NOW)).rejects.toMatchObject({
+				code: "CONFLICT",
+				options: expect.objectContaining({ data: { clientId: "client-2", matchedBy: "email" } }),
+			})
+
+			mockTransaction(
+				[{ id: "client-1", email: "client-1@no-email.invalid" }],
+				[{ id: "staff-1", accountType: "staff" }]
+			)
+			await expect(service.addClientEmail(input, "officer-7", NOW)).rejects.toMatchObject({
+				code: "CONFLICT",
+				options: expect.objectContaining({ data: {} }),
+			})
+		})
+
+		it("answers 404 for an account that is not an active client", async () => {
+			mockTransaction([])
+			await expect(service.addClientEmail(input, "officer-7", NOW)).rejects.toMatchObject({
+				code: "NOT_FOUND",
+			})
+		})
+
+		it("refuses another placeholder as the new address", async () => {
+			await expect(
+				service.addClientEmail({ clientId: "client-1", email: "x@no-email.invalid" }, "officer-7")
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
 		})
 	})
 

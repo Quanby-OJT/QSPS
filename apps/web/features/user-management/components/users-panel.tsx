@@ -256,7 +256,7 @@ export function UsersPanel({ canManageRoles }: UsersPanelProps) {
 					<HugeiconsIcon
 						icon={Search01Icon}
 						strokeWidth={2}
-						className="text-muted-foreground pointer-events-none absolute top-2.5 left-2.5 size-4"
+						className="text-muted-foreground pointer-events-none absolute left-2.5 top-2.5 size-4"
 					/>
 					<Input
 						value={search}
@@ -366,7 +366,9 @@ export function UsersPanel({ canManageRoles }: UsersPanelProps) {
 									<TableRow key={user.id}>
 										<TableCell className="align-top">
 											<div className="font-medium">{user.name ?? "—"}</div>
-											<div className="text-muted-foreground text-xs">{user.email}</div>
+											<div className="text-muted-foreground text-xs">
+												{user.email ?? "No email"}
+											</div>
 										</TableCell>
 										<TableCell className="align-top">
 											<Badge

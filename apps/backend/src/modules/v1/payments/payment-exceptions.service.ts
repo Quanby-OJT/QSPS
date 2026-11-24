@@ -14,6 +14,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { denyOutsideScope } from "@/common/scope/scope-denial"
 import { NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import { displayEmail } from "@/common/users/placeholder-email"
 
 import { visibleToCashier } from "./cashier-scope"
 import { PaymentService } from "./payments.service"
@@ -94,6 +95,7 @@ export class PaymentExceptionsService {
 			)
 			.map(row => ({
 				...row,
+				clientEmail: displayEmail(row.clientEmail),
 				reason: paidBy.some(paid => paid.bookingId === row.bookingId && paid.id !== row.paymentId)
 					? "duplicate"
 					: "late_payment",
