@@ -456,10 +456,12 @@ export {
 	FormSubmissionSchema,
 	FormUploadInputSchema,
 	FormUploadSchema,
+	RescheduleBookingItemSchema,
 	UpdateBookingItemFormSchema,
 	type BookingForm,
 	type BookingItemFormInput,
 	type FormSubmission,
 	type FormUpload,
+	type RescheduleBookingItemInput,
 	type UpdateBookingItemFormInput,
 } from "./modules/v1/bookings/bookings.schema.js"

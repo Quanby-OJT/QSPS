@@ -14,6 +14,7 @@ import {
 	FormSubmissionSchema,
 	FormUploadInputSchema,
 	FormUploadSchema,
+	RescheduleBookingItemSchema,
 	UpdateBookingItemFormSchema,
 } from "./bookings.schema.js"
 
@@ -89,6 +90,18 @@ export const bookingsContract = {
 		})
 		.output(BookingSchema.nullable()),
 
+	get: oc
+		.route({
+			method: "GET",
+			path: "/bookings/{bookingId}",
+			summary: "Read one of your own bookings",
+			description:
+				"Returns one Booking owned by the caller (pending_payment or paid) for Booking detail and rescheduling (BKG-5). Requires bookings.own:read.",
+			tags: ["Bookings"],
+		})
+		.input(BookingIdParamSchema)
+		.output(BookingSchema),
+
 	cancel: oc
 		.route({
 			method: "POST",
@@ -111,5 +124,17 @@ export const bookingsContract = {
 			tags: ["Bookings"],
 		})
 		.input(BookingIdParamSchema)
+		.output(BookingSchema),
+
+	rescheduleItem: oc
+		.route({
+			method: "POST",
+			path: "/bookings/{bookingId}/items/{bookingItemId}/reschedule",
+			summary: "Reschedule one booked item to another open slot",
+			description:
+				"Moves a booked item within a pending_payment or paid Booking to another active, non-full Schedule Slot for the same Service and Location, enforcing booking.max_reschedules and booking.reschedule_min_hours_before (BKG-5). Requires bookings.own:reschedule.",
+			tags: ["Bookings"],
+		})
+		.input(RescheduleBookingItemSchema)
 		.output(BookingSchema),
 }

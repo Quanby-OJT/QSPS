@@ -67,6 +67,7 @@ export const BookingItemSchema = z.object({
 	startsAt: dateField,
 	endsAt: dateField,
 	feeCentavos: z.number().int().min(0),
+	rescheduleCount: z.number().int().min(0),
 	status: BookingItemStatusSchema,
 })
 
@@ -89,9 +90,9 @@ export const BookingSchema = z.object({
 })
 
 /**
- * FRM-2: the client's answers to one Service's questionnaire, with the
- * version they were shown. The API refuses them if that version is no
- * longer the Service's active one.
+- FRM-2: the client's answers to one Service's questionnaire, with the
+- version they were shown. The API refuses them if that version is no
+- longer the Service's active one.
  */
 export const BookingItemFormInputSchema = z.object({
 	formTemplateId: z.number().int().positive(),
@@ -99,9 +100,9 @@ export const BookingItemFormInputSchema = z.object({
 })
 
 /**
- * One Service in a checkout. The slot already fixes the service, the location
- * and the time. `form` is required when the Service has an active
- * questionnaire (FRM-2).
+- One Service in a checkout. The slot already fixes the service, the location
+- and the time. `form` is required when the Service has an active
+- questionnaire (FRM-2).
  */
 export const CreateBookingItemSchema = z.object({
 	scheduleSlotId: z.number().int().positive(),
@@ -109,11 +110,11 @@ export const CreateBookingItemSchema = z.object({
 })
 
 /**
- * Book one or more Services in one checkout (BKG-1, BKG-3): one Booking with
- * one Booking Item per slot, reserved all together or not at all. Each slot
- * may appear once. The client also sends the ids of the policy versions it
- * accepted on the review step (ADM-9); every applicable policy that requires
- * acceptance, for any of the Services, must be among them.
+- Book one or more Services in one checkout (BKG-1, BKG-3): one Booking with
+- one Booking Item per slot, reserved all together or not at all. Each slot
+- may appear once. The client also sends the ids of the policy versions it
+- accepted on the review step (ADM-9); every applicable policy that requires
+- acceptance, for any of the Services, must be among them.
  */
 export const CreateBookingSchema = z.object({
 	items: z
@@ -134,6 +135,13 @@ export const CreateBookingSchema = z.object({
 /** One of the caller's own Bookings, by id (BKG-2). */
 export const BookingIdParamSchema = z.object({
 	bookingId: z.coerce.number().int().positive(),
+})
+
+/** BKG-5: move one booked item to another open slot for the same service and location. */
+export const RescheduleBookingItemSchema = z.object({
+	bookingId: z.coerce.number().int().positive(),
+	bookingItemId: z.coerce.number().int().positive(),
+	scheduleSlotId: z.number().int().positive(),
 })
 
 /** FRM-2: which Service's questionnaire to show in the wizard. */
@@ -193,6 +201,7 @@ export type Booking = z.infer<typeof BookingSchema>
 export type BookingItemFormInput = z.infer<typeof BookingItemFormInputSchema>
 export type CreateBookingItemInput = z.infer<typeof CreateBookingItemSchema>
 export type CreateBookingInput = z.infer<typeof CreateBookingSchema>
+export type RescheduleBookingItemInput = z.infer<typeof RescheduleBookingItemSchema>
 export type BookingForm = z.infer<typeof BookingFormSchema>
 export type FormUpload = z.infer<typeof FormUploadSchema>
 export type UpdateBookingItemFormInput = z.infer<typeof UpdateBookingItemFormSchema>

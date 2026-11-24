@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
+import Link from "next/link"
 import { toast } from "sonner"
 
 import type { Booking } from "@repo/contracts"
@@ -25,7 +26,9 @@ import {
 import {
 	BookingFeeLines,
 	feeLinesFromItems,
+	slotDetail,
 } from "@/features/bookings/components/booking-fee-lines"
+import { RescheduleItemDialog } from "@/features/bookings/components/reschedule-item-dialog"
 import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
 import { dateLabel, manilaDateKey, manilaTime } from "@/features/schedules/lib/calendar"
 
@@ -38,9 +41,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * The client's booking awaiting payment, on the dashboard (BKG-2). A client
- * has at most one; booking again is refused until it is paid or cancelled,
- * so this is where they pay it, switch to paying at the office, or cancel it.
+ * The client's booking awaiting payment, on the dashboard (BKG-2, BKG-5).
  */
 export function UnpaidBookingCard() {
 	const hydrated = useHydrated()
@@ -49,11 +50,9 @@ export function UnpaidBookingCard() {
 	const payOnsite = usePayOnsiteMutation()
 	const cancel = useCancelBookingMutation()
 
-	// One key per attempt each, so a double click sends one request.
 	const [onsiteKey, setOnsiteKey] = useState(newIdempotencyKey)
 	const [cancelKey, setCancelKey] = useState(newIdempotencyKey)
 	const [redirecting, setRedirecting] = useState(false)
-	// PAY-5: "Pay now" opens the channel picker, which shows each fee first.
 	const [choosingChannel, setChoosingChannel] = useState(false)
 
 	if (!hydrated || isQueryLoading(unpaid)) {
@@ -110,7 +109,6 @@ interface UnpaidBookingDetailsProps {
 	onPayNow: () => void
 	onPayOnsite: () => void
 	onCancel: () => void
-	/** The channel picker, once the client chose to pay online (PAY-5). */
 	checkout?: ReactNode
 }
 
@@ -126,14 +124,23 @@ export function UnpaidBookingDetails({
 	checkout,
 }: UnpaidBookingDetailsProps) {
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
+	const [reschedulingItemId, setReschedulingItemId] = useState<number | null>(null)
 	const busy = paying || choosingOnsite || cancelling
+
+	const reschedulingItem =
+		booking.items.find(item => item.id === reschedulingItemId) ?? null
 
 	return (
 		<Card className="border-t-gold border-t-4">
 			<CardHeader>
 				<div className="flex flex-wrap items-center justify-between gap-2">
 					<CardTitle>Booking awaiting payment</CardTitle>
-					<Badge variant="secondary">Pending payment</Badge>
+					<div className="flex items-center gap-2">
+						<Badge variant="secondary">Pending payment</Badge>
+						<Button asChild size="sm" variant="ghost">
+							<Link href={`/bookings/${booking.id}`}>View details</Link>
+						</Button>
+					</div>
 				</div>
 				<CardDescription>
 					You can have one unpaid booking at a time. Pay or cancel it before booking again.
@@ -147,6 +154,43 @@ export function UnpaidBookingDetails({
 				<BookingFeeLines
 					lines={feeLinesFromItems(booking.items)}
 					totalCentavos={booking.totalCentavos}
+				/>
+
+				<ul className="flex flex-col gap-2" aria-label="Manage booking items">
+					{booking.items.map(item => (
+						<li
+							key={item.id}
+							className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
+						>
+							<div>
+								<p className="font-medium">{item.serviceName}</p>
+								<p className="text-muted-foreground text-xs">
+									{slotDetail(item.locationName, item)} · Rescheduled {item.rescheduleCount}{" "}
+									{item.rescheduleCount === 1 ? "time" : "times"}
+								</p>
+							</div>
+							{item.status === "booked" ? (
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									disabled={busy}
+									onClick={() => setReschedulingItemId(item.id)}
+								>
+									Reschedule
+								</Button>
+							) : null}
+						</li>
+					))}
+				</ul>
+
+				<RescheduleItemDialog
+					bookingId={booking.id}
+					item={reschedulingItem}
+					open={reschedulingItem !== null}
+					onOpenChange={open => {
+						if (!open) setReschedulingItemId(null)
+					}}
 				/>
 
 				{booking.payOnsite ? (
@@ -184,7 +228,6 @@ export function UnpaidBookingDetails({
 					</div>
 				) : (
 					<div className="flex flex-wrap gap-2">
-						{/* Once the channel picker is open, its own button pays (PAY-5). */}
 						{checkout ? null : (
 							<Button type="button" onClick={onPayNow} disabled={busy}>
 								{paying ? "Opening checkout…" : "Pay now"}

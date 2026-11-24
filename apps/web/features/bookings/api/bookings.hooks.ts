@@ -2,7 +2,13 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import type { Booking, BookingForm, CreateBookingInput, FormUpload } from "@repo/contracts"
+import type {
+	Booking,
+	BookingForm,
+	CreateBookingInput,
+	FormUpload,
+	RescheduleBookingItemInput,
+} from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -120,6 +126,11 @@ async function readError(response: Response): Promise<ApiError> {
 /** The client's one booking awaiting payment (BKG-2). */
 export const UNPAID_BOOKING_QUERY_KEY = ["bookings", "unpaid"] as const
 
+export const bookingKeys = {
+	all: ["bookings"] as const,
+	detail: (bookingId: number) => ["bookings", "detail", bookingId] as const,
+}
+
 export const bookingFormKeys = {
 	all: ["bookings", "form"] as const,
 	forService: (serviceId: number) => ["bookings", "form", serviceId] as const,
@@ -129,10 +140,6 @@ export const bookingFormKeys = {
  * Confirm a booking of one or more Services (BKG-3). A refusal that names a
  * slot arrives as a `BookingCheckoutError`; one about answers as a
  * `BookingFormError` (FRM-2).
- *
- * `idempotencyKey` identifies one attempt: sending the same key again (a
- * double click, or a retry after a dropped connection) returns the first
- * booking instead of taking a second place.
  */
 export function useCreateBookingMutation() {
 	const queryClient = useQueryClient()
@@ -153,8 +160,6 @@ export function useCreateBookingMutation() {
 			if (!response.ok) throw await readError(response)
 			return toBooking((await response.json()) as BookingJson)
 		},
-		// A place was taken, so availability shown anywhere is now out of date,
-		// and the client now has a booking awaiting payment.
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
 			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
@@ -164,7 +169,6 @@ export function useCreateBookingMutation() {
 
 /** What the wizard needs from the questionnaires of every Service in a checkout. */
 export interface CheckoutForms {
-	/** Service id to its active questionnaire, or null; undefined until every Service has answered. */
 	data: ReadonlyMap<number, BookingForm | null> | undefined
 	isPending: boolean
 	isError: boolean
@@ -211,7 +215,6 @@ export function useBookingFormsQuery(serviceIds: readonly number[]): CheckoutFor
 
 /**
  * FRM-2: upload a file answer. The answer then holds the returned `fileKey`.
- * Sent as multipart form data, so no Content-Type header is set by hand.
  */
 export function useUploadFormFileMutation() {
 	return useMutation({
@@ -230,9 +233,7 @@ export function useUploadFormFileMutation() {
 }
 
 /**
- * The client's booking awaiting payment, or null (BKG-2). Only asked for
- * when the caller may read their own bookings, so a refused request never
- * reaches the audit log.
+ * The client's booking awaiting payment, or null (BKG-2).
  */
 export function useUnpaidBookingQuery(enabled: boolean) {
 	return useQuery({
@@ -243,6 +244,23 @@ export function useUnpaidBookingQuery(enabled: boolean) {
 			if (!response.ok) throw await readError(response)
 			const body = (await response.json()) as BookingJson | null
 			return body ? toBooking(body) : null
+		},
+	})
+}
+
+/**
+ * BKG-5: load one of the client's own bookings (pending_payment or paid) for Booking detail.
+ */
+export function useBookingQuery(bookingId: number | null) {
+	return useQuery({
+		queryKey: bookingKeys.detail(bookingId ?? 0),
+		enabled: bookingId !== null && Number.isInteger(bookingId) && bookingId > 0,
+		queryFn: async (): Promise<Booking> => {
+			const response = await fetch(`${API_BASE}/bookings/${String(bookingId)}`, {
+				credentials: "include",
+			})
+			if (!response.ok) throw await readError(response)
+			return toBooking((await response.json()) as BookingJson)
 		},
 	})
 }
@@ -266,9 +284,9 @@ function useBookingAction(action: "cancel" | "pay-onsite") {
 			if (!response.ok) throw await readError(response)
 			return toBooking((await response.json()) as BookingJson)
 		},
-		onSuccess: () => {
+		onSuccess: updated => {
 			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
-			// A cancelled booking gives its place back.
+			void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(updated.id) })
 			if (action === "cancel") void queryClient.invalidateQueries({ queryKey: ["schedules"] })
 		},
 	})
@@ -282,4 +300,40 @@ export function useCancelBookingMutation() {
 /** Pay at the BOQ cashier instead of online (BKG-2). */
 export function usePayOnsiteMutation() {
 	return useBookingAction("pay-onsite")
+}
+
+/**
+ * BKG-5: move one booked item in a pending_payment or paid booking to another
+ * open schedule slot for the same service and location.
+ */
+export function useRescheduleBookingItemMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({
+			idempotencyKey,
+			bookingId,
+			bookingItemId,
+			scheduleSlotId,
+		}: RescheduleBookingItemInput & { idempotencyKey: string }): Promise<Booking> => {
+			const response = await fetch(
+				`${API_BASE}/bookings/${bookingId}/items/${bookingItemId}/reschedule`,
+				{
+					method: "POST",
+					credentials: "include",
+					headers: {
+						"Content-Type": "application/json",
+						"Idempotency-Key": idempotencyKey,
+					},
+					body: JSON.stringify({ scheduleSlotId }),
+				}
+			)
+			if (!response.ok) throw await readError(response)
+			return toBooking((await response.json()) as BookingJson)
+		},
+		onSuccess: updated => {
+			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
+			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(updated.id) })
+		},
+	})
 }

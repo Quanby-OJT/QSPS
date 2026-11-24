@@ -16,9 +16,14 @@ jest.mock("@/config/api-versions.config", () => ({
 		bookings: {
 			create: {},
 			policies: {},
+			form: {},
+			uploadFormFile: {},
+			updateItemForm: {},
 			unpaid: {},
+			get: {},
 			cancel: {},
 			payOnsite: {},
+			rescheduleItem: {},
 		},
 	},
 }))
@@ -55,6 +60,12 @@ describe("BookingsController permissions", () => {
 		).toEqual(["bookings.own:read"])
 	})
 
+	it("requires bookings.own:read to view one of the caller's own bookings (BKG-5)", () => {
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.get)
+		).toEqual(["bookings.own:read"])
+	})
+
 	it("requires bookings.own:cancel to cancel (BKG-2)", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.cancel)
@@ -65,6 +76,15 @@ describe("BookingsController permissions", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, BookingsController.prototype.payOnsite)
 		).toEqual(["payments.own:create"])
+	})
+
+	it("requires bookings.own:reschedule to reschedule a booked item (BKG-5)", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				BookingsController.prototype.rescheduleItem
+			)
+		).toEqual(["bookings.own:reschedule"])
 	})
 })
 

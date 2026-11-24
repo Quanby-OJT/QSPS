@@ -8,6 +8,7 @@ import type {
 	BookingStatus,
 	CreateBookingInput,
 	FormSubmission,
+	RescheduleBookingItemInput,
 	UpdateBookingItemFormInput,
 } from "@repo/contracts"
 import {
@@ -52,6 +53,7 @@ export const AUDIT_DOMAIN_BOOKING_EXPIRY = "booking-expiry"
 const MAX_REFERENCE_ATTEMPTS = 5
 
 const MS_PER_MINUTE = 60_000
+const MS_PER_HOUR = 3_600_000
 
 export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -79,7 +81,7 @@ export type CheckInResult =
  * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
  * (DOMAIN-MODEL.md section 6). BKG-2 adds cancelling: by the client, and by
  * the expiry job in `common/maintenance/`. BKG-3 books several Services in
- * one checkout.
+ * one checkout. BKG-5 adds client rescheduling of a booked item.
  */
 @Injectable()
 export class BookingService {
@@ -395,6 +397,7 @@ export class BookingService {
 					startsAt: item.line.slot.startsAt,
 					endsAt: item.line.slot.endsAt,
 					feeCentavos: item.feeCentavos,
+					rescheduleCount: item.rescheduleCount,
 					status: item.status,
 				})),
 			}
@@ -524,6 +527,7 @@ export class BookingService {
 		}
 		return outcome.submission
 	}
+
 	/**
 	 * Mark a Booking paid (Flow C step 5, PAY-1).
 	 *
@@ -877,6 +881,35 @@ export class BookingService {
 	}
 
 	/**
+	 * BKG-5: returns one Booking belonging to the caller (used on Booking detail
+	 * for both `pending_payment` and `paid` bookings). Someone else's Booking
+	 * answers like a missing one and is audited as denied.
+	 */
+	async getOwn(bookingId: number, actorId: string | null): Promise<Booking> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view this booking" })
+		}
+
+		const [owned] = await db
+			.select({ clientId: bookings.clientId })
+			.from(bookings)
+			.where(eq(bookings.id, bookingId))
+			.limit(1)
+
+		if (!owned || owned.clientId !== actorId) {
+			await this.recordDenial(
+				actorId,
+				"booking.read",
+				bookingId,
+				owned ? "not_owner" : "not_found"
+			)
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+
+		return this.loadBooking(db, bookingId)
+	}
+
+	/**
 	 * The client cancels their own unpaid Booking (BKG-2, `bookings.own:cancel`).
 	 *
 	 * Someone else's Booking answers exactly like a missing one, so ids cannot
@@ -983,6 +1016,200 @@ export class BookingService {
 			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
 		}
 		return this.loadBooking(db, bookingId)
+	}
+
+	/**
+	 * BKG-5: moves one `booked` item in a `pending_payment` or `paid` Booking
+	 * to another active, non-full Schedule Slot for the same Service and Location.
+	 *
+	 * Enforces `booking.max_reschedules` and `booking.reschedule_min_hours_before`,
+	 * locks both slots in ascending `id` order (`Flow B`), adjusts both `booked_count`
+	 * values, increments `booking_items.reschedule_count`, records an audit entry,
+	 * and queues a `"booking_rescheduled"` notification. Existing payments are
+	 * never modified.
+	 */
+	async rescheduleItem(
+		input: RescheduleBookingItemInput,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<Booking> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to reschedule an appointment" })
+		}
+
+		const [maxReschedules, minHoursBefore] = await Promise.all([
+			this.policyService.get("booking.max_reschedules"),
+			this.policyService.get("booking.reschedule_min_hours_before"),
+		])
+
+		const denied = await db.transaction(async tx => {
+			const [owned] = await tx
+				.select({
+					id: bookings.id,
+					clientId: bookings.clientId,
+					status: bookings.status,
+				})
+				.from(bookings)
+				.where(eq(bookings.id, input.bookingId))
+				.for("update")
+
+			if (!owned || owned.clientId !== actorId) {
+				return owned ? ("not_owner" as const) : ("not_found" as const)
+			}
+
+			if (owned.status !== "pending_payment" && owned.status !== "paid") {
+				throw new ORPCError("CONFLICT", {
+					message: "Only bookings that are awaiting payment or paid can be rescheduled",
+				})
+			}
+
+			const [item] = await tx
+				.select()
+				.from(bookingItems)
+				.where(
+					and(
+						eq(bookingItems.id, input.bookingItemId),
+						eq(bookingItems.bookingId, owned.id)
+					)
+				)
+				.for("update")
+
+			if (!item) {
+				throw new ORPCError("NOT_FOUND", { message: "Booking item not found" })
+			}
+
+			if (item.status !== "booked") {
+				throw new ORPCError("CONFLICT", {
+					message: "Only booked items can be rescheduled",
+				})
+			}
+
+			if (input.scheduleSlotId === item.scheduleSlotId) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Choose a different schedule slot to reschedule",
+				})
+			}
+
+			if (item.rescheduleCount >= maxReschedules) {
+				throw new ORPCError("CONFLICT", {
+					message:
+						maxReschedules === 0
+							? "Rescheduling is currently disabled by booking policy (maximum 0 reschedules)"
+							: `This item has reached the maximum of ${maxReschedules} ${maxReschedules === 1 ? "reschedule" : "reschedules"}`,
+				})
+			}
+
+			// Flow B: lock both old and new schedule slots in ascending id order.
+			const slotIdsToLock = [item.scheduleSlotId, input.scheduleSlotId].sort((a, b) => a - b)
+			const lockedSlots = await tx
+				.select()
+				.from(scheduleSlots)
+				.where(inArray(scheduleSlots.id, slotIdsToLock))
+				.orderBy(asc(scheduleSlots.id))
+				.for("update")
+
+			const slotById = new Map(lockedSlots.map(row => [row.id, row]))
+			const oldSlot = slotById.get(item.scheduleSlotId)
+			const newSlot = slotById.get(input.scheduleSlotId)
+
+			if (!oldSlot || !newSlot) {
+				throw new ORPCError("NOT_FOUND", { message: "Schedule slot not found" })
+			}
+
+			const msUntilCurrentSlot = oldSlot.startsAt.getTime() - now.getTime()
+			if (msUntilCurrentSlot < minHoursBefore * MS_PER_HOUR) {
+				throw new ORPCError("CONFLICT", {
+					message: `Appointments can only be rescheduled at least ${minHoursBefore} ${minHoursBefore === 1 ? "hour" : "hours"} before the scheduled start time`,
+				})
+			}
+
+			if (newSlot.serviceId !== item.serviceId || newSlot.locationId !== item.locationId) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Rescheduling must use a slot for the same service and location",
+				})
+			}
+
+			const refuseSlot = (message: string) =>
+				new ORPCError("CONFLICT", { message, data: { scheduleSlotId: newSlot.id } })
+
+			if (newSlot.isDisabled) {
+				throw refuseSlot("The chosen schedule slot is closed")
+			}
+			if (newSlot.startsAt.getTime() <= now.getTime()) {
+				throw refuseSlot("The chosen schedule slot has already started")
+			}
+			if (newSlot.bookedCount >= newSlot.capacity) {
+				throw refuseSlot("The chosen schedule slot is full")
+			}
+
+			const nextRescheduleCount = item.rescheduleCount + 1
+
+			await tx
+				.update(scheduleSlots)
+				.set({
+					bookedCount: sql`greatest(${scheduleSlots.bookedCount} - 1, 0)`,
+					updatedAt: now,
+				})
+				.where(eq(scheduleSlots.id, oldSlot.id))
+
+			await tx
+				.update(scheduleSlots)
+				.set({
+					bookedCount: sql`${scheduleSlots.bookedCount} + 1`,
+					updatedAt: now,
+				})
+				.where(eq(scheduleSlots.id, newSlot.id))
+
+			await tx
+				.update(bookingItems)
+				.set({
+					scheduleSlotId: newSlot.id,
+					rescheduleCount: nextRescheduleCount,
+					updatedAt: now,
+				})
+				.where(eq(bookingItems.id, item.id))
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "booking_item.reschedule",
+					actorId,
+					targetType: "booking_item",
+					targetId: String(item.id),
+					oldValue: {
+						bookingId: owned.id,
+						scheduleSlotId: oldSlot.id,
+						startsAt: oldSlot.startsAt.toISOString(),
+						endsAt: oldSlot.endsAt.toISOString(),
+						rescheduleCount: item.rescheduleCount,
+					},
+					newValue: {
+						bookingId: owned.id,
+						scheduleSlotId: newSlot.id,
+						startsAt: newSlot.startsAt.toISOString(),
+						endsAt: newSlot.endsAt.toISOString(),
+						rescheduleCount: nextRescheduleCount,
+					},
+				},
+				tx
+			)
+
+			await NotificationService.enqueue(
+				tx,
+				owned.id,
+				"booking_rescheduled",
+				`booking-item:${item.id}:rescheduled:${nextRescheduleCount}`
+			)
+
+			return null
+		})
+
+		if (denied) {
+			await this.recordDenial(actorId, "booking_item.reschedule", input.bookingId, denied)
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+
+		return this.loadBooking(db, input.bookingId)
 	}
 
 	/**
@@ -1110,6 +1337,7 @@ export class BookingService {
 				startsAt: scheduleSlots.startsAt,
 				endsAt: scheduleSlots.endsAt,
 				feeCentavos: bookingItems.feeCentavos,
+				rescheduleCount: bookingItems.rescheduleCount,
 				status: bookingItems.status,
 			})
 			.from(bookingItems)
