@@ -195,6 +195,12 @@ describe("navItems", () => {
 		).toContain("Services")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:read"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "My transactions"])
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["processing.queue:read"] }).map(
 				item => item.label
 			)
@@ -244,6 +250,7 @@ describe("navItems", () => {
 		).toEqual([
 			"Dashboard",
 			"Book an appointment",
+			"My transactions",
 			"My documents",
 			"Processing",
 			"Approvals",
@@ -275,6 +282,8 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
+		expect(getDashboardRouteTitle("/transactions")).toBe("My transactions")
+		expect(getDashboardRouteTitle("/transactions/42")).toBe("My transactions")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")

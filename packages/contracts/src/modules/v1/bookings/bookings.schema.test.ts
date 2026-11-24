@@ -1,12 +1,31 @@
 import { describe, expect, it } from "vitest"
 
 import {
+	BOOKING_STATUSES,
+	BookingDetailSchema,
 	BookingIdParamSchema,
 	BookingSchema,
+	BookingSummarySchema,
+	CLIENT_BOOKING_STATUSES,
+	ClientBookingStatusSchema,
 	CreateBookingSchema,
 	MAX_BOOKING_ITEMS,
+	MyBookingsResponseSchema,
 	ReferenceNumberSchema,
 } from "./bookings.schema.js"
+
+const sampleItem = {
+	id: 1,
+	serviceId: 1,
+	serviceName: "Yellow fever vaccination",
+	locationId: 2,
+	locationName: "Manila",
+	scheduleSlotId: 7,
+	startsAt: "2026-12-02T00:00:00.000Z",
+	endsAt: "2026-12-02T04:00:00.000Z",
+	feeCentavos: 150000,
+	status: "booked",
+} as const
 
 describe("booking schemas", () => {
 	it("takes one or more slots as items (BKG-3)", () => {
@@ -74,20 +93,7 @@ describe("booking schemas", () => {
 			cancelReason: null,
 			cancelledAt: null,
 			createdAt: "2026-11-17T07:00:00.000Z",
-			items: [
-				{
-					id: 1,
-					serviceId: 1,
-					serviceName: "Yellow fever vaccination",
-					locationId: 2,
-					locationName: "Manila",
-					scheduleSlotId: 7,
-					startsAt: "2026-12-02T00:00:00.000Z",
-					endsAt: "2026-12-02T04:00:00.000Z",
-					feeCentavos: 150000,
-					status: "booked",
-				},
-			],
+			items: [sampleItem],
 		})
 
 		expect(booking.holdExpiresAt).toEqual(new Date("2026-11-17T08:00:00.000Z"))
@@ -126,16 +132,8 @@ describe("booking schemas", () => {
 			createdAt: "2026-11-17T07:00:00.000Z",
 			items: [
 				{
-					id: 1,
-					serviceId: 1,
-					serviceName: "Yellow fever vaccination",
-					locationId: 2,
-					locationName: "Manila",
-					scheduleSlotId: 7,
-					startsAt: "2026-12-02T00:00:00.000Z",
-					endsAt: "2026-12-02T04:00:00.000Z",
+					...sampleItem,
 					feeCentavos: 0,
-					status: "booked",
 				},
 			],
 		}
@@ -146,9 +144,92 @@ describe("booking schemas", () => {
 		expect(BookingSchema.parse(cancelled).cancelledAt).toEqual(new Date("2026-11-17T09:00:00.000Z"))
 	})
 
-	it("reads a booking id from the path (BKG-2)", () => {
+	it("reads a booking id from the path (BKG-2, BKG-4)", () => {
 		expect(BookingIdParamSchema.parse({ bookingId: "15" })).toEqual({ bookingId: 15 })
 		expect(BookingIdParamSchema.safeParse({ bookingId: "0" }).success).toBe(false)
 		expect(BookingIdParamSchema.safeParse({ bookingId: "abc" }).success).toBe(false)
+	})
+
+	describe("My Transactions & Booking Details schemas (BKG-4)", () => {
+		it("accepts only Pending, Paid, and Cancelled as client-facing booking statuses", () => {
+			expect(CLIENT_BOOKING_STATUSES).toEqual(["Pending", "Paid", "Cancelled"])
+			for (const status of CLIENT_BOOKING_STATUSES) {
+				expect(ClientBookingStatusSchema.safeParse(status).success).toBe(true)
+			}
+			expect(ClientBookingStatusSchema.safeParse("pending_payment").success).toBe(false)
+			expect(BOOKING_STATUSES.length).toBe(9)
+		})
+
+		it("parses MyBookingsResponseSchema with date hydration", () => {
+			const parsed = MyBookingsResponseSchema.parse({
+				bookings: [
+					{
+						id: 31,
+						referenceNumber: "QSPS-261122-AB12CD",
+						status: "paid",
+						clientStatus: "Paid",
+						totalCentavos: 150000,
+						payOnsite: false,
+						holdExpiresAt: null,
+						createdAt: "2026-11-22T07:00:00.000Z",
+						items: [sampleItem],
+					},
+				],
+			})
+			expect(parsed.bookings).toHaveLength(1)
+			expect(parsed.bookings[0]?.clientStatus).toBe("Paid")
+			expect(parsed.bookings[0]?.createdAt).toEqual(new Date("2026-11-22T07:00:00.000Z"))
+		})
+
+		it("parses BookingDetailSchema with payment, receipt, and issued documents", () => {
+			const detail = BookingDetailSchema.parse({
+				id: 31,
+				referenceNumber: "QSPS-261122-AB12CD",
+				status: "completed",
+				clientStatus: "Paid",
+				kind: "regular",
+				totalCentavos: 150000,
+				holdExpiresAt: null,
+				payOnsite: false,
+				cancelReason: null,
+				cancelledAt: null,
+				createdAt: "2026-11-22T07:00:00.000Z",
+				items: [{ ...sampleItem, status: "issued" }],
+				payment: {
+					id: 12,
+					amountCentavos: 151500,
+					convenienceFeeCentavos: 1500,
+					providerCode: "fake",
+					channelCode: "gcash",
+					channelName: "GCash",
+					status: "succeeded",
+					paidAt: "2026-11-22T07:05:00.000Z",
+					createdAt: "2026-11-22T07:04:00.000Z",
+				},
+				receipt: {
+					id: 5,
+					paymentId: 12,
+					receiptNumber: "QSPS-R-261122-000001",
+					verificationToken: "AbCdEfGhIjKlMnOpQrSt_-",
+					issuedAt: "2026-11-22T07:05:00.000Z",
+				},
+				documents: [
+					{
+						id: 99,
+						bookingItemId: 1,
+						serviceName: "Yellow fever vaccination",
+						documentType: "icv-record",
+						documentNumber: "ICV-MNL-2026-000001",
+						status: "valid",
+						issuedAt: "2026-12-02T01:30:00.000Z",
+						validUntil: null,
+					},
+				],
+			})
+
+			expect(detail.payment?.paidAt).toEqual(new Date("2026-11-22T07:05:00.000Z"))
+			expect(detail.receipt?.issuedAt).toEqual(new Date("2026-11-22T07:05:00.000Z"))
+			expect(detail.documents[0]?.issuedAt).toEqual(new Date("2026-12-02T01:30:00.000Z"))
+		})
 	})
 })
