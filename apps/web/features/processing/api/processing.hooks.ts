@@ -9,7 +9,9 @@ import type {
 	AssessmentOutcome,
 	CheckInResponse,
 	DocumentSummary,
+	FormAnswers,
 	IcvIssueDetails,
+	ItemStep,
 	MedicalExemptionDetails,
 	ProcessingItem,
 	ProcessingQueue,
@@ -52,12 +54,23 @@ type QueueJson = Omit<ProcessingQueue, "items"> & {
 	})[]
 }
 
-type ItemJson = Omit<ProcessingItem, "startsAt" | "endsAt" | "assessments"> & {
+type StepResultJson = Omit<NonNullable<ItemStep["result"]>, "recordedAt"> & { recordedAt: string }
+
+type ItemJson = Omit<ProcessingItem, "startsAt" | "endsAt" | "assessments" | "steps"> & {
 	startsAt: string
 	endsAt: string
 	assessments: (Omit<ProcessingItem["assessments"][number], "createdAt"> & {
 		createdAt: string
 	})[]
+	/** PRC-4. Missing from an item cached before steps existed. */
+	steps?: (Omit<ItemStep, "result" | "history"> & {
+		result: StepResultJson | null
+		history: StepResultJson[]
+	})[]
+}
+
+function toStepResult(result: StepResultJson): NonNullable<ItemStep["result"]> {
+	return { ...result, recordedAt: new Date(result.recordedAt) }
 }
 
 function toQueue(queue: QueueJson): ProcessingQueue {
@@ -79,6 +92,11 @@ function toItem(item: ItemJson): ProcessingItem {
 		assessments: item.assessments.map(assessment => ({
 			...assessment,
 			createdAt: new Date(assessment.createdAt),
+		})),
+		steps: (item.steps ?? []).map(step => ({
+			...step,
+			result: step.result ? toStepResult(step.result) : null,
+			history: step.history.map(toStepResult),
 		})),
 	}
 }
@@ -351,4 +369,43 @@ export function usePrintDocumentMutation(bookingItemId: number) {
 /** FRM-2c: a client's uploaded answer file, for staff. Opened by the browser with the staff session cookie. */
 export function answerFileUrl(bookingItemId: number, fieldId: number): string {
 	return `${API_BASE}/processing/items/${bookingItemId}/answers/${fieldId}/file`
+}
+
+export interface RecordStepResultRequest {
+	stepId: number
+	/** The result form version the answers are for. */
+	formTemplateId: number
+	answers: FormAnswers
+	/** One per save, so a double click records one result, not two. */
+	idempotencyKey: string
+}
+
+/**
+ * PRC-4: record a step's result, or correct it. A correction is stored as the
+ * next version; the earlier one is kept.
+ */
+export function useRecordStepResultMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({ stepId, idempotencyKey, ...body }: RecordStepResultRequest) =>
+			toItem(
+				await apiFetch<ItemJson>(`/processing/items/${bookingItemId}/steps/${stepId}/results`, {
+					method: "POST",
+					headers: { "Idempotency-Key": idempotencyKey },
+					body: JSON.stringify(body),
+				})
+			),
+		onSuccess: item => {
+			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
+		},
+	})
+}
+
+/**
+ * PRC-4: a printable copy of a step's result (the current one, or `version`).
+ * Opened by the browser with the staff session cookie, like answer files.
+ */
+export function stepResultPdfUrl(bookingItemId: number, stepId: number, version?: number): string {
+	const query = version === undefined ? "" : `?version=${version}`
+	return `${API_BASE}/processing/items/${bookingItemId}/steps/${stepId}/result.pdf${query}`
 }

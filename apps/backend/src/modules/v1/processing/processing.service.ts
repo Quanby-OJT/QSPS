@@ -46,6 +46,7 @@ import { fileAnswers, readableAnswers } from "@/modules/v1/forms/form-answers-di
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { DocumentService } from "../certificates/documents.service"
 import { manilaDateOf, manilaDateTimeToUtc } from "../schedules/manila-time"
+import { itemSteps, missingRequiredSteps } from "./steps/item-steps"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
 
@@ -294,6 +295,17 @@ export class ProcessingService {
 		await this.requireItemInScope(input.bookingItemId, staffId, "assessment.create", scope)
 
 		await db.transaction(async tx => {
+			// PRC-4: an item stays in_assessment until every required step has a
+			// result. Returning or rejecting it is still allowed.
+			if (input.outcome === "cleared") {
+				const missing = await missingRequiredSteps(tx, input.bookingItemId)
+				if (missing.length > 0) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: `Record the result of every required step before clearing: ${missing.join(", ")}.`,
+					})
+				}
+			}
+
 			const moved = await this.bookingService.transitionItem(
 				tx,
 				input.bookingItemId,
@@ -651,7 +663,7 @@ export class ProcessingService {
 	 * Category is in the caller's Scope (ADM-2). A refused attempt on an item
 	 * that does exist is audited as denied.
 	 */
-	private async requireItemInScope(
+	async requireItemInScope(
 		bookingItemId: number,
 		staffId: string,
 		action: string,
@@ -693,8 +705,11 @@ export class ProcessingService {
 		}
 	}
 
-	/** Everything the assessment screen shows. Call only after the scope check. */
-	private async loadItem(bookingItemId: number): Promise<ProcessingItem> {
+	/**
+	 * Everything the assessment screen shows. Call only after the scope check
+	 * (`requireItemInScope`); PRC-4's step results reuse both.
+	 */
+	async loadItem(bookingItemId: number): Promise<ProcessingItem> {
 		const [row] = await db
 			.select({
 				bookingItemId: bookingItems.id,
@@ -801,6 +816,8 @@ export class ProcessingService {
 			// FRM-2c: which answers are files staff can download.
 			formFiles: await fileAnswers(db, bookingItemId),
 			assessments: history,
+			// PRC-4: the Service's steps with their results; empty when it has none.
+			steps: await itemSteps(db, bookingItemId, row.serviceId),
 		}
 	}
 

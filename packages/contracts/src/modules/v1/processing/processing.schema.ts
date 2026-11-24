@@ -10,6 +10,7 @@ import {
 	MedicalExemptionDetailsSchema,
 } from "../certificates/certificates.schema.js"
 import { BusinessDateSchema } from "../schedules/schedules.schema.js"
+import { ItemStepSchema } from "./steps.schema.js"
 
 const dateField = z
 	.union([z.date(), z.string()])
@@ -171,6 +172,11 @@ export const ProcessingItemSchema = z.object({
 		.optional(),
 	/** Newest first. */
 	assessments: z.array(AssessmentSchema),
+	/**
+	 * PRC-4: the Service's steps for this item, in order, each with its status
+	 * and recorded result. Empty when the Service has no steps.
+	 */
+	steps: z.array(ItemStepSchema),
 })
 
 export const CheckInResponseSchema = z.object({

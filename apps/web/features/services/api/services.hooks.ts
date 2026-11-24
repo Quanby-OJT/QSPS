@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type {
 	CreateServiceInput,
+	SaveServiceStepsInput,
 	Service,
 	ServiceCategory,
+	ServiceSteps,
 	UpdateServiceRequest,
 } from "@repo/contracts"
 
@@ -49,6 +51,7 @@ export const serviceKeys = {
 	categories: ["services", "categories"] as const,
 	all: ["services", "all"] as const,
 	available: ["services", "available"] as const,
+	steps: (serviceId: number) => ["services", "steps", serviceId] as const,
 }
 
 export function useServiceCategoriesQuery() {
@@ -107,5 +110,30 @@ export function useSetServiceActiveMutation() {
 				body: JSON.stringify({ isActive }),
 			}),
 		onSuccess: refresh,
+	})
+}
+
+/** PRC-4: a Service's steps, each with its result form. */
+export function useServiceStepsQuery(serviceId: number) {
+	return useQuery({
+		queryKey: serviceKeys.steps(serviceId),
+		queryFn: () => apiFetch<ServiceSteps>(`/services/${serviceId}/steps`),
+	})
+}
+
+/** PRC-4: replace a Service's steps with an ordered list. */
+export function useSaveServiceStepsMutation(serviceId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ steps }: Pick<SaveServiceStepsInput, "steps">) =>
+			apiFetch<ServiceSteps>(`/services/${serviceId}/steps`, {
+				method: "PUT",
+				body: JSON.stringify({ steps }),
+			}),
+		onSuccess: saved => {
+			queryClient.setQueryData(serviceKeys.steps(serviceId), saved)
+			// Open assessments show the new steps on their next read.
+			void queryClient.invalidateQueries({ queryKey: ["processing"] })
+		},
 	})
 }

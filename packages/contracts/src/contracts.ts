@@ -195,6 +195,35 @@ export type {
 	DecideApprovalInput,
 	OverrideItemInput,
 } from "./modules/v1/processing/processing.schema.js"
+export {
+	FORM_TEMPLATE_PURPOSES,
+	FormTemplatePurposeSchema,
+	MAX_SERVICE_STEPS,
+	MAX_STEP_NAME_LENGTH,
+	StepFieldsInputSchema,
+	ServiceStepInputSchema,
+	ServiceStepsParamSchema,
+	SaveServiceStepsSchema,
+	ServiceStepSchema,
+	ServiceStepsSchema,
+	StepResultSchema,
+	ITEM_STEP_STATUSES,
+	ItemStepStatusSchema,
+	ItemStepSchema,
+	RecordStepResultSchema,
+} from "./modules/v1/processing/steps.schema.js"
+export type {
+	FormTemplatePurpose,
+	ServiceStepInput,
+	ServiceStepsParam,
+	SaveServiceStepsInput,
+	ServiceStep,
+	ServiceSteps,
+	StepResult,
+	ItemStepStatus,
+	ItemStep,
+	RecordStepResultInput,
+} from "./modules/v1/processing/steps.schema.js"
 
 // Certificates contracts + schemas (CRT-1, CRT-2, CRT-3)
 export { certificatesContract } from "./modules/v1/certificates/certificates.contract.js"
