@@ -675,4 +675,137 @@ describe("PaymentService", () => {
 			)
 		})
 	})
+
+	describe("collectOnsite (PAY-4)", () => {
+		const onsiteProvider: PaymentProvider = {
+			code: "onsite",
+			createCheckout: jest.fn().mockResolvedValue({
+				providerReference: "onsite_91_aaaaaaaaaaaa",
+				checkoutUrl: "http://localhost:3001/cashier",
+			}),
+			parseNotification: jest.fn(),
+			queryStatus: jest.fn(),
+		}
+		const collect = {
+			bookingId: 31,
+			tenderType: "cash" as const,
+			amountDueCentavos: 150000,
+			amountReceivedCentavos: 200000,
+		}
+		const onsitePayment = {
+			...savedPayment,
+			id: 91,
+			channelCode: "onsite",
+			providerCode: "onsite",
+			providerReference: "onsite_91_aaaaaaaaaaaa",
+			collectedBy: "cashier-1",
+			tenderType: "cash",
+		}
+
+		function makeCashierService() {
+			return new PaymentService(
+				audit as unknown as AuditService,
+				bookingService as unknown as BookingService,
+				new PaymentProviderRegistry([provider, onsiteProvider]),
+				{ findUsable: jest.fn() } as unknown as PaymentChannelService
+			)
+		}
+
+		it("creates an onsite payment by the cashier and confirms it in the same transaction", async () => {
+			const database = fakeDatabase({
+				selects: [
+					[ownBooking],
+					[onsitePayment],
+					[{ clientName: "Sam Rivera", channelName: null }],
+					receiptLines,
+				],
+				inserts: [[{ id: 91 }], [{ id: 8, receiptNumber: "QSPS-R-261117-000091" }]],
+			})
+
+			const result = await makeCashierService().collectOnsite(collect, "cashier-1", NOW)
+
+			expect(result).toEqual({
+				paymentId: 91,
+				receiptNumber: "QSPS-R-261117-000091",
+				amountCentavos: 150000,
+				changeCentavos: 50000,
+				bookingStatus: "paid",
+			})
+			// The booking is locked first, then the new payment.
+			expect(database.locks).toEqual(["update", "update"])
+			expect(database.inserted[0]).toEqual({
+				table: payments,
+				values: expect.objectContaining({
+					bookingId: 31,
+					channelCode: "onsite",
+					providerCode: "onsite",
+					amountCentavos: 150000,
+					convenienceFeeCentavos: 0,
+					collectedBy: "cashier-1",
+					tenderType: "cash",
+				}),
+			})
+			// Goes through the same confirm as online payments: booking paid, receipt issued.
+			expect(bookingService.markPaid).toHaveBeenCalledWith(expect.anything(), 31, "cashier-1", NOW)
+			expect(database.updated).toContainEqual({
+				table: payments,
+				values: { status: "succeeded", needsReview: false, updatedAt: NOW },
+			})
+			expect(database.inserted[1]).toMatchObject({
+				table: receipts,
+				values: { clientName: "Sam Rivera", channelName: "Onsite cashier - Cash" },
+			})
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "payment.collect_onsite",
+					actorId: "cashier-1",
+					newValue: expect.objectContaining({
+						tenderType: "cash",
+						amountReceivedCentavos: 200000,
+						changeCentavos: 50000,
+						collectedBy: "cashier-1",
+					}),
+				}),
+				expect.anything()
+			)
+		})
+
+		it("refuses a booking that is already paid and says so", async () => {
+			const database = fakeDatabase({ selects: [[{ ...ownBooking, status: "paid" }]] })
+
+			const error = await makeCashierService()
+				.collectOnsite(collect, "cashier-1", NOW)
+				.catch((caught: unknown) => caught)
+
+			expect(error).toMatchObject({ code: "CONFLICT" })
+			expect(String((error as Error).message)).toContain("it is paid")
+			expect(database.inserted).toEqual([])
+			expect(bookingService.markPaid).not.toHaveBeenCalled()
+		})
+
+		it("refuses a cancelled booking", async () => {
+			fakeDatabase({ selects: [[{ ...ownBooking, status: "cancelled" }]] })
+
+			await expect(makeCashierService().collectOnsite(collect, "cashier-1", NOW)).rejects.toThrow(
+				"it is cancelled"
+			)
+		})
+
+		it("refuses when the amount due changed since the cashier opened the booking", async () => {
+			const database = fakeDatabase({ selects: [[{ ...ownBooking, totalCentavos: 180000 }]] })
+
+			await expect(
+				makeCashierService().collectOnsite(collect, "cashier-1", NOW)
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(database.inserted).toEqual([])
+		})
+
+		it("answers 404 for a booking that does not exist", async () => {
+			fakeDatabase({ selects: [[]] })
+
+			await expect(
+				makeCashierService().collectOnsite(collect, "cashier-1", NOW)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+		})
+	})
 })

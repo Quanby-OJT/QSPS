@@ -83,7 +83,7 @@ describe("PaymentChannelService", () => {
 		audit = { record: jest.fn().mockResolvedValue(undefined) }
 		service = new PaymentChannelService(
 			audit as unknown as AuditService,
-			new PaymentProviderRegistry([provider("fake"), provider("linkbiz")])
+			new PaymentProviderRegistry([provider("fake"), provider("linkbiz"), provider("onsite")])
 		)
 	})
 
@@ -165,6 +165,15 @@ describe("PaymentChannelService", () => {
 			expect(audit.record).not.toHaveBeenCalled()
 		})
 
+		it("refuses the onsite cashier provider: it has no checkout page (PAY-4)", async () => {
+			fakeDatabase([])
+
+			await expect(service.update({ ...input, providerCode: "onsite" }, "admin-1")).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+			})
+			expect(audit.record).not.toHaveBeenCalled()
+		})
+
 		it("answers 404 for an unknown channel", async () => {
 			fakeDatabase([[]])
 
@@ -187,6 +196,11 @@ describe("PaymentChannelService", () => {
 		it("returns nothing for a disabled or unknown channel", async () => {
 			fakeDatabase([[]])
 			await expect(service.findUsable("maya")).resolves.toBeUndefined()
+		})
+
+		it("never routes a client's online payment to the onsite cashier provider (PAY-4)", async () => {
+			fakeDatabase([[channelRow({ providerCode: "onsite" })]])
+			await expect(service.findUsable("gcash")).resolves.toBeUndefined()
 		})
 
 		it("returns nothing when the channel's provider is not in this deployment", async () => {

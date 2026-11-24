@@ -46,6 +46,17 @@ describe("QSPS RBAC catalog", () => {
 		expect(ROLE_PERMISSIONS["Module Admin"]).toContain("certificates.documents:revoke")
 	})
 
+	it("gives the cashier roles nothing that edits client data or schedules (PAY-4, Annex A)", () => {
+		for (const role of ["Cashier", "Collecting Officer"] as const) {
+			const grants = ROLE_PERMISSIONS[role]
+			expect(grants).toContain("payments.onsite:collect")
+			for (const grant of grants) {
+				expect(grant).not.toMatch(/^(users|schedules|settings|account|forms)\./)
+				expect(grant).not.toMatch(/^bookings\..*:(create|reschedule|cancel|manage)$/)
+			}
+		}
+	})
+
 	it("keeps settings.changes:approve with Super Admin only", () => {
 		for (const [role, grants] of Object.entries(ROLE_PERMISSIONS)) {
 			if (role === ADMIN_ROLE) continue

@@ -6,6 +6,7 @@ import {
 	File01Icon,
 	SecurityCheckIcon,
 	ShieldKeyIcon,
+	Ticket01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
@@ -55,6 +56,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/processing/approvals",
 		icon: SecurityCheckIcon,
 		requiredPermission: "processing.assessments:approve",
+	},
+	{
+		// PAY-4: record onsite payments. Cashier and Collecting Officer.
+		label: "Cashier",
+		href: "/cashier",
+		icon: Ticket01Icon,
+		requiredPermission: "payments.onsite:collect",
 	},
 	{
 		label: "User Management",

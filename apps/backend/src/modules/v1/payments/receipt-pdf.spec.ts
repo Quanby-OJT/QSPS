@@ -1,6 +1,12 @@
 import { PdfService } from "@/common/pdf/pdf.service"
 
-import { drawReceipt, formatManilaDateTime, formatPesos } from "./receipt-pdf"
+import {
+	drawPassbookReceipt,
+	drawReceipt,
+	formatManilaDateTime,
+	formatPesos,
+	PASSBOOK_PAGE,
+} from "./receipt-pdf"
 
 describe("receipt PDF", () => {
 	it("formats money in pesos with two decimals", () => {
@@ -57,6 +63,48 @@ describe("receipt PDF", () => {
 				"PHP 1,500.00",
 				"Convenience fee",
 				"PHP 0.00",
+				"Total paid",
+			])
+		)
+	})
+
+	it("draws the same figures on the passbook-printer page (PAY-4)", async () => {
+		const pdf = new PdfService()
+		const qrPng = await pdf.qrPng("http://localhost:3001/receipts/verify/token")
+		const lines: string[] = []
+
+		const bytes = await pdf.render({ title: "e-Receipt", size: PASSBOOK_PAGE, margin: 18 }, doc => {
+			const original = doc.text.bind(doc) as (...args: unknown[]) => PDFKit.PDFDocument
+			jest.spyOn(doc, "text").mockImplementation(((...args: unknown[]) => {
+				lines.push(String(args[0]))
+				return original(...args)
+			}) as never)
+
+			drawPassbookReceipt(doc, {
+				receiptNumber: "QSPS-R-261124-000007",
+				referenceNumber: "QSPS-261124-AB12CD",
+				issuedAt: new Date("2026-11-24T01:30:00.000Z"),
+				clientName: "Sam Rivera",
+				channelName: "Onsite cashier - Cash",
+				items: [{ serviceName: "Yellow fever vaccination", feeCentavos: 150000 }],
+				convenienceFeeCentavos: 0,
+				totalCentavos: 150000,
+				status: "valid",
+				verifyUrl: "http://localhost:3001/receipts/verify/token",
+				qrPng,
+			})
+		})
+
+		expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-")
+		expect(lines).toEqual(
+			expect.arrayContaining([
+				"QSPS-R-261124-000007",
+				"QSPS-261124-AB12CD",
+				"Sam Rivera",
+				"Onsite cashier - Cash",
+				"PAID",
+				"Yellow fever vaccination",
+				"PHP 1,500.00",
 				"Total paid",
 			])
 		)

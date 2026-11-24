@@ -82,5 +82,12 @@ export interface PaymentProvider {
 	queryStatus(providerReference: string): Promise<ProviderStatusResult>
 }
 
+/**
+ * The provider code of payments taken at a BOQ cashier (PAY-4). Fixed by
+ * DOMAIN-MODEL.md, and declared here so the payment service can name it
+ * without importing the adapter (the gateway boundary rule).
+ */
+export const ONSITE_PROVIDER_CODE = "onsite"
+
 /** Nest injection token for the registry's provider list. */
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS")

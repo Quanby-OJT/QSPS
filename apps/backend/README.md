@@ -321,3 +321,18 @@ Channels** (`GET`/`PUT /api/v1/settings/payment-channels`).
   prints the stored figures.
 - **Local testing:** with `PAYMENT_FAKE_ENABLED=true`, configure a channel
   (for example GCash) with provider `fake` and enable it.
+
+## Onsite payments at the cashier (PAY-4)
+
+The cashier screen (`/cashier` in the web app) finds a client's booking and records an in-person payment (TOR §VIII.1). Every route needs `payments.onsite:collect` (Cashier, Collecting Officer): RbacGuard answers 403 and audits the denial without it. Bookings are visible when at least one of their Services is in the caller's Scope; anything else answers 404 and the denial is audited (`scope.check`).
+
+| Route | What it does |
+| --- | --- |
+| `GET /v1/cashier/bookings?q=` | By Reference Number (typed, or scanned from the booking QR by a handheld scanner or the camera), client email, or part of the name. Unpaid bookings first, each with its fee breakdown |
+| `GET /v1/cashier/bookings/{bookingId}` | One booking |
+| `POST /v1/cashier/bookings/{bookingId}/collect` | `{ tenderType: cash \| card \| check, amountDueCentavos, amountReceivedCentavos }`. Needs an `Idempotency-Key`. A paid or cancelled booking answers 409 with its status; a changed total answers 409 too |
+| `GET /v1/cashier/payments/{paymentId}/receipt?layout=a4\|passbook` | Print or reprint the e-Receipt, on A4 or the A6 passbook-printer page |
+
+`collect` runs `PaymentService.collectOnsite`: in one transaction it locks the Booking, creates a Payment with provider `onsite`, `collected_by` = the cashier and `tender_type`, and confirms it through the same `confirm` online payments use (Booking `paid`, e-Receipt issued, `payment.collect_onsite` audited with the amount received and change). Onsite payments have no convenience fee. The `onsite` provider is always registered, accepts no notifications, and can never be chosen for a Payment Channel.
+
+The cashier routes read client names and emails but never change client data or schedules (Annex A); the Cashier role holds no `users.*`, `schedules.*` or `settings.*` keys.
