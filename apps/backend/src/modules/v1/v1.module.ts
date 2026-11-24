@@ -12,6 +12,7 @@ import { PaymentsModule } from "./payments/payments.module"
 import { PoliciesModule } from "./policies/policies.module"
 import { ProcessingModule } from "./processing/processing.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
+import { ReportsModule } from "./reports/reports.module"
 import { SchedulesModule } from "./schedules/schedules.module"
 import { ServicesModule } from "./services/services.module"
 import { SupportModule } from "./support/support.module"
@@ -28,6 +29,7 @@ import { SupportModule } from "./support/support.module"
 		SupportModule,
 		ProcessingModule,
 		RbacAdminModule,
+		ReportsModule,
 		SchedulesModule,
 		ServicesModule,
 		// Sentry diagnostics exist ONLY in development. Conditional import rather

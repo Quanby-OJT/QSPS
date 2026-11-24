@@ -18,6 +18,7 @@ import { UnpaidBookingCard } from "@/features/bookings/components/unpaid-booking
 import { canAccess, type AccessProfile } from "@/features/dashboard/lib/access"
 import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
 import { ClientLocationPicker } from "@/features/locations/components/client-location-picker"
+import { ApplicantsReport } from "@/features/dashboard/components/applicants-report"
 import { useRolesQuery, useUsersQuery } from "@/features/user-management/api/rbac.hooks"
 
 interface DashboardOverviewProps {
@@ -96,6 +97,10 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 			{canCreateOwnBookings && canReadOwnBookings ? <UnpaidBookingCard /> : null}
 
 			{canCreateOwnBookings ? <ClientLocationPicker /> : null}
+
+			{canAccess(access, { requiredPermission: "reports.dashboard:read" }) ? (
+				<ApplicantsReport userKey={user.email} />
+			) : null}
 
 			{canReadUsers ? (
 				<div className={canManageRoles ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>

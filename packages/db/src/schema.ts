@@ -801,7 +801,7 @@ export const receipts = createTable("receipts", t => ({
 	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
 	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
 	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
-}))
+}), t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)])
 
 // ============================================================================
 // POLICIES
