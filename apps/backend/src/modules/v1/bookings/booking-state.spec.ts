@@ -1,4 +1,4 @@
-import { canTransition, initialStatus, isTerminal } from "./booking-state"
+import { canTransition, initialStatus, isTerminal, toClientBookingStatus } from "./booking-state"
 
 describe("booking state machine", () => {
 	it("starts a regular booking awaiting payment and an expedite request awaiting approval", () => {
@@ -46,5 +46,21 @@ describe("booking state machine", () => {
 		] as const) {
 			expect(isTerminal(status)).toBe(false)
 		}
+	})
+})
+
+describe("toClientBookingStatus (BKG-4)", () => {
+	it.each([
+		["pending_approval", "Pending"],
+		["pending_payment", "Pending"],
+		["paid", "Paid"],
+		["completed", "Paid"],
+		["refund_requested", "Paid"],
+		["cancelled", "Cancelled"],
+		["rejected", "Cancelled"],
+		["forfeited", "Cancelled"],
+		["refunded", "Cancelled"],
+	] as const)("shows %s as %s", (status, label) => {
+		expect(toClientBookingStatus(status)).toBe(label)
 	})
 })
