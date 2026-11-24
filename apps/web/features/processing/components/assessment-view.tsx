@@ -33,6 +33,7 @@ import {
 	useDocumentDetailsForm,
 } from "@/features/processing/components/document-panels"
 import { PrintoutsPanel } from "@/features/processing/components/printouts-panel"
+import { StepsPanel } from "@/features/processing/components/steps-panel"
 import {
 	allowsExemption,
 	canDecideApproval,
@@ -43,6 +44,7 @@ import {
 	itemStatusLabel,
 	needsIssuing,
 	outcomeLabel,
+	pendingRequiredSteps,
 } from "@/features/processing/lib/labels"
 import { printoutsFor } from "@/features/processing/lib/printouts"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
@@ -257,6 +259,15 @@ function AssessmentBody({
 			</div>
 
 			<div className="flex flex-col gap-6">
+				{/* PRC-4: the Service's steps, recorded before the item can be cleared. */}
+				{/* `?? []`: an item cached before steps existed has none until it refetches. */}
+				{(item.steps ?? []).length > 0 ? (
+					<StepsPanel
+						item={item}
+						canRecord={item.status === "in_assessment" || item.status === "checked_in"}
+					/>
+				) : null}
+
 				{canOpen(item.status) ? (
 					<div className="bg-card flex flex-col items-start gap-3 rounded-xl border p-4">
 						<h2 className="font-semibold">
@@ -356,10 +367,12 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 	const allowExemption = allowsExemption(item.service.documentType)
 	const exempt = needsCertificate && allowExemption && documentForm.mode === "exempt"
 	const certificateMissing = needsCertificate && documentForm.missing
+	// PRC-4: clearing waits for every required step's result. Return and reject do not.
+	const stepsPending = outcome === "cleared" ? pendingRequiredSteps(item.steps ?? []) : []
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
-		if (noteMissing || certificateMissing) return
+		if (noteMissing || certificateMissing || stepsPending.length > 0) return
 		try {
 			const saved = await record.mutateAsync({
 				outcome,
@@ -418,6 +431,11 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 				{outcome === "cleared" && item.service.requiresApproval ? (
 					<p className="text-muted-foreground text-xs">
 						This service needs head approval, so clearing sends it to the Head for approval first.
+					</p>
+				) : null}
+				{stepsPending.length > 0 ? (
+					<p role="alert" className="text-destructive text-sm">
+						Record the result of every required step before clearing: {stepsPending.join(", ")}.
 					</p>
 				) : null}
 			</fieldset>
@@ -501,7 +519,7 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 
 			<Button
 				type="submit"
-				disabled={record.isPending || noteMissing || certificateMissing}
+				disabled={record.isPending || noteMissing || certificateMissing || stepsPending.length > 0}
 				className="self-start"
 			>
 				{record.isPending

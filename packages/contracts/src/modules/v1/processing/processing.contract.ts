@@ -13,6 +13,12 @@ import {
 	ProcessingQueueSchema,
 	RecordAssessmentSchema,
 } from "./processing.schema.js"
+import {
+	RecordStepResultSchema,
+	SaveServiceStepsSchema,
+	ServiceStepsParamSchema,
+	ServiceStepsSchema,
+} from "./steps.schema.js"
 
 /**
  * BOQ staff assessment (PRC-1, TOR §VIII.3). Every route is limited to the
@@ -107,4 +113,37 @@ export const processingContract = {
 		})
 		.input(OverrideItemSchema)
 		.output(ProcessingItemSchema),
+	recordStepResult: oc
+		.route({
+			method: "POST",
+			path: "/processing/items/{bookingItemId}/steps/{stepId}/results",
+			summary: "Record or correct a step's result",
+			description:
+				"PRC-4: records the result of one Service Step through the step's result form while the item is in_assessment. Recording again corrects it: the next version is added, the earlier one is kept, and the correction is audited. Needs processing.assessments:perform at the item's station.",
+			tags: ["Processing"],
+		})
+		.input(RecordStepResultSchema)
+		.output(ProcessingItemSchema),
+	serviceSteps: oc
+		.route({
+			method: "GET",
+			path: "/services/{serviceId}/steps",
+			summary: "Read a Service's steps",
+			description:
+				"PRC-4: the ordered steps a Service's Booking Items pass through, each with its result form. Needs settings.services:manage within the caller's Scope.",
+			tags: ["Services"],
+		})
+		.input(ServiceStepsParamSchema)
+		.output(ServiceStepsSchema),
+	saveServiceSteps: oc
+		.route({
+			method: "PUT",
+			path: "/services/{serviceId}/steps",
+			summary: "Configure a Service's steps",
+			description:
+				"PRC-4: replaces the Service's active steps with this ordered list. Changed result questions publish the next form version; a removed step is deleted, or disabled when it has results. An empty list turns steps off. Needs settings.services:manage within the caller's Scope.",
+			tags: ["Services"],
+		})
+		.input(SaveServiceStepsSchema)
+		.output(ServiceStepsSchema),
 }
