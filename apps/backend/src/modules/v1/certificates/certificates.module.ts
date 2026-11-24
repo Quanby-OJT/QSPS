@@ -17,6 +17,6 @@ import { PrintoutService } from "./printouts/printouts.service"
 	controllers: [CertificatesController, DocumentPdfController, PrintoutsController],
 	providers: [DocumentService, PrintoutService],
 	// Exported so processing can auto-issue inside the clearing transaction.
-	exports: [DocumentService, PrintoutService],
+	exports: [DocumentService],
 })
 export class CertificatesModule {}
