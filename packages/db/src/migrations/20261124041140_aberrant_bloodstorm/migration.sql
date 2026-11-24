@@ -1,1 +1,0 @@
-CREATE INDEX "receipts_issued_at_payment_idx" ON "receipts" ("issued_at","payment_id");
