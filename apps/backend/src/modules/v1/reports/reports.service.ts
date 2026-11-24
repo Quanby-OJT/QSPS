@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import { and, eq, gte, lt } from "drizzle-orm"
+import { and, eq, gte, lt, sql } from "drizzle-orm"
 
 import {
 	bookingItems,
@@ -26,7 +26,12 @@ export class ReportsService {
 				paymentId: payments.id,
 				bookingId: payments.bookingId,
 				itemId: bookingItems.id,
-				amountCentavos: payments.amountCentavos,
+				// Collections are BOQ's service fees: the convenience fee goes to the
+				// payment provider, so it is left out.
+				amountCentavos:
+					sql<number>`(${payments.amountCentavos} - ${payments.convenienceFeeCentavos})`.mapWith(
+						Number
+					),
 				feeCentavos: bookingItems.feeCentavos,
 				locationId: locations.id,
 				locationName: locations.name,
