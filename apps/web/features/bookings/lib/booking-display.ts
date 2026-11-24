@@ -92,6 +92,10 @@ export function documentTypeLabel(type: DocumentType): string {
 			return "International Certificate of Vaccination (ICV)"
 		case "medical-exemption":
 			return "Medical Exemption Certificate"
+		case "sanitary-permit":
+			return "Sanitary Permit"
+		case "ship-sanitation":
+			return "Ship Sanitation Certificate"
 	}
 }
 
