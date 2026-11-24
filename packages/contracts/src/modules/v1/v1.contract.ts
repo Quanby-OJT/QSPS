@@ -13,6 +13,7 @@ import { policiesContract } from "./policies/policies.contract.js"
 import { policyDocumentsContract } from "./policies/policy-documents.contract.js"
 import { processingContract } from "./processing/processing.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
+import { reportsContract } from "./reports/reports.contract.js"
 import { schedulesContract } from "./schedules/schedules.contract.js"
 import { servicesContract } from "./services/services.contract.js"
 import { supportContract } from "./support/support.contract.js"
@@ -36,6 +37,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		policyDocuments: policyDocumentsContract,
 		processing: processingContract,
 		rbac: rbacContract,
+		reports: reportsContract,
 		schedules: schedulesContract,
 		services: servicesContract,
 		support: supportContract,
