@@ -9,11 +9,13 @@ import {
 	LinkSquare01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import type { BookingDetail } from "@repo/contracts"
+import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 
+import type { BookingDetail } from "@repo/contracts"
+
 import { Badge } from "@/core/components/ui/badge"
-import { Button } from "@/core/components/ui/button"
+import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
 	Card,
 	CardContent,
@@ -24,6 +26,7 @@ import {
 import { Skeleton } from "@/core/components/ui/skeleton"
 import { useHydrated } from "@/core/hooks/use-hydrated"
 import { ApiError } from "@/core/lib/api-error"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
 	useBookingDetailQuery,
 	useCancelBookingMutation,
@@ -43,7 +46,6 @@ import {
 import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
 import { dateLabel, manilaDateKey } from "@/features/schedules/lib/calendar"
 import { feeInPesos } from "@/features/services/lib/fee"
-import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 
 function newIdempotencyKey(): string {
 	return crypto.randomUUID()
@@ -81,7 +83,10 @@ export function BookingDetailContent({
 	return (
 		<div className="flex flex-col gap-6">
 			<div>
-				<Button render={<Link href={backHref} />} variant="ghost" size="sm" className="-ml-2">
+				<Link
+					href={backHref}
+					className={`${buttonVariants({ variant: "ghost", size: "sm" })} -ml-2`}
+				>
 					<HugeiconsIcon
 						icon={ArrowLeft01Icon}
 						strokeWidth={2}
@@ -89,7 +94,7 @@ export function BookingDetailContent({
 						aria-hidden="true"
 					/>
 					Back to My Transactions
-				</Button>
+				</Link>
 			</div>
 
 			{/* Summary Header */}
@@ -107,41 +112,36 @@ export function BookingDetailContent({
 								<Badge variant="outline">Pay at BOQ cashier</Badge>
 							) : null}
 						</div>
-						<CardDescription>
-							Booked on {manilaDateTimeLabel(booking.createdAt)}
-						</CardDescription>
+						<CardDescription>Booked on {manilaDateTimeLabel(booking.createdAt)}</CardDescription>
 					</div>
 
 					<div className="text-left sm:text-right">
 						<p className="text-muted-foreground text-xs">Total service fees</p>
-						<p className="text-2xl font-bold tabular-nums">
-							₱{feeInPesos(booking.totalCentavos)}
-						</p>
+						<p className="text-2xl font-bold tabular-nums">₱{feeInPesos(booking.totalCentavos)}</p>
 					</div>
 				</CardHeader>
 
+				{booking.clientStatus !== "Cancelled" ? (
+					<CardContent className="border-border flex flex-col items-center gap-4 border-t pt-4 sm:flex-row">
+						<div className="rounded-lg bg-white p-3">
+							<QRCodeSVG
+								value={booking.referenceNumber}
+								size={128}
+								title={`QR code for reference number ${booking.referenceNumber}`}
+							/>
+						</div>
+						<p className="text-muted-foreground text-sm">
+							Show this QR code, or your Reference Number, when you pay at the BOQ cashier and when
+							you arrive.
+						</p>
+					</CardContent>
+				) : null}
+
 				{booking.status === "pending_payment" ? (
 					<CardContent className="border-border flex flex-col gap-4 border-t pt-4">
-						<p className="text-sm">
-							{booking.payOnsite
-								? "You chose to pay at the BOQ cashier. Arrive early: an unpaid booking is cancelled shortly before its slot starts."
-								: booking.holdExpiresAt
-									? `Pay by ${manilaDateTimeLabel(booking.holdExpiresAt)} or the booking is cancelled and the slot is released.`
-									: "Complete your payment to confirm your scheduled slots."}
-						</p>
-
-						{choosingChannel ? (
-							<PaymentCheckout
-								bookingId={booking.id}
-								onRedirect={() => onRedirect?.()}
-							/>
-						) : null}
-
 						{confirmingCancel ? (
 							<div className="flex flex-wrap items-center gap-2">
-								<p className="text-sm font-medium">
-									Cancel this booking and give up the slot?
-								</p>
+								<p className="text-sm font-medium">Cancel this booking and give up the slot?</p>
 								<Button
 									type="button"
 									variant="destructive"
@@ -238,9 +238,7 @@ export function BookingDetailContent({
 									{slotDetail(item.locationName, item)}
 								</p>
 							</div>
-							<p className="text-sm font-semibold tabular-nums">
-								₱{feeInPesos(item.feeCentavos)}
-							</p>
+							<p className="text-sm font-semibold tabular-nums">₱{feeInPesos(item.feeCentavos)}</p>
 						</div>
 					))}
 				</CardContent>
@@ -264,9 +262,7 @@ export function BookingDetailContent({
 				</CardHeader>
 				<CardContent>
 					{!booking.payment ? (
-						<p className="text-muted-foreground text-sm">
-							No payment has been recorded yet.
-						</p>
+						<p className="text-muted-foreground text-sm">No payment has been recorded yet.</p>
 					) : (
 						<div className="space-y-4">
 							<dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -278,9 +274,7 @@ export function BookingDetailContent({
 								</div>
 								<div>
 									<dt className="text-muted-foreground">Payment channel</dt>
-									<dd className="mt-0.5 font-medium uppercase">
-										{booking.payment.channelName}
-									</dd>
+									<dd className="mt-0.5 font-medium">{booking.payment.channelName}</dd>
 								</div>
 								<div>
 									<dt className="text-muted-foreground">Service fees</dt>
@@ -313,7 +307,7 @@ export function BookingDetailContent({
 							{booking.receipt ? (
 								<div className="border-border bg-muted/40 flex flex-col gap-3 rounded-lg border-t p-4 sm:flex-row sm:items-center sm:justify-between">
 									<div className="space-y-1">
-										<p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+										<p className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
 											Official e-Receipt
 										</p>
 										<p className="font-mono text-base font-semibold">
@@ -323,10 +317,9 @@ export function BookingDetailContent({
 											Issued on {manilaDateTimeLabel(booking.receipt.issuedAt)}
 										</p>
 									</div>
-									<Button
-										render={<Link href={`/receipts/${booking.receipt.verificationToken}`} />}
-										variant="outline"
-										size="sm"
+									<Link
+										href={`/receipts/${booking.receipt.verificationToken}`}
+										className={buttonVariants({ variant: "outline", size: "sm" })}
 									>
 										View e-Receipt
 										<HugeiconsIcon
@@ -335,7 +328,7 @@ export function BookingDetailContent({
 											className="ml-1.5 size-3.5"
 											aria-hidden="true"
 										/>
-									</Button>
+									</Link>
 								</div>
 							) : null}
 						</div>
@@ -374,9 +367,7 @@ export function BookingDetailContent({
 								>
 									<div className="space-y-1">
 										<div className="flex flex-wrap items-center gap-2">
-											<span className="font-semibold">
-												{documentTypeLabel(doc.documentType)}
-											</span>
+											<span className="font-semibold">{documentTypeLabel(doc.documentType)}</span>
 											<Badge variant={doc.status === "valid" ? "default" : "destructive"}>
 												{documentStatusLabel(doc.status)}
 											</Badge>
@@ -458,7 +449,9 @@ export function BookingDetailView({
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						<Button render={<Link href={backHref} />}>Return to My Transactions</Button>
+						<Link href={backHref} className={buttonVariants({})}>
+							Return to My Transactions
+						</Link>
 					</CardContent>
 				</Card>
 			) : detail.isError ? (

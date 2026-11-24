@@ -23,6 +23,7 @@ import {
 	documents,
 	formSubmissions,
 	locations,
+	paymentChannels,
 	payments,
 	policyAcceptances,
 	receipts,
@@ -165,7 +166,8 @@ export class BookingService {
 		return {
 			...booking,
 			clientStatus: toClientBookingStatus(booking.status),
-			payment,
+			// payments has no paid-at column: the e-Receipt is issued when the payment succeeds.
+			payment: payment && receipt ? { ...payment, paidAt: receipt.issuedAt } : payment,
 			receipt,
 			documents: issuedDocuments,
 		}
@@ -341,6 +343,8 @@ export class BookingService {
 					totalCentavos,
 					holdExpiresAt,
 					createdBy: actorId,
+					// Set here, in UTC, rather than by the database clock (DOMAIN-MODEL.md: timestamps are UTC).
+					createdAt: now,
 				})
 				.returning()
 			if (!booking) {
@@ -1218,6 +1222,7 @@ export class BookingService {
 		reader: Reader,
 		bookingId: number
 	): Promise<BookingPaymentDetail | null> {
+		// The succeeded payment when there is one, otherwise the latest attempt.
 		const [row] = await reader
 			.select({
 				id: payments.id,
@@ -1225,13 +1230,18 @@ export class BookingService {
 				convenienceFeeCentavos: payments.convenienceFeeCentavos,
 				providerCode: payments.providerCode,
 				channelCode: payments.channelCode,
+				channelName: paymentChannels.name,
 				status: payments.status,
 				createdAt: payments.createdAt,
-				updatedAt: payments.updatedAt,
 			})
 			.from(payments)
+			.leftJoin(paymentChannels, eq(paymentChannels.code, payments.channelCode))
 			.where(eq(payments.bookingId, bookingId))
-			.orderBy(desc(payments.createdAt), desc(payments.id))
+			.orderBy(
+				sql`(${payments.status} = 'succeeded') desc`,
+				desc(payments.createdAt),
+				desc(payments.id)
+			)
 			.limit(1)
 
 		if (!row) return null
@@ -1241,9 +1251,10 @@ export class BookingService {
 			convenienceFeeCentavos: row.convenienceFeeCentavos,
 			providerCode: row.providerCode,
 			channelCode: row.channelCode,
-			channelName: row.channelCode,
+			channelName:
+				row.providerCode === "onsite" ? "BOQ cashier" : (row.channelName ?? row.channelCode),
 			status: row.status,
-			paidAt: row.status === "succeeded" ? row.updatedAt : null,
+			paidAt: null,
 			createdAt: row.createdAt,
 		}
 	}

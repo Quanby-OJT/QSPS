@@ -5,7 +5,6 @@ import {
 	BookingDetailSchema,
 	BookingIdParamSchema,
 	BookingSchema,
-	BookingSummarySchema,
 	CLIENT_BOOKING_STATUSES,
 	ClientBookingStatusSchema,
 	CreateBookingSchema,

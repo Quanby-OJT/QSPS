@@ -36,6 +36,7 @@ function queryStub<T>(rows: T[]) {
 	const stub: Record<string, unknown> = {
 		from: jest.fn(() => stub),
 		innerJoin: jest.fn(() => stub),
+		leftJoin: jest.fn(() => stub),
 		where: jest.fn(() => stub),
 		orderBy: jest.fn(() => stub),
 		groupBy: jest.fn(() => stub),
@@ -378,7 +379,8 @@ describe("BookingService own bookings (BKG-4)", () => {
 				id: 12,
 				amountCentavos: 151500,
 				convenienceFeeCentavos: 1500,
-				channelName: "gcash",
+				channelName: "GCash",
+				paidAt: new Date("2026-11-22T07:05:00.000Z"),
 				status: "succeeded",
 			})
 			expect(detail.receipt).toMatchObject({

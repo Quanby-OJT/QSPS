@@ -150,7 +150,7 @@ describe("BookingDetailContent (BKG-4 AC 2 & AC 3)", () => {
 			convenienceFeeCentavos: 1500,
 			providerCode: "fake",
 			channelCode: "gcash",
-			channelName: "gcash",
+			channelName: "GCash",
 			status: "succeeded",
 			paidAt: new Date("2026-11-23T09:05:00.000Z"),
 			createdAt: new Date("2026-11-23T09:04:00.000Z"),
@@ -183,7 +183,8 @@ describe("BookingDetailContent (BKG-4 AC 2 & AC 3)", () => {
 		expect(screen.getByText("Paid")).toBeInTheDocument()
 		expect(screen.getByText("Document issued")).toBeInTheDocument()
 		expect(screen.getByText("Succeeded")).toBeInTheDocument()
-		expect(screen.getByText("gcash")).toBeInTheDocument()
+		expect(screen.getByText("GCash")).toBeInTheDocument()
+		expect(screen.getByTitle("QR code for reference number QSPS-261123-NEW123")).toBeInTheDocument()
 		expect(screen.getByText(`₱${feeInPesos(151500)}`)).toBeInTheDocument()
 		expect(screen.getByText("QSPS-R-261123-000001")).toBeInTheDocument()
 		expect(screen.getByRole("link", { name: /View e-Receipt/i })).toHaveAttribute(

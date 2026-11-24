@@ -10,11 +10,12 @@ import {
 	File01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+
 import type { BookingSummary, ClientBookingStatus } from "@repo/contracts"
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
-import { Button } from "@/core/components/ui/button"
+import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
 	Card,
 	CardContent,
@@ -24,6 +25,7 @@ import {
 } from "@/core/components/ui/card"
 import { Skeleton } from "@/core/components/ui/skeleton"
 import { useHydrated } from "@/core/hooks/use-hydrated"
+import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import { useMyBookingsQuery } from "@/features/bookings/api/bookings.hooks"
 import {
 	BookingFeeLines,
@@ -35,7 +37,6 @@ import {
 } from "@/features/bookings/lib/booking-display"
 import { dateLabel, manilaDateKey } from "@/features/schedules/lib/calendar"
 import { feeInPesos } from "@/features/services/lib/fee"
-import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 
 type StatusFilter = "All" | ClientBookingStatus
 
@@ -106,9 +107,7 @@ export function TransactionCard({
 
 				<div className="text-left sm:text-right">
 					<p className="text-muted-foreground text-xs">Total</p>
-					<p className="text-lg font-semibold tabular-nums">
-						₱{feeInPesos(booking.totalCentavos)}
-					</p>
+					<p className="text-lg font-semibold tabular-nums">₱{feeInPesos(booking.totalCentavos)}</p>
 				</div>
 			</CardHeader>
 
@@ -128,7 +127,7 @@ export function TransactionCard({
 				<span className="text-muted-foreground text-xs">
 					{booking.items.length} {booking.items.length === 1 ? "service" : "services"}
 				</span>
-				<Button render={<Link href={detailHref} />} variant="outline" size="sm">
+				<Link href={detailHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
 					View details
 					<HugeiconsIcon
 						icon={ArrowRight01Icon}
@@ -136,7 +135,7 @@ export function TransactionCard({
 						className="ml-1.5 size-4"
 						aria-hidden="true"
 					/>
-				</Button>
+				</Link>
 			</CardFooter>
 		</Card>
 	)
@@ -171,7 +170,7 @@ export function MyTransactionsList({
 						You haven’t booked any quarantine services yet. Start a booking to schedule your
 						vaccination, seminar, or health certificate appointment.
 					</p>
-					<Button render={<Link href={newBookingHref} />} className="mt-5">
+					<Link href={newBookingHref} className={`${buttonVariants({})} mt-5`}>
 						<HugeiconsIcon
 							icon={Add01Icon}
 							strokeWidth={2}
@@ -179,7 +178,7 @@ export function MyTransactionsList({
 							aria-hidden="true"
 						/>
 						Book a service
-					</Button>
+					</Link>
 				</CardContent>
 			</Card>
 		)
@@ -190,12 +189,14 @@ export function MyTransactionsList({
 
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter transactions by status">
+			<div
+				className="flex flex-wrap gap-2"
+				role="tablist"
+				aria-label="Filter transactions by status"
+			>
 				{FILTERS.map(tab => {
 					const count =
-						tab === "All"
-							? bookings.length
-							: bookings.filter(b => b.clientStatus === tab).length
+						tab === "All" ? bookings.length : bookings.filter(b => b.clientStatus === tab).length
 					const active = filter === tab
 					return (
 						<Button
@@ -254,7 +255,7 @@ export function MyTransactionsView({
 					title="My Transactions"
 					description="View your Bureau of Quarantine bookings, payment status, e-Receipts, and issued documents."
 				/>
-				<Button render={<Link href={newBookingHref} />} className="self-start sm:self-auto">
+				<Link href={newBookingHref} className={`${buttonVariants({})} self-start sm:self-auto`}>
 					<HugeiconsIcon
 						icon={Add01Icon}
 						strokeWidth={2}
@@ -262,7 +263,7 @@ export function MyTransactionsView({
 						aria-hidden="true"
 					/>
 					Book a service
-				</Button>
+				</Link>
 			</div>
 
 			{loading ? (
@@ -274,9 +275,7 @@ export function MyTransactionsView({
 				<div className="border-destructive/30 bg-destructive/5 rounded-lg border p-4">
 					<p className="text-sm font-medium">Could not load your transactions.</p>
 					<p className="text-muted-foreground mt-1 text-sm">
-						{transactions.error instanceof Error
-							? transactions.error.message
-							: "Please try again."}
+						{transactions.error instanceof Error ? transactions.error.message : "Please try again."}
 					</p>
 					<Button
 						className="mt-3"

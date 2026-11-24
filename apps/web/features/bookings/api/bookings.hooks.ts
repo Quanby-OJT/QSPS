@@ -357,7 +357,10 @@ export function useBookingDetailQuery(bookingId: number | null) {
 		enabled: bookingId !== null,
 		refetchOnMount: "always",
 		retry: (failureCount, error) => {
-			if (error instanceof ApiError && (error.status === 404 || error.status === 401 || error.status === 403)) {
+			if (
+				error instanceof ApiError &&
+				(error.status === 404 || error.status === 401 || error.status === 403)
+			) {
 				return false
 			}
 			return failureCount < 2
@@ -366,7 +369,7 @@ export function useBookingDetailQuery(bookingId: number | null) {
 			if (!bookingId || !Number.isInteger(bookingId) || bookingId <= 0) {
 				throw new ApiError(404, "Booking not found")
 			}
-			const response = await fetch(`${API_BASE}/bookings/${bookingId}`, {
+			const response = await fetch(`${API_BASE}/bookings/${bookingId}/details`, {
 				credentials: "include",
 			})
 			if (!response.ok) throw await readError(response)

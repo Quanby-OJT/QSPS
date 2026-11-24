@@ -7,7 +7,7 @@ import {
 	FormAnswersSchema,
 } from "../forms/form-answers.js"
 import { FormFieldSchema } from "../forms/forms.schema.js"
-import { PaymentStatusSchema } from "../payments/payments.schema.js"
+import { PaymentStatusSchema } from "../payments/payment-status.js"
 
 const dateField = z
 	.union([z.date(), z.string()])

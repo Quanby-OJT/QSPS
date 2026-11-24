@@ -46,7 +46,7 @@ export const bookingsContract = {
 	getOwn: oc
 		.route({
 			method: "GET",
-			path: "/bookings/{bookingId}",
+			path: "/bookings/{bookingId}/details",
 			summary: "Read own booking details",
 			description:
 				"Reads one booking owned by the signed-in client, including each item's processing status, payment details, e-Receipt, and issued documents. Returns 404 when missing or owned by another client. Requires bookings.own:read (BKG-4).",
