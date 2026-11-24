@@ -44,6 +44,15 @@ export class MeController {
 		})
 	}
 
+	// PRC-2b: needs only a session, like reading the profile, so nobody is kept
+	// behind the Privacy Notice prompt for want of a permission.
+	@Implement(v1.me.acceptPrivacyNotice)
+	async acceptPrivacyNotice(@Session() session?: UserSession) {
+		return implement(v1.me.acceptPrivacyNotice).handler(async ({ input }) => {
+			return this.meProfileService.acceptPrivacyNotice(requireUserId(session), input)
+		})
+	}
+
 	@RequirePermissions("account.profile:manage")
 	@Implement(v1.me.updateProfile)
 	async updateProfile(@Session() session?: UserSession) {

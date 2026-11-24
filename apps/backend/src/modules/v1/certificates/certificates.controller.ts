@@ -1,8 +1,10 @@
-import { Controller, UseInterceptors } from "@nestjs/common"
+import { Controller, Inject, Optional, UseInterceptors } from "@nestjs/common"
 import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { AllowAnonymous, Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
+import type { ResolvedScope } from "@/common/scope/scope-match"
+import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
@@ -15,13 +17,21 @@ function actorId(session?: UserSession): string | null {
 }
 
 /**
- * Documents (CRT-1, CRT-2). RbacGuard checks the permission key (403 and a
- * denied Audit Entry without it); DocumentService checks the Location or the
- * owner. The two verify routes are public.
+ * Documents (CRT-1, CRT-2, CRT-8). RbacGuard checks the permission key (403
+ * and a denied Audit Entry without it); DocumentService checks the Location,
+ * the Scope or the owner. The two verify routes are public.
  */
 @Controller()
 export class CertificatesController {
-	constructor(private readonly documentService: DocumentService) {}
+	constructor(
+		private readonly documentService: DocumentService,
+		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver
+	) {}
+
+	/** ADM-2: no resolver wired in means no Scope, so a wiring mistake fails closed. */
+	private async scopeOf(userId: string | null): Promise<ResolvedScope> {
+		return this.scopeResolver ? this.scopeResolver.resolve(userId) : NO_SCOPE
+	}
 
 	// Idempotent: a double click replays the first result; issuing again
 	// returns the existing document in any case.
@@ -42,7 +52,31 @@ export class CertificatesController {
 		)
 	}
 
-	// Public on purpose (TOR §VIII.4): anyone holding the document can scan
+	// CRT-8. A second click finds the document no longer valid and answers 409.
+	@RequirePermissions("certificates.documents:revoke")
+	@Implement(v1.certificates.revoke)
+	async revoke(@Session() session?: UserSession) {
+		return implement(v1.certificates.revoke).handler(async ({ input }) => {
+			const userId = actorId(session)
+			return this.documentService.revoke(
+				input.documentId,
+				input.reason,
+				userId,
+				await this.scopeOf(userId)
+			)
+		})
+	}
+
+	@RequirePermissions("certificates.documents:revoke")
+	@Implement(v1.certificates.reissue)
+	async reissue(@Session() session?: UserSession) {
+		return implement(v1.certificates.reissue).handler(async ({ input }) => {
+			const userId = actorId(session)
+			return this.documentService.reissue(input, userId, await this.scopeOf(userId))
+		})
+	}
+
+	// Public on purpose (TOR Â§VIII.4): anyone holding the document can scan
 	// its QR code. The 128-bit token is the only key, the answer carries no
 	// unmasked personal data, and the strict throttle slows any attempt to
 	// guess tokens.

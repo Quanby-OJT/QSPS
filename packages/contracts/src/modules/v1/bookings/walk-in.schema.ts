@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { PRIVACY_NOTICE_VERSION } from "../../../common/privacy-notice.js"
 import { CreateBookingSchema } from "./bookings.schema.js"
 
 /**
@@ -8,6 +9,10 @@ import { CreateBookingSchema } from "./bookings.schema.js"
  * schedule at the officer's Location. TOR §VIII.2 forbids guest transactions,
  * so the client always has an account: an existing one, or one created here
  * without a password, which the client sets from the emailed invitation.
+ *
+ * PRC-2b: a client may have only a mobile number. The account then stores a
+ * placeholder email the API never returns: `email` is null in every response
+ * and screens show "No email".
  */
 
 const dateField = z.union([z.date(), z.string()]).transform(value => new Date(value))
@@ -41,7 +46,8 @@ export const WalkInClientLookupSchema = z.object({
 export const WalkInClientSchema = z.object({
 	id: z.string(),
 	name: z.string(),
-	email: z.string(),
+	/** Null for a mobile-only client (show "No email"). */
+	email: z.string().nullable(),
 	mobile: z.string().nullable(),
 	/** YYYY-MM-DD */
 	birthDate: z.string().nullable(),
@@ -51,35 +57,75 @@ export const WalkInClientSchema = z.object({
 	invitationPending: z.boolean(),
 })
 
+/** Emails typed at the counter must be real: `.invalid` is the placeholder's domain. */
+function isRealEmail(value: string): boolean {
+	return !value.endsWith(".invalid")
+}
+
 /**
- * A new client account for a walk-in. The email is required: accounts sign in
- * with their email, and the invitation to set a password is sent there. The
- * mobile number is optional; a client who has only a mobile number gives an
- * email address first.
+ * An optional email address. Empty means none. A client signs in with it and
+ * the invitation to set a password goes there.
  */
-export const CreateWalkInClientSchema = z.object({
-	name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
+const optionalEmail = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.refine(
+		value => value === "" || z.email().safeParse(value).success,
+		"Enter a valid email address"
+	)
+	.refine(value => value.length <= 254, "That email address is too long")
+	.refine(isRealEmail, "Enter the client's real email address, or leave it empty")
+	.transform(value => (value === "" ? null : value))
+	.nullish()
+	.transform(value => value ?? null)
+
+/**
+ * A new client account for a walk-in (PRC-2, PRC-2b). The client needs an
+ * email address or a mobile number. Without an email, no invitation is sent
+ * until one is added (`addClientEmail`) or SMS invitations exist (NTF-2).
+ *
+ * `privacyNoticeVersion` is sent only when the officer ticks "Client accepted
+ * the Privacy Notice", and must be the version currently shown.
+ */
+export const CreateWalkInClientSchema = z
+	.object({
+		name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
+		email: optionalEmail,
+		/** Spaces and dashes are removed; then 10–15 digits, optionally starting with +. Empty means none. */
+		mobile: z
+			.string()
+			.trim()
+			.transform(value => value.replace(/[\s-]/g, ""))
+			.refine(value => value === "" || /^\+?\d{10,15}$/.test(value), "Enter a valid mobile number")
+			.transform(value => (value === "" ? null : value))
+			.nullish()
+			.transform(value => value ?? null),
+		birthDate: z.string().trim().refine(isValidBirthDate, "Enter a valid birth date (YYYY-MM-DD)"),
+		nationality: z
+			.string()
+			.trim()
+			.min(2, "Nationality is required")
+			.max(60, "Nationality is too long"),
+		gender: z.string().trim().min(1, "Gender is required").max(50, "Gender is too long"),
+		privacyNoticeVersion: z.literal(PRIVACY_NOTICE_VERSION, {
+			error: "The client must accept the Privacy Notice before the account is created",
+		}),
+	})
+	.refine(client => client.email !== null || client.mobile !== null, {
+		message: "Enter the client's email address or mobile number",
+		path: ["email"],
+	})
+
+/** Add a real email address to a client who has none (PRC-2b). */
+export const AddWalkInClientEmailSchema = z.object({
+	clientId: z.string().trim().min(1).max(64),
 	email: z
 		.string()
 		.trim()
 		.toLowerCase()
-		.pipe(z.email("Enter a valid email address").max(254, "That email address is too long")),
-	/** Spaces and dashes are removed; then 10–15 digits, optionally starting with +. Empty means none. */
-	mobile: z
-		.string()
-		.trim()
-		.transform(value => value.replace(/[\s-]/g, ""))
-		.refine(value => value === "" || /^\+?\d{10,15}$/.test(value), "Enter a valid mobile number")
-		.transform(value => (value === "" ? null : value))
-		.nullish()
-		.transform(value => value ?? null),
-	birthDate: z.string().trim().refine(isValidBirthDate, "Enter a valid birth date (YYYY-MM-DD)"),
-	nationality: z
-		.string()
-		.trim()
-		.min(2, "Nationality is required")
-		.max(60, "Nationality is too long"),
-	gender: z.string().trim().min(1, "Gender is required").max(50, "Gender is too long"),
+		.pipe(z.email("Enter a valid email address").max(254, "That email address is too long"))
+		.refine(isRealEmail, "Enter the client's real email address"),
 })
 
 /** Which Service to list today's slots for. */
@@ -121,6 +167,7 @@ export const CreateWalkInBookingSchema = CreateBookingSchema.extend({
 export type WalkInClientLookup = z.infer<typeof WalkInClientLookupSchema>
 export type WalkInClient = z.infer<typeof WalkInClientSchema>
 export type CreateWalkInClientInput = z.infer<typeof CreateWalkInClientSchema>
+export type AddWalkInClientEmailInput = z.infer<typeof AddWalkInClientEmailSchema>
 export type WalkInSlotsRequest = z.infer<typeof WalkInSlotsRequestSchema>
 export type WalkInSlot = z.infer<typeof WalkInSlotSchema>
 export type WalkInSlots = z.infer<typeof WalkInSlotsSchema>

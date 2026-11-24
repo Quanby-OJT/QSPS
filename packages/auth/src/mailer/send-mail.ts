@@ -17,7 +17,21 @@ export type MailMessage = {
 }
 
 /**
+ * Whether an address is in the reserved `.invalid` top-level domain (RFC 2606),
+ * which can never receive mail. Mobile-only walk-in accounts (PRC-2b) store
+ * `<userId>@no-email.invalid` because Better Auth needs an email.
+ */
+export function isUndeliverableAddress(address: string): boolean {
+	const domain = address.trim().toLowerCase().split("@").pop() ?? ""
+	return domain === "invalid" || domain.endsWith(".invalid")
+}
+
+/**
  * Send an email through the given transport.
+ *
+ * A message to a `.invalid` address is skipped and logged, never handed to
+ * the transport. The placeholder holds only a user id, so logging it
+ * discloses no personal data.
  *
  * This used to write `info.message` — the entire serialized email,
  * verification and password-reset links included — to stdout via `console.log`,
@@ -32,6 +46,16 @@ export async function sendMail(
 	from: string,
 	message: MailMessage
 ): Promise<void> {
+	if (isUndeliverableAddress(message.to)) {
+		// eslint-disable-next-line no-console -- same channel as the dev-transport notice below
+		console.warn(
+			`[mailer] skipped undeliverable address to=${message.to} subject=${JSON.stringify(
+				message.subject
+			)}`
+		)
+		return
+	}
+
 	const info = await transporter.sendMail({
 		from,
 		to: message.to,

@@ -1,7 +1,7 @@
 {
-  "id": "842f9bb1-f9fd-461a-968d-821cd9026b63",
+  "id": "bfbeefbe-468c-485e-b2ae-2fe3147f592e",
   "prevIds": [
-    "cd2a1e9e-faaf-47f8-b08a-969fbd45f747"
+    "5349ff48-2cd7-4568-8dab-4afb53e509a0"
   ],
   "version": "8",
   "dialect": "postgres",
@@ -1244,6 +1244,45 @@
       "generated": null,
       "identity": null,
       "name": "print_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "documents"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "superseded_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "documents"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "documents"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_changed_by",
       "entityType": "columns",
       "schema": "public",
       "table": "documents"
@@ -5855,6 +5894,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "documents_issued_by_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "documents"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "status_changed_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "name": "documents_status_changed_by_users_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "documents"

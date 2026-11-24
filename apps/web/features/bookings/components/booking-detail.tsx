@@ -169,7 +169,11 @@ export function BookingDetailContent({
 							</div>
 						) : (
 							<div className="flex flex-wrap gap-2">
-								{choosingChannel ? null : (
+								{choosingChannel ? (
+									<div className="basis-full">
+										<PaymentCheckout bookingId={booking.id} onRedirect={onRedirect} />
+									</div>
+								) : (
 									<Button type="button" size="sm" disabled={busy} onClick={() => onPayNow?.()}>
 										{paying ? "Opening checkout…" : "Pay now"}
 									</Button>
@@ -236,8 +240,14 @@ export function BookingDetailContent({
 							<div className="space-y-1">
 								<div className="flex flex-wrap items-center gap-2">
 									<span className="font-semibold">{item.serviceName}</span>
-									<Badge variant={itemStatusBadgeVariant(item.status)}>
-										{itemStatusLabel(item.status)}
+									<Badge
+										variant={
+											booking.status === "cancelled"
+												? "destructive"
+												: itemStatusBadgeVariant(item.status)
+										}
+									>
+										{booking.status === "cancelled" ? "Cancelled" : itemStatusLabel(item.status)}
 									</Badge>
 								</div>
 								<p className="text-muted-foreground text-xs">

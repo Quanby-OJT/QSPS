@@ -415,3 +415,45 @@ export function stepResultPdfUrl(bookingItemId: number, stepId: number, version?
 	const query = version === undefined ? "" : `?version=${version}`
 	return `${API_BASE}/processing/items/${bookingItemId}/steps/${stepId}/result.pdf${query}`
 }
+
+/** CRT-8: everything that shows the item's document changes after a revoke or reissue. */
+function invalidateDocument(queryClient: ReturnType<typeof useQueryClient>, bookingItemId: number) {
+	void queryClient.invalidateQueries({ queryKey: processingKeys.item(bookingItemId) })
+	void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+	void queryClient.invalidateQueries({ queryKey: ["certificates"] })
+}
+
+/** CRT-8: withdraw a document. The reason is required and kept in the audit. */
+export function useRevokeDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ documentId, reason }: { documentId: number; reason: string }) =>
+			apiFetch<DocumentSummary>(`/certificates/documents/${documentId}/revoke`, {
+				method: "POST",
+				body: JSON.stringify({ reason }),
+			}),
+		onSuccess: () => invalidateDocument(queryClient, bookingItemId),
+	})
+}
+
+export interface ReissueDocumentRequest {
+	documentId: number
+	reason: string
+	/** The corrected vaccination record, or null for a Medical Exemption Certificate. */
+	details: IcvIssueDetails | null
+	/** The corrected exemption, or null for a vaccination record. */
+	exemption: MedicalExemptionDetails | null
+}
+
+/** CRT-8: replace a document with a corrected one. Answers with the new document. */
+export function useReissueDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ documentId, ...body }: ReissueDocumentRequest) =>
+			apiFetch<DocumentSummary>(`/certificates/documents/${documentId}/reissue`, {
+				method: "POST",
+				body: JSON.stringify(body),
+			}),
+		onSuccess: () => invalidateDocument(queryClient, bookingItemId),
+	})
+}

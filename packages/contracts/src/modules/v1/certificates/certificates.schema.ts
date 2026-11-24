@@ -242,6 +242,38 @@ export const DocumentVerificationSchema = z.object({
 	statusChangedAt: dateField.nullable(),
 })
 
+// ============================================================================
+// REVOKE AND REISSUE (CRT-8)
+// ============================================================================
+
+/** Longest reason staff may give for revoking or reissuing a document. */
+export const MAX_STATUS_REASON_LENGTH = 500
+
+const statusReason = z.string().trim().min(1, "Enter the reason").max(MAX_STATUS_REASON_LENGTH)
+
+/** Withdraw a document (CRT-8). The reason is required; it is kept on the document and in the audit. */
+export const RevokeDocumentSchema = z.object({
+	documentId: z.coerce.number().int().positive(),
+	reason: statusReason,
+})
+
+/**
+ * Replace a document with a corrected one (CRT-8). The same fields as issuing:
+ * `details` for a vaccination record or `exemption` for a Medical Exemption
+ * Certificate, never both.
+ */
+export const ReissueDocumentSchema = z
+	.object({
+		documentId: z.coerce.number().int().positive(),
+		reason: statusReason,
+		details: IcvIssueDetailsSchema.nullish().transform(value => value ?? null),
+		exemption: MedicalExemptionDetailsSchema.nullish().transform(value => value ?? null),
+	})
+	.refine(value => (value.details === null) !== (value.exemption === null), {
+		message: "Enter the vaccination details or the exemption details, not both",
+		path: ["details"],
+	})
+
 export type DocumentType = z.infer<typeof DocumentTypeSchema>
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>
 export type DocumentVerificationStatus = z.infer<typeof DocumentVerificationStatusSchema>
@@ -254,3 +286,5 @@ export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>
 export type ManualVerificationInput = z.infer<typeof ManualVerificationSchema>
 export type DocumentVerification = z.infer<typeof DocumentVerificationSchema>
+export type RevokeDocumentInput = z.infer<typeof RevokeDocumentSchema>
+export type ReissueDocumentInput = z.infer<typeof ReissueDocumentSchema>

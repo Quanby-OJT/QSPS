@@ -59,6 +59,7 @@ jest.mock("@/config/api-versions.config", () => ({
 			permissions: {},
 			profile: {},
 			updateProfile: {},
+			acceptPrivacyNotice: {},
 		},
 	},
 }))
@@ -81,7 +82,11 @@ const completeProfile = {
 describe("MeController", () => {
 	let controller: MeController
 	let rbacService: { getUserAccess: jest.Mock }
-	let meProfileService: { getProfile: jest.Mock; updateProfile: jest.Mock }
+	let meProfileService: {
+		getProfile: jest.Mock
+		updateProfile: jest.Mock
+		acceptPrivacyNotice: jest.Mock
+	}
 
 	beforeEach(async () => {
 		handlerInput = undefined
@@ -91,6 +96,7 @@ describe("MeController", () => {
 		meProfileService = {
 			getProfile: jest.fn(),
 			updateProfile: jest.fn(),
+			acceptPrivacyNotice: jest.fn(),
 		}
 
 		const module: TestingModule = await Test.createTestingModule({
@@ -162,5 +168,24 @@ describe("MeController", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, MeController.prototype.getProfile)
 		).toBeUndefined()
+	})
+
+	// PRC-2b: the first-sign-in Privacy Notice prompt.
+	it("records the Privacy Notice for the signed-in user only, with just a session", async () => {
+		handlerInput = { privacyNoticeVersion: "2026-11-16" }
+		meProfileService.acceptPrivacyNotice.mockResolvedValue(completeProfile)
+
+		await expect(
+			controller.acceptPrivacyNotice({ user: { id: "user-1" } } as never)
+		).resolves.toEqual(completeProfile)
+		expect(meProfileService.acceptPrivacyNotice).toHaveBeenCalledWith("user-1", {
+			privacyNoticeVersion: "2026-11-16",
+		})
+		expect(
+			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, MeController.prototype.acceptPrivacyNotice)
+		).toBeUndefined()
+		await expect(controller.acceptPrivacyNotice(undefined)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+		})
 	})
 })

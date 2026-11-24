@@ -11,6 +11,7 @@ import type {
 	ManualVerificationInput,
 	MedicalExemptionDetails,
 	MyDocuments,
+	ReissueDocumentInput,
 	SanitaryPermitDetails,
 	ShipSanitationDetails,
 } from "@repo/contracts"
@@ -742,6 +743,344 @@ export class DocumentService {
 			validUntil,
 			// Revoking or superseding is the last change to a document row.
 			statusChangedAt: row.status === "valid" ? null : row.updatedAt,
+		}
+	}
+
+	/**
+	 * Revoke a document (CRT-8): it stays in the database with `status =
+	 * revoked`, so public verification shows that at once. Only a valid
+	 * document is revoked. The reason is kept on the row and in the audit, and
+	 * the client is notified when the document belongs to a Booking.
+	 */
+	async revoke(
+		documentId: number,
+		reason: string,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<DocumentSummary> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to revoke documents" })
+		}
+		const found = await this.documentInScope(documentId, actorId, scope, "document.revoke")
+		const now = new Date()
+
+		await db.transaction(async tx => {
+			await this.lockValid(tx, found.id, "revoked")
+			await tx
+				.update(documents)
+				.set({ status: "revoked", statusReason: reason, statusChangedBy: actorId, updatedAt: now })
+				.where(eq(documents.id, found.id))
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action: "document.revoke",
+					actorId,
+					targetType: "document",
+					targetId: String(found.id),
+					oldValue: { status: "valid", documentNumber: found.documentNumber },
+					newValue: { status: "revoked", documentNumber: found.documentNumber, reason },
+				},
+				tx
+			)
+
+			const bookingId = await this.bookingIdOf(tx, found.bookingItemId)
+			if (bookingId !== null) {
+				await NotificationService.enqueue(
+					tx,
+					bookingId,
+					"document_revoked",
+					`document:${found.id}:revoked`
+				)
+			}
+		})
+		return this.summaryOf(found.id)
+	}
+
+	/**
+	 * Reissue a corrected document (CRT-8). In one transaction: the old row
+	 * becomes `superseded` first (only one valid document per Booking Item),
+	 * a new row is created for the same item and issuing Location with the next
+	 * number in the same series and a new token, and the old row points to it.
+	 * The holder details are read again from the profile; staff re-enter the
+	 * type's details. Returns the new document.
+	 */
+	async reissue(
+		input: ReissueDocumentInput,
+		actorId: string | null,
+		scope: ResolvedScope = NATIONWIDE_SCOPE
+	): Promise<DocumentSummary> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to reissue documents" })
+		}
+		const found = await this.documentInScope(input.documentId, actorId, scope, "document.reissue")
+		const bookingItemId = found.bookingItemId
+		if (found.source !== "qsps" || bookingItemId === null) {
+			throw new ORPCError("CONFLICT", {
+				message: "A legacy document can be revoked, but not reissued yet",
+			})
+		}
+		const now = new Date()
+
+		const replacementId = await db.transaction(async tx => {
+			await this.lockValid(tx, found.id, "reissued")
+
+			const [context] = await tx
+				.select({
+					serviceDocumentType: services.documentType,
+					serviceName: services.name,
+					locationCode: locations.code,
+					locationName: locations.name,
+					bookingId: bookingItems.bookingId,
+					holderName: users.name,
+					holderBirthDate: users.birthDate,
+					holderGender: users.gender,
+					holderNationality: users.nationality,
+				})
+				.from(bookingItems)
+				.innerJoin(services, eq(services.id, bookingItems.serviceId))
+				.innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
+				.innerJoin(users, eq(users.id, bookings.clientId))
+				.innerJoin(locations, eq(locations.id, found.issuingLocationId))
+				.where(eq(bookingItems.id, bookingItemId))
+				.limit(1)
+			if (!context) {
+				throw new ORPCError("NOT_FOUND", { message: "Document not found" })
+			}
+			const issueContext = {
+				holder: {
+					name: context.holderName,
+					birthDate: context.holderBirthDate,
+					gender: context.holderGender,
+					nationality: context.holderNationality,
+				},
+				serviceName: context.serviceName,
+				locationName: context.locationName,
+				issuedAt: now,
+			}
+
+			// The replacement is the same type as the document it corrects.
+			let type: RenderableDocumentType
+			let payload: Record<string, unknown>
+			let validUntil: string | null
+			if (found.documentType === medicalExemption.type) {
+				if (!input.exemption) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Enter the corrected exemption details",
+					})
+				}
+				type = medicalExemption
+				payload = medicalExemption.buildPayload(issueContext, input.exemption)
+				validUntil = medicalExemption.validUntil(input.exemption)
+			} else {
+				// CRT-5: the reissue request carries only vaccination details, so a Sanitary
+				// Permit or Ship Sanitation Certificate cannot be reissued yet.
+				const serviceType = serviceDocumentTypeFor(context.serviceDocumentType)
+				if (
+					!serviceType ||
+					serviceType.type !== found.documentType ||
+					found.documentType !== icvRecord.type
+				) {
+					throw new ORPCError("CONFLICT", {
+						message: "This document type cannot be reissued by QSPS",
+					})
+				}
+				if (!input.details) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Enter the corrected vaccination details",
+					})
+				}
+				type = icvRecord
+				payload = icvRecord.buildPayload(issueContext, input.details)
+				validUntil = icvRecord.validUntil(input.details)
+			}
+
+			// Superseded first: the partial unique index allows one valid document per item.
+			await tx
+				.update(documents)
+				.set({
+					status: "superseded",
+					statusReason: input.reason,
+					statusChangedBy: actorId,
+					updatedAt: now,
+				})
+				.where(eq(documents.id, found.id))
+
+			const sequence = await this.nextNumber(tx, type.type, found.issuingLocationId, now)
+			const documentNumber = formatDocumentNumber(
+				type.numberPrefix,
+				context.locationCode,
+				now,
+				sequence
+			)
+			const [created] = await tx
+				.insert(documents)
+				.values({
+					bookingItemId,
+					documentType: type.type,
+					documentNumber,
+					verificationToken: newVerificationToken(),
+					issuingLocationId: found.issuingLocationId,
+					issuedBy: actorId,
+					issuedAt: now,
+					validUntil,
+					status: "valid",
+					source: "qsps",
+					payload,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning({ id: documents.id })
+			if (!created) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "The document could not be saved" })
+			}
+
+			await tx.update(documents).set({ supersededBy: created.id }).where(eq(documents.id, found.id))
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action: "document.reissue",
+					actorId,
+					targetType: "document",
+					targetId: String(found.id),
+					oldValue: { status: "valid", documentNumber: found.documentNumber },
+					// The payload holds personal data; the audit keeps only what identifies the documents.
+					newValue: {
+						status: "superseded",
+						reason: input.reason,
+						supersededBy: created.id,
+						newDocumentNumber: documentNumber,
+						documentType: type.type,
+					},
+				},
+				tx
+			)
+
+			await NotificationService.enqueue(
+				tx,
+				context.bookingId,
+				"document_reissued",
+				`document:${found.id}:reissued`
+			)
+			return created.id
+		})
+		return this.summaryOf(replacementId)
+	}
+
+	/**
+	 * CRT-8: find a document for revoke or reissue and check the caller's Scope
+	 * (the issuing Location, and the Service Category when it has a Booking
+	 * Item). A missing document and one outside Scope get the same 404; an
+	 * attempt on one that exists is audited as denied.
+	 */
+	private async documentInScope(
+		documentId: number,
+		actorId: string,
+		scope: ResolvedScope,
+		action: "document.revoke" | "document.reissue"
+	) {
+		const [row] = await db
+			.select({
+				id: documents.id,
+				bookingItemId: documents.bookingItemId,
+				documentType: documents.documentType,
+				documentNumber: documents.documentNumber,
+				source: documents.source,
+				issuingLocationId: documents.issuingLocationId,
+				serviceCategoryId: services.serviceCategoryId,
+			})
+			.from(documents)
+			.leftJoin(bookingItems, eq(bookingItems.id, documents.bookingItemId))
+			.leftJoin(services, eq(services.id, bookingItems.serviceId))
+			.where(eq(documents.id, documentId))
+			.limit(1)
+
+		const allowed =
+			!!row &&
+			inScope(scope, {
+				locationId: row.issuingLocationId,
+				...(row.serviceCategoryId === null ? {} : { serviceCategoryId: row.serviceCategoryId }),
+			})
+		if (!row || !allowed) {
+			if (row) {
+				await this.auditService.record({
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action,
+					outcome: "denied",
+					actorId,
+					targetType: "document",
+					targetId: String(documentId),
+					reason: "outside_scope",
+				})
+			}
+			throw new ORPCError("NOT_FOUND", { message: "Document not found" })
+		}
+		return row
+	}
+
+	/** Lock the row and refuse anything that is no longer valid (revoked or superseded meanwhile). */
+	private async lockValid(
+		tx: Transaction,
+		documentId: number,
+		verb: "revoked" | "reissued"
+	): Promise<void> {
+		const [locked] = await tx
+			.select({ status: documents.status })
+			.from(documents)
+			.where(eq(documents.id, documentId))
+			.for("update")
+		if (!locked) {
+			throw new ORPCError("NOT_FOUND", { message: "Document not found" })
+		}
+		if (locked.status !== "valid") {
+			throw new ORPCError("CONFLICT", {
+				message: `Only a valid document can be ${verb}; this one is ${locked.status}`,
+			})
+		}
+	}
+
+	/** The Booking a document belongs to, for the notification; null for legacy imports. */
+	private async bookingIdOf(tx: Transaction, bookingItemId: number | null): Promise<number | null> {
+		if (bookingItemId === null) return null
+		const [row] = await tx
+			.select({ bookingId: bookingItems.bookingId })
+			.from(bookingItems)
+			.where(eq(bookingItems.id, bookingItemId))
+			.limit(1)
+		return row?.bookingId ?? null
+	}
+
+	/** One document as staff see it after a revoke or reissue (CRT-8). */
+	private async summaryOf(documentId: number): Promise<DocumentSummary> {
+		const [row] = await db
+			.select({
+				id: documents.id,
+				documentType: documents.documentType,
+				documentNumber: documents.documentNumber,
+				status: documents.status,
+				issuedAt: documents.issuedAt,
+				validUntil: documents.validUntil,
+				serviceName: services.name,
+				locationName: locations.name,
+				referenceNumber: bookings.referenceNumber,
+			})
+			.from(documents)
+			.innerJoin(locations, eq(locations.id, documents.issuingLocationId))
+			.leftJoin(bookingItems, eq(bookingItems.id, documents.bookingItemId))
+			.leftJoin(bookings, eq(bookings.id, bookingItems.bookingId))
+			.leftJoin(services, eq(services.id, bookingItems.serviceId))
+			.where(eq(documents.id, documentId))
+			.limit(1)
+		if (!row) {
+			throw new ORPCError("NOT_FOUND", { message: "Document not found" })
+		}
+		return {
+			...row,
+			documentType: row.documentType as DocumentSummary["documentType"],
+			// Legacy imports (MIG-4) have no Booking.
+			serviceName: row.serviceName ?? documentTypeFor(row.documentType)?.title ?? row.documentType,
+			referenceNumber: row.referenceNumber ?? "",
 		}
 	}
 

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm"
 import { normalizeSmsNumber, smsDestinationKey } from "@repo/auth/sms"
 import { bookings, notifications, users } from "@repo/db/schema"
 
+import { isPlaceholderEmail } from "@/common/users/placeholder-email"
 import type { Transaction } from "@/modules/v1/bookings/bookings.service"
 
 export type NotificationTemplate =
@@ -16,6 +17,8 @@ export type NotificationTemplate =
 	| "assessment_returned"
 	| "assessment_rejected"
 	| "document_ready"
+	| "document_revoked"
+	| "document_reissued"
 
 /**
  * Events that also go out by SMS (NTF-2), with the text sent. The message is
@@ -49,6 +52,7 @@ export class NotificationService {
 			.select({
 				userId: bookings.clientId,
 				referenceNumber: bookings.referenceNumber,
+				email: users.email,
 				mobile: users.mobile,
 				mobileVerifiedAt: users.mobileVerifiedAt,
 				smsEnabled: users.smsNotificationsEnabled,
@@ -61,22 +65,26 @@ export class NotificationService {
 			throw new Error("Notification booking not found")
 		}
 
-		await tx
-			.insert(notifications)
-			.values({
-				userId: booking.userId,
-				channel: "email",
-				template,
-				payload: {
-					...payload,
-					bookingId,
-					referenceNumber: booking.referenceNumber,
-				},
-				dedupeKey: JSON.stringify(["email", booking.userId, template, eventId]),
-			})
-			.onConflictDoNothing({
-				target: notifications.dedupeKey,
-			})
+		// PRC-2b: a mobile-only client's placeholder address can never receive mail, so no email is queued.
+
+		if (!isPlaceholderEmail(booking.email)) {
+			await tx
+				.insert(notifications)
+				.values({
+					userId: booking.userId,
+					channel: "email",
+					template,
+					payload: {
+						...payload,
+						bookingId,
+						referenceNumber: booking.referenceNumber,
+					},
+					dedupeKey: JSON.stringify(["email", booking.userId, template, eventId]),
+				})
+				.onConflictDoNothing({
+					target: notifications.dedupeKey,
+				})
+		}
 
 		const mobile = booking.mobile ? normalizeSmsNumber(booking.mobile) : null
 		if (

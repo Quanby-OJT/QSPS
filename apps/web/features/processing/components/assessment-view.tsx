@@ -109,6 +109,7 @@ export function AssessmentView({
 	canApprove = false,
 	canIssue = false,
 	canPrint = false,
+	canRevoke = false,
 }: {
 	bookingItemId: number
 	/** PRC-3: the caller holds processing.assessments:approve. */
@@ -117,6 +118,8 @@ export function AssessmentView({
 	canIssue?: boolean
 	/** CRT-3: the caller holds certificates.documents:print. */
 	canPrint?: boolean
+	/** CRT-8: the caller holds certificates.documents:revoke. */
+	canRevoke?: boolean
 }) {
 	const item = useProcessingItemQuery(bookingItemId)
 	// Hydration-safe: loading on the server and on the client's first render,
@@ -150,6 +153,7 @@ export function AssessmentView({
 					canApprove={canApprove}
 					canIssue={canIssue}
 					canPrint={canPrint}
+					canRevoke={canRevoke}
 				/>
 			) : null}
 		</section>
@@ -161,11 +165,13 @@ function AssessmentBody({
 	canApprove,
 	canIssue,
 	canPrint,
+	canRevoke,
 }: {
 	item: ProcessingItem
 	canApprove: boolean
 	canIssue: boolean
 	canPrint: boolean
+	canRevoke: boolean
 }) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
@@ -214,7 +220,7 @@ function AssessmentBody({
 					<h2 className="font-semibold">Client profile</h2>
 					<dl className="grid grid-cols-2 gap-3">
 						<Detail label="Name" value={item.client.name} />
-						<Detail label="Email" value={item.client.email} />
+						<Detail label="Email" value={item.client.email ?? "No email"} />
 						<Detail label="Mobile" value={item.client.mobile} />
 						<Detail label="Birth date" value={item.client.birthDate} />
 						<Detail label="Gender" value={item.client.gender} />
@@ -295,7 +301,11 @@ function AssessmentBody({
 				) : null}
 
 				{item.document ? (
-					<IssuedDocumentPanel item={{ ...item, document: item.document }} canPrint={canPrint} />
+					<IssuedDocumentPanel
+						item={{ ...item, document: item.document }}
+						canPrint={canPrint}
+						canRevoke={canRevoke}
+					/>
 				) : needsIssuing(item) && canIssue ? (
 					<IssueDocumentPanel
 						item={item}

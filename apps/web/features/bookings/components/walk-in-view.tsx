@@ -9,7 +9,6 @@ import { toast } from "sonner"
 
 import {
 	checkFormAnswers,
-	CreateWalkInClientSchema,
 	type Booking,
 	type BookingItemFormInput,
 	type FormAnswerValue,
@@ -24,8 +23,10 @@ import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { useHydrated } from "@/core/hooks/use-hydrated"
 import { ApiError } from "@/core/lib/api-error"
+import { PRIVACY_NOTICE_TEXT } from "@/features/auth/privacy-notice/lib/privacy-notice"
 import { BookingCheckoutError, BookingFormError } from "@/features/bookings/api/bookings.hooks"
 import {
+	useAddWalkInClientEmailMutation,
 	useCreateWalkInBookingMutation,
 	useCreateWalkInClientMutation,
 	useWalkInClientLookupQuery,
@@ -43,11 +44,14 @@ import {
 import { BookingPolicies } from "@/features/bookings/components/booking-policies"
 import {
 	canChooseWalkInSlot,
+	checkWalkInClientDraft,
+	clientEmailLabel,
 	draftFromLookup,
 	EMPTY_WALK_IN_CLIENT,
 	placesLeftLabel,
 	walkInLookupKind,
 	type WalkInClientDraft,
+	type WalkInDraftErrors,
 } from "@/features/bookings/lib/walk-in"
 import { QuestionnaireFields } from "@/features/forms/components/questionnaire-fields"
 import { formatPolicyDate, missingAcceptances } from "@/features/policies/lib/policy-documents"
@@ -71,7 +75,9 @@ const STEP_DONE = 5
 const choiceClassName =
 	"border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 w-full rounded-lg border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60"
 
-type DraftErrors = Partial<Record<keyof WalkInClientDraft, string>>
+type DraftErrors = WalkInDraftErrors
+/** The text fields of the new-client form. */
+type DraftTextField = Exclude<keyof WalkInClientDraft, "privacyAccepted">
 
 function newIdempotencyKey(): string {
 	return crypto.randomUUID()
@@ -87,7 +93,9 @@ function pesos(centavos: number): string {
 /**
  * Walk-in encoding (PRC-2, Annex A): a Processing Officer finds the client by
  * email or mobile number, or creates their account (no password: the client
- * is emailed an invitation to set one), picks a Service and one of today's
+ * is emailed an invitation to set one; a client with only a mobile number gets
+ * no email until one is added, PRC-2b), records that the client accepted the
+ * Privacy Notice, picks a Service and one of today's
  * slots at the officer's Location, answers the questionnaire with the client,
  * has the client read and accept the policies, and confirms. The Booking is
  * a walk-in awaiting payment; the client pays at the cashier.
@@ -154,27 +162,32 @@ export function WalkInView() {
 		setCreating(true)
 	}
 
-	function setDraftField(field: keyof WalkInClientDraft, value: string) {
+	function setDraftField(field: DraftTextField, value: string) {
 		setDraft(current => ({ ...current, [field]: value }))
 		setDraftErrors(current => ({ ...current, [field]: undefined }))
 	}
 
+	function setPrivacyAccepted(accepted: boolean) {
+		setDraft(current => ({ ...current, privacyAccepted: accepted }))
+		setDraftErrors(current => ({ ...current, privacyAccepted: undefined }))
+	}
+
 	async function submitNewClient(event: FormEvent) {
 		event.preventDefault()
-		const parsed = CreateWalkInClientSchema.safeParse(draft)
-		if (!parsed.success) {
-			const errors: DraftErrors = {}
-			for (const issue of parsed.error.issues) {
-				const field = issue.path[0] as keyof WalkInClientDraft | undefined
-				if (field && !errors[field]) errors[field] = issue.message
-			}
-			setDraftErrors(errors)
+		const checked = checkWalkInClientDraft(draft)
+		if (!checked.ok) {
+			setDraftErrors(checked.errors)
 			return
 		}
+		const input = checked.input
 		try {
-			const created = await createClient.mutateAsync({ ...parsed.data, idempotencyKey: clientKey })
+			const created = await createClient.mutateAsync({ ...input, idempotencyKey: clientKey })
 			setClientKey(newIdempotencyKey())
-			toast.success(`Account created. ${created.email} was sent an invitation to set a password.`)
+			toast.success(
+				created.email
+					? `Account created. ${created.email} was sent an invitation to set a password.`
+					: "Account created. No email was sent: add the client's email address when they have one."
+			)
 			chooseClient(created)
 		} catch (error) {
 			setClientKey(newIdempotencyKey())
@@ -182,9 +195,9 @@ export function WalkInView() {
 				// The client already has an account: show it so the officer selects it.
 				toast.error(error.message)
 				const matched =
-					error.matchedBy === "mobile" && parsed.data.mobile
-						? parsed.data.mobile
-						: parsed.data.email
+					error.matchedBy === "mobile" && input.mobile
+						? input.mobile
+						: (input.email ?? input.mobile ?? "")
 				setCreating(false)
 				setLookupText(matched)
 				setLookup(matched)
@@ -333,16 +346,21 @@ export function WalkInView() {
 					<div className="min-w-0">
 						<p className="font-medium">{client.name}</p>
 						<p className="text-muted-foreground text-sm">
-							{client.email}
+							{clientEmailLabel(client.email)}
 							{client.mobile ? ` · ${client.mobile}` : ""}
 						</p>
 					</div>
 					<div className="flex items-center gap-2">
-						{client.invitationPending ? <Badge variant="outline">Invitation sent</Badge> : null}
+						{client.invitationPending && client.email ? (
+							<Badge variant="outline">Invitation sent</Badge>
+						) : null}
 						<Button type="button" variant="outline" size="sm" onClick={startOver}>
 							Change client
 						</Button>
 					</div>
+					{client.email === null ? (
+						<AddClientEmail clientId={client.id} onAdded={updated => setClient(updated)} />
+					) : null}
 				</div>
 			) : null}
 
@@ -406,7 +424,7 @@ export function WalkInView() {
 											) : null}
 										</span>
 										<span className="text-muted-foreground block text-sm">
-											{found.email}
+											{clientEmailLabel(found.email)}
 											{found.mobile ? ` · ${found.mobile}` : ""}
 											{found.birthDate ? ` · born ${formatPolicyDate(found.birthDate)}` : ""}
 										</span>
@@ -430,7 +448,8 @@ export function WalkInView() {
 								<h2 className="text-lg font-semibold">New client account</h2>
 								<p className="text-muted-foreground text-sm">
 									Copy the details from the client&apos;s ID. The client is emailed a link to set
-									their own password; you never set it.
+									their own password; you never set it. A client with no email address needs a
+									mobile number; they get no email until one is added.
 								</p>
 							</div>
 							<div className="grid gap-4 sm:grid-cols-2">
@@ -444,20 +463,21 @@ export function WalkInView() {
 								/>
 								<DraftField
 									id="email"
-									label="Email address"
+									label="Email address (optional)"
 									type="email"
 									draft={draft}
 									errors={draftErrors}
 									onChange={setDraftField}
-									hint="Required. The invitation goes here."
+									hint="The invitation goes here. Leave empty if the client has none."
 								/>
 								<DraftField
 									id="mobile"
-									label="Mobile number (optional)"
+									label="Mobile number"
 									type="tel"
 									draft={draft}
 									errors={draftErrors}
 									onChange={setDraftField}
+									hint="Required when the client has no email address."
 								/>
 								<DraftField
 									id="birthDate"
@@ -482,11 +502,47 @@ export function WalkInView() {
 									onChange={setDraftField}
 								/>
 							</div>
+							<div className="flex flex-col gap-2">
+								<p
+									id="walk-in-privacy-notice"
+									className="bg-muted rounded-lg p-3 text-xs leading-relaxed"
+								>
+									{PRIVACY_NOTICE_TEXT}
+								</p>
+								<div className="flex items-start gap-3">
+									<input
+										id="walk-in-client-privacyAccepted"
+										type="checkbox"
+										className="accent-primary mt-1 size-4 shrink-0"
+										checked={draft.privacyAccepted}
+										onChange={event => setPrivacyAccepted(event.target.checked)}
+										aria-describedby={
+											draftErrors.privacyAccepted
+												? "walk-in-privacy-notice walk-in-client-privacyAccepted-error"
+												: "walk-in-privacy-notice"
+										}
+										aria-invalid={draftErrors.privacyAccepted ? true : undefined}
+										required
+									/>
+									<Label htmlFor="walk-in-client-privacyAccepted" className="leading-snug">
+										Client accepted the Privacy Notice
+									</Label>
+								</div>
+								{draftErrors.privacyAccepted ? (
+									<p id="walk-in-client-privacyAccepted-error" className="text-destructive text-sm">
+										{draftErrors.privacyAccepted}
+									</p>
+								) : (
+									<p className="text-muted-foreground text-xs">
+										Let the client read the notice above. Tick this only after they accept it.
+									</p>
+								)}
+							</div>
 							<div className="flex justify-between gap-2">
 								<Button type="button" variant="outline" onClick={() => setCreating(false)}>
 									Cancel
 								</Button>
-								<Button type="submit" disabled={createClient.isPending}>
+								<Button type="submit" disabled={createClient.isPending || !draft.privacyAccepted}>
 									{createClient.isPending ? "Creating…" : "Create account and continue"}
 								</Button>
 							</div>
@@ -724,12 +780,12 @@ function DraftField({
 	hint,
 	autoComplete = "off",
 }: {
-	id: keyof WalkInClientDraft
+	id: DraftTextField
 	label: string
 	type?: "text" | "email" | "tel" | "date"
 	draft: WalkInClientDraft
 	errors: DraftErrors
-	onChange: (field: keyof WalkInClientDraft, value: string) => void
+	onChange: (field: DraftTextField, value: string) => void
 	hint?: string
 	autoComplete?: string
 }) {
@@ -754,6 +810,81 @@ function DraftField({
 				</p>
 			) : null}
 		</div>
+	)
+}
+
+/**
+ * PRC-2b: give a client who has no email address a real one. It replaces the
+ * placeholder, and the invitation to set a password is emailed.
+ */
+function AddClientEmail({
+	clientId,
+	onAdded,
+}: {
+	clientId: string
+	onAdded: (client: WalkInClient) => void
+}) {
+	const [email, setEmail] = useState("")
+	const [error, setError] = useState<string | null>(null)
+	const addEmail = useAddWalkInClientEmailMutation()
+
+	async function submit(event: FormEvent) {
+		event.preventDefault()
+		const value = email.trim().toLowerCase()
+		if (walkInLookupKind(value) !== "email") {
+			setError("Enter a valid email address")
+			return
+		}
+		try {
+			const updated = await addEmail.mutateAsync({ clientId, email: value })
+			setEmail("")
+			setError(null)
+			toast.success(
+				updated.invitationPending
+					? `Email added. ${value} was sent an invitation to set a password.`
+					: "Email added."
+			)
+			onAdded(updated)
+		} catch (failure) {
+			setError(failure instanceof Error ? failure.message : "Could not add the email address")
+		}
+	}
+
+	return (
+		<form
+			onSubmit={event => void submit(event)}
+			className="flex w-full flex-wrap items-end gap-3 border-t pt-3"
+			aria-label="Add the client's email address"
+			noValidate
+		>
+			<div className="flex min-w-0 flex-1 basis-64 flex-col gap-1.5">
+				<Label htmlFor="walk-in-add-email">Add the client&apos;s email address</Label>
+				<Input
+					id="walk-in-add-email"
+					type="email"
+					value={email}
+					autoComplete="off"
+					aria-invalid={error ? true : undefined}
+					aria-describedby={error ? "walk-in-add-email-error" : undefined}
+					onChange={event => {
+						setEmail(event.target.value)
+						setError(null)
+					}}
+				/>
+				{error ? (
+					<p id="walk-in-add-email-error" className="text-destructive text-sm">
+						{error}
+					</p>
+				) : (
+					<p className="text-muted-foreground text-xs">
+						The client has no email yet. The invitation to set a password goes here.
+					</p>
+				)}
+			</div>
+			<Button type="submit" variant="outline" disabled={addEmail.isPending}>
+				{addEmail.isPending ? "Saving…" : "Add email"}
+			</Button>
+		</form>
 	)
 }
 

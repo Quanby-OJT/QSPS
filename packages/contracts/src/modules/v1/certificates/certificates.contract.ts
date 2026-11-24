@@ -8,6 +8,8 @@ import {
 	IssueDocumentSchema,
 	ManualVerificationSchema,
 	MyDocumentsSchema,
+	ReissueDocumentSchema,
+	RevokeDocumentSchema,
 } from "./certificates.schema.js"
 
 /**
@@ -60,4 +62,26 @@ export const certificatesContract = {
 		})
 		.input(ManualVerificationSchema)
 		.output(DocumentVerificationSchema),
+	revoke: oc
+		.route({
+			method: "POST",
+			path: "/certificates/documents/{documentId}/revoke",
+			summary: "Revoke a document",
+			description:
+				"CRT-8. Withdraws a valid document with a required reason; public verification shows it as revoked at once. The document is never deleted. Audited, and the client is notified. Needs certificates.documents:revoke; a document outside the caller's Scope answers 404.",
+			tags: ["Certificates"],
+		})
+		.input(RevokeDocumentSchema)
+		.output(DocumentSummarySchema),
+	reissue: oc
+		.route({
+			method: "POST",
+			path: "/certificates/documents/{documentId}/reissue",
+			summary: "Reissue a corrected document",
+			description:
+				"CRT-8. Replaces a valid document: the old one becomes superseded and points to a new document with the next number in the same series and a new QR token. Send `details` for a vaccination record or `exemption` for a Medical Exemption Certificate, and a reason. Audited, and the client is notified. Needs certificates.documents:revoke; a document outside the caller's Scope answers 404. Returns the new document.",
+			tags: ["Certificates"],
+		})
+		.input(ReissueDocumentSchema)
+		.output(DocumentSummarySchema),
 }

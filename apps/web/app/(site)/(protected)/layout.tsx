@@ -4,6 +4,7 @@ import { SiteFooter } from "@/core/components/site-footer"
 import { SidebarInset, SidebarProvider } from "@/core/components/ui/sidebar"
 import { getSession } from "@/services/better-auth/auth-server"
 import { CacheIdentity } from "@/services/tanstack-query/cache-identity"
+import { privacyNoticeRedirect } from "@/features/auth/privacy-notice/lib/privacy-notice"
 import { AppSidebar } from "@/features/dashboard/components/app-sidebar"
 import { SiteHeader } from "@/features/dashboard/components/site-header"
 import { getAccess } from "@/features/dashboard/server/get-access"
@@ -14,6 +15,7 @@ type QspsSessionUser = {
 	accountType?: string | null
 	twoFactorEnabled?: boolean | null
 	mustResetPassword?: boolean | null
+	privacyNoticeVersion?: string | null
 }
 
 /** AUTH-2: where a staff account sets up two-factor authentication. */
@@ -56,6 +58,18 @@ export default async function SiteLayout({
 	// nationality, gender) before reaching the portal. Staff and the seeded
 	// administrators do not hold the Client role, so they are not stopped here.
 	const isClient = (access.roles as readonly string[]).includes("Client")
+
+	// PRC-2b: a client with no Privacy Notice consent on record, or one older
+	// than the current notice, accepts it first (walk-in clients accepted it at
+	// the counter). Asked before the profile, which is more personal data.
+	const privacyNotice = privacyNoticeRedirect({
+		isClient,
+		privacyNoticeVersion: qspsUser.privacyNoticeVersion,
+	})
+	if (privacyNotice) {
+		redirect(privacyNotice)
+	}
+
 	if (isClient && !qspsUser.profileCompletedAt) {
 		redirect("/complete-profile")
 	}
