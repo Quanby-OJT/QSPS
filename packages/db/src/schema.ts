@@ -734,11 +734,26 @@ export const payments = createTable(
 		collectedBy: t.text("collected_by").references(() => users.id, { onDelete: "restrict" }),
 		/** PAY-4: how an onsite payment was tendered at the cashier; null for online payments. */
 		tenderType: t.text("tender_type").$type<"cash" | "card" | "check">(),
+		/**
+		 * PAY-6: how staff resolved a `needs_review` Payment. Null while it is
+		 * still in the exceptions list. Set once, by `PaymentService.resolveReview`.
+		 */
+		reviewResolution: t.text("review_resolution").$type<"rebooked" | "refund_requested">(),
+		/** PAY-6: what staff wrote when resolving it. */
+		reviewNote: t.text("review_note"),
+		/** PAY-6: the new Booking made for the client, when resolved by rebooking. */
+		rebookedBookingId: t
+			.integer("rebooked_booking_id")
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		reviewedBy: t.text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+		reviewedAt: t.timestamp("reviewed_at"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
 	t => [
 		index("payments_booking_idx").on(t.bookingId),
+		// PAY-6: the re-query job reads pending payments oldest-checked first.
+		index("payments_status_updated_idx").on(t.status, t.updatedAt),
 		// A provider reference identifies one payment. Nulls (not yet sent to
 		// checkout) do not collide in Postgres.
 		uniqueIndex("payments_provider_reference_uq").on(t.providerCode, t.providerReference),
@@ -770,6 +785,46 @@ export const paymentEvents = createTable(
 		// A redelivered notification hits this and is not processed twice.
 		uniqueIndex("payment_events_provider_event_uq").on(t.providerCode, t.providerEventId),
 		index("payment_events_payment_idx").on(t.paymentId),
+	]
+)
+
+/**
+ * A request to return or forfeit a Booking's money (DOMAIN-MODEL.md
+ * `refund_requests`). Created by PAY-6 when staff resolve a payment exception
+ * by opening a refund; deciding and settling it is PAY-7.
+ */
+export const refundRequests = createTable(
+	"refund_requests",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		/** The Payment the money came from, when the request is about one Payment (PAY-6). */
+		paymentId: t.integer("payment_id").references(() => payments.id, { onDelete: "restrict" }),
+		kind: t.text("kind").notNull().$type<"refund" | "forfeiture">(),
+		status: t
+			.text("status")
+			.notNull()
+			.default("requested")
+			.$type<"requested" | "approved" | "settled" | "rejected">(),
+		reason: t.text("reason").notNull(),
+		requestedBy: t
+			.text("requested_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		decidedBy: t.text("decided_by").references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("refund_requests_booking_idx").on(t.bookingId),
+		// One open request per Payment: resolving the same exception twice cannot
+		// ask for the same money back twice.
+		uniqueIndex("refund_requests_payment_open_uq")
+			.on(t.paymentId)
+			.where(sql`${t.status} in ('requested', 'approved')`),
 	]
 )
 
@@ -1154,6 +1209,7 @@ export const relations = defineRelations(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,
@@ -1398,6 +1454,7 @@ export const schema = Object.assign(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,

@@ -336,3 +336,23 @@ The cashier screen (`/cashier` in the web app) finds a client's booking and reco
 `collect` runs `PaymentService.collectOnsite`: in one transaction it locks the Booking, creates a Payment with provider `onsite`, `collected_by` = the cashier and `tender_type`, and confirms it through the same `confirm` online payments use (Booking `paid`, e-Receipt issued, `payment.collect_onsite` audited with the amount received and change). Onsite payments have no convenience fee. The `onsite` provider is always registered, accepts no notifications, and can never be chosen for a Payment Channel.
 
 The cashier routes read client names and emails but never change client data or schedules (Annex A); the Cashier role holds no `users.*`, `schedules.*` or `settings.*` keys.
+
+## Stuck and late payments (PAY-6)
+
+`PaymentReconciliationService` (`src/common/maintenance/`, every 5 minutes) calls `PaymentService.reconcilePending`. It asks the provider (`queryStatus`) about every Payment still `pending` that has not been heard from for `PAYMENT_REQUERY_MINUTES` (10), oldest first, 50 a run, and outside any transaction:
+
+| Provider answer | What happens |
+| --- | --- |
+| succeeded, right amount | `PaymentService.confirm`, the same path as a notification (Booking paid, or flagged for review) |
+| failed / expired | the Payment moves there (audited, no actor) |
+| still pending | `updated_at` is touched: asked again in 10 minutes, and its Booking keeps waiting |
+| succeeded, wrong amount | nothing changes; logged as an `amount_mismatch` alert |
+
+Deferral rule (BKG-2 expiry): an unpaid Booking is not expired while it has an `initiated`/`pending` Payment updated in the last 60 minutes and started in the last 24 hours. The same rule stops the client cancelling it.
+
+Exceptions: a success for a Booking that was already closed is a **late payment** (`needs_review`, Booking stays cancelled, client gets a receipt and "BOQ will contact you"); a second success for a paid Booking is a **duplicate** (`needs_review`, no second receipt, client told BOQ will contact them).
+
+| Route | Permission | What it does |
+| --- | --- | --- |
+| `GET /v1/payment-exceptions` | `payments.transactions:read` | Open exceptions at the caller's Locations |
+| `POST /v1/payment-exceptions/{paymentId}/resolve` | `bookings.all:override` | `{ resolution: rebooked \| refund_requested, note, rebookedReferenceNumber? }`. Records how, why, who and when on the Payment; `refund_requested` opens a `refund_requests` row (PAY-7 decides it). Audited as `payment.review.resolve` without the note. Once per Payment |

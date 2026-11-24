@@ -19,6 +19,7 @@ const PRIVATE_PATHS = [
 	"/services",
 	"/forms",
 	"/cashier",
+	"/payment-exceptions",
 	"/schedules",
 	"/audit-log",
 	"/settings",

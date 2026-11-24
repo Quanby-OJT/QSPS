@@ -46,6 +46,7 @@ import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
 import {
 	IN_FLIGHT_PAYMENT_STATUSES,
+	PAYMENT_DEFERRAL_MAX_HOURS,
 	PAYMENT_IN_FLIGHT_MINUTES,
 	type BookingCancelReason,
 } from "./booking-expiry"
@@ -1180,11 +1181,13 @@ export class BookingService {
 
 	/**
 	 * Whether the Booking has a Payment that may still succeed: `initiated` or
-	 * `pending` and younger than the payment timeout. While it does, the
-	 * Booking is neither expired nor cancelled by the client (BKG-2).
+	 * `pending`, heard from within the payment timeout, and not older than the
+	 * deferral limit (PAY-6). While it does, the Booking is neither expired nor
+	 * cancelled by the client (BKG-2). Same rule as the expiry job.
 	 */
 	async hasPaymentInFlight(reader: Reader, bookingId: number, now: Date): Promise<boolean> {
 		const since = new Date(now.getTime() - PAYMENT_IN_FLIGHT_MINUTES * MS_PER_MINUTE)
+		const startedAfter = new Date(now.getTime() - PAYMENT_DEFERRAL_MAX_HOURS * 60 * MS_PER_MINUTE)
 		const [inFlight] = await reader
 			.select({ id: payments.id })
 			.from(payments)
@@ -1192,7 +1195,8 @@ export class BookingService {
 				and(
 					eq(payments.bookingId, bookingId),
 					inArray(payments.status, [...IN_FLIGHT_PAYMENT_STATUSES]),
-					gt(payments.createdAt, since)
+					gt(payments.updatedAt, since),
+					gt(payments.createdAt, startedAfter)
 				)
 			)
 			.limit(1)

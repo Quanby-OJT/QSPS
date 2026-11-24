@@ -341,6 +341,48 @@ describe("BookingExpiryService (BKG-2)", () => {
 		expect(await bookedCount(slotId)).toBe(1)
 	})
 
+	itDb("keeps waiting while the provider still reports the payment pending (PAY-6 deferral)", async () => {
+		const { bookingId } = await makeBooking({
+			holdExpiresAt: minutes(-90),
+			slotStartsAt: minutes(24 * 60),
+		})
+		// Started two hours ago; the re-query job heard "still pending" 5 minutes ago.
+		await db.insert(payments).values({
+			bookingId,
+			channelCode: "seven-eleven",
+			providerCode: "fake",
+			amountCentavos: 10000,
+			status: "pending",
+			createdAt: minutes(-120),
+			updatedAt: minutes(-5),
+		})
+
+		await jobs[0].expireDue(NOW)
+
+		expect((await bookingRow(bookingId)).status).toBe("pending_payment")
+	})
+
+	itDb("stops waiting once a pending payment is older than the deferral limit (PAY-6)", async () => {
+		const { bookingId } = await makeBooking({
+			holdExpiresAt: minutes(-90),
+			slotStartsAt: minutes(48 * 60),
+		})
+		// Still "pending" at the provider, but started 25 hours ago.
+		await db.insert(payments).values({
+			bookingId,
+			channelCode: "seven-eleven",
+			providerCode: "fake",
+			amountCentavos: 10000,
+			status: "pending",
+			createdAt: minutes(-25 * 60),
+			updatedAt: minutes(-5),
+		})
+
+		await jobs[0].expireDue(NOW)
+
+		expect((await bookingRow(bookingId)).cancelReason).toBe("hold_expired")
+	})
+
 	itDb("cancels once and frees one place when two runs overlap", async () => {
 		const { bookingId, slotId } = await makeBooking({
 			holdExpiresAt: minutes(-1),

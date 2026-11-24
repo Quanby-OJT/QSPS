@@ -9,6 +9,7 @@ export type NotificationTemplate =
 	| "booking_confirmed"
 	| "payment_received"
 	| "payment_received_review"
+	| "payment_duplicate_review"
 	| "booking_cancelled"
 	| "booking_rescheduled"
 	| "expedite_decision"
