@@ -6,7 +6,6 @@ import {
 	PolicyDocumentSummarySchema,
 } from "../policies/policy-documents.schema.js"
 import {
-	BookingDetailSchema,
 	BookingFormRequestSchema,
 	BookingFormSchema,
 	BookingIdParamSchema,
@@ -15,7 +14,6 @@ import {
 	FormSubmissionSchema,
 	FormUploadInputSchema,
 	FormUploadSchema,
-	MyBookingsResponseSchema,
 	UpdateBookingItemFormSchema,
 } from "./bookings.schema.js"
 
@@ -31,29 +29,6 @@ export const bookingsContract = {
 		})
 		.input(CreateBookingSchema)
 		.output(BookingSchema),
-
-	listOwn: oc
-		.route({
-			method: "GET",
-			path: "/bookings",
-			summary: "My Transactions (list own bookings)",
-			description:
-				"Lists all bookings owned by the signed-in client, newest first, with summary status (Pending, Paid, or Cancelled). Requires bookings.own:read (BKG-4).",
-			tags: ["Bookings"],
-		})
-		.output(MyBookingsResponseSchema),
-
-	getOwn: oc
-		.route({
-			method: "GET",
-			path: "/bookings/{bookingId}/details",
-			summary: "Read own booking details",
-			description:
-				"Reads one booking owned by the signed-in client, including each item's processing status, payment details, e-Receipt, and issued documents. Returns 404 when missing or owned by another client. Requires bookings.own:read (BKG-4).",
-			tags: ["Bookings"],
-		})
-		.input(BookingIdParamSchema)
-		.output(BookingDetailSchema),
 
 	policies: oc
 		.route({
