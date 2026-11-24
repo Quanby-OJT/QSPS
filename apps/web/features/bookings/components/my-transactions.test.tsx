@@ -242,7 +242,9 @@ describe("BookingDetailContent (BKG-4 AC 2 & AC 3)", () => {
 				}}
 			/>
 		)
-		expect(screen.getByText("Cancelled")).toBeInTheDocument()
+		// The booking badge, and each item shown as Cancelled rather than Booked.
+		expect(screen.getAllByText("Cancelled").length).toBeGreaterThanOrEqual(2)
+		expect(screen.queryByText("Booked")).not.toBeInTheDocument()
 		expect(screen.getByText(/Cancelled by you/)).toBeInTheDocument()
 	})
 })
