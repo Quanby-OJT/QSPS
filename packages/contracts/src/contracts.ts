@@ -289,7 +289,7 @@ export type {
 	RecordStepResultInput,
 } from "./modules/v1/processing/steps.schema.js"
 
-// Certificates contracts + schemas (CRT-1, CRT-2, CRT-3)
+// Certificates contracts + schemas (CRT-1, CRT-2, CRT-3, CRT-5, CRT-6)
 export { certificatesContract } from "./modules/v1/certificates/certificates.contract.js"
 export {
 	DOCUMENT_TYPES,
@@ -303,6 +303,7 @@ export {
 	MedicalExemptionDetailsSchema,
 	SanitaryPermitDetailsSchema,
 	ShipSanitationDetailsSchema,
+	HaccpDetailsSchema,
 	MAX_SHIP_FINDINGS_LENGTH,
 	IssueDocumentSchema,
 	ReissueDocumentSchema,
@@ -321,6 +322,7 @@ export type {
 	MedicalExemptionDetails,
 	SanitaryPermitDetails,
 	ShipSanitationDetails,
+	HaccpDetails,
 	IssueDocumentInput,
 	ReissueDocumentInput,
 	RevokeDocumentInput,
@@ -329,6 +331,35 @@ export type {
 	ManualVerificationInput,
 	DocumentVerification,
 } from "./modules/v1/certificates/certificates.schema.js"
+
+// Seminar sessions: roster, bulk attendance and bulk issue (CRT-6)
+export {
+	MAX_SEMINAR_ATTENDEES_PER_REQUEST,
+	SEMINAR_ATTENDANCE_OUTCOMES,
+	SEMINAR_ISSUE_OUTCOMES,
+	SeminarSessionsRequestSchema,
+	SeminarSessionSchema,
+	SeminarSessionsSchema,
+	SeminarSessionParamSchema,
+	SeminarAttendeeSchema,
+	SeminarRosterSchema,
+	SeminarAttendanceSchema,
+	SeminarAttendanceResultSchema,
+	SeminarIssueSchema,
+	SeminarIssueResultSchema,
+} from "./modules/v1/certificates/seminar.schema.js"
+export type {
+	SeminarSessionsRequest,
+	SeminarSession,
+	SeminarSessions,
+	SeminarSessionParam,
+	SeminarAttendee,
+	SeminarRoster,
+	SeminarAttendanceInput,
+	SeminarAttendanceResult,
+	SeminarIssueInput,
+	SeminarIssueResult,
+} from "./modules/v1/certificates/seminar.schema.js"
 
 // Schedule slot contracts + schemas (SCH-1, SCH-2)
 export { schedulesContract } from "./modules/v1/schedules/schedules.contract.js"

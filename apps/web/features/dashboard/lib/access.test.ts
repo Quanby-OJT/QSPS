@@ -263,6 +263,13 @@ describe("navItems", () => {
 			)
 		).toEqual(["Dashboard", "Forms"])
 
+		// CRT-6: Seminars needs certificates.documents:issue, the same key as issuing a document.
+		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["certificates.documents:issue"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "Seminars"])
+
 		// PAY-4: the Cashier role sees the Cashier link and nothing that edits clients or schedules.
 		expect(
 			getAccessibleNavItems({
@@ -292,6 +299,7 @@ describe("navItems", () => {
 			"Processing",
 			"Walk-in",
 			"Approvals",
+			"Seminars",
 			"Cashier",
 			"Payment exceptions",
 			"User Management",
@@ -330,6 +338,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
 		expect(getDashboardRouteTitle("/payment-exceptions")).toBe("Payment exceptions")
+		expect(getDashboardRouteTitle("/seminars")).toBe("Seminars")
 	})
 
 	it("marks only the most specific link active (PRC-3)", () => {

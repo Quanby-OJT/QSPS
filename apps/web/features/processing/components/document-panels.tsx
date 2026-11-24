@@ -1,9 +1,12 @@
 "use client"
 
 import { useState } from "react"
+import type { Route } from "next"
+import Link from "next/link"
 import { toast } from "sonner"
 
 import type {
+	HaccpDetails,
 	IcvIssueDetails,
 	MedicalExemptionDetails,
 	ProcessingItem,
@@ -12,7 +15,7 @@ import type {
 } from "@repo/contracts"
 
 import { BoqLoader } from "@/core/components/boq-loader"
-import { Button } from "@/core/components/ui/button"
+import { Button, buttonVariants } from "@/core/components/ui/button"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Textarea } from "@/core/components/ui/textarea"
@@ -25,9 +28,10 @@ import {
 } from "@/features/processing/api/processing.hooks"
 import {
 	documentTypeLabel,
+	isSeminarService,
 	printCountLabel,
-	sanitationDocumentType,
-	type SanitationDocumentType,
+	validityDocumentType,
+	type ValidityDocumentType,
 } from "@/features/processing/lib/labels"
 import { manilaDateKey } from "@/features/schedules/lib/calendar"
 
@@ -112,17 +116,17 @@ export function useDocumentDetailsForm() {
 export type DocumentDetailsForm = ReturnType<typeof useDocumentDetailsForm>
 
 /**
- * CRT-5: what staff type to issue a Sanitary Permit or a Ship Sanitation
- * Certificate: the validity period and, for a ship, the inspection findings.
- * The establishment or vessel details are not typed again: they come from the
- * client's application form.
+ * CRT-5, CRT-6: what staff type to issue a Sanitary Permit, a Ship Sanitation
+ * Certificate or a HACCP Certificate: the validity period and, for a ship, the
+ * inspection findings. The establishment or vessel details are not typed
+ * again: they come from the client's application form.
  */
 export function useSanitationForm() {
 	const today = manilaDateKey(new Date())
 	const [fields, setFields] = useState({ validFrom: today, validUntil: "", findings: "" })
 
 	/** Both dates are required, and the document cannot end before it starts. */
-	function missing(kind: SanitationDocumentType): boolean {
+	function missing(kind: ValidityDocumentType): boolean {
 		return (
 			fields.validFrom.length === 0 ||
 			fields.validUntil.length === 0 ||
@@ -132,6 +136,10 @@ export function useSanitationForm() {
 	}
 
 	function sanitaryPermit(): SanitaryPermitDetails {
+		return { validFrom: fields.validFrom, validUntil: fields.validUntil }
+	}
+
+	function haccp(): HaccpDetails {
 		return { validFrom: fields.validFrom, validUntil: fields.validUntil }
 	}
 
@@ -150,6 +158,7 @@ export function useSanitationForm() {
 		missing,
 		sanitaryPermit,
 		shipSanitation,
+		haccp,
 	}
 }
 
@@ -332,10 +341,22 @@ export function DocumentDetailsFields({
 	)
 }
 
+const VALIDITY_TITLES: Record<ValidityDocumentType, string> = {
+	"sanitary-permit": "Sanitary Permit",
+	"ship-sanitation": "Ship Sanitation Certificate",
+	"haccp": "HACCP Certificate",
+}
+
+const VALIDITY_SOURCES: Record<ValidityDocumentType, string> = {
+	"sanitary-permit": "The establishment details come from the client's application form.",
+	"ship-sanitation": "The vessel details come from the client's application form.",
+	"haccp": "The establishment details come from the client's application form.",
+}
+
 /**
- * The fields for a Sanitary Permit or a Ship Sanitation Certificate (CRT-5).
- * The permit or certificate is valid through its last day, then the public
- * verification page shows it as expired.
+ * The fields for a Sanitary Permit, a Ship Sanitation Certificate (CRT-5) or a
+ * HACCP Certificate (CRT-6). The document is valid through its last day, then
+ * the public verification page shows it as expired.
  */
 export function SanitationFields({
 	form,
@@ -343,7 +364,7 @@ export function SanitationFields({
 	idPrefix,
 }: {
 	form: SanitationForm
-	kind: SanitationDocumentType
+	kind: ValidityDocumentType
 	idPrefix: string
 }) {
 	const { fields } = form
@@ -351,14 +372,9 @@ export function SanitationFields({
 
 	return (
 		<fieldset className="flex flex-col gap-3 rounded-lg border p-3">
-			<legend className="px-1 text-sm font-medium">
-				{isShip ? "Ship Sanitation Certificate" : "Sanitary Permit"}
-			</legend>
+			<legend className="px-1 text-sm font-medium">{VALIDITY_TITLES[kind]}</legend>
 			<p className="text-muted-foreground text-xs">
-				{isShip
-					? "The vessel details come from the client's application form."
-					: "The establishment details come from the client's application form."}{" "}
-				Fields marked * are required.
+				{VALIDITY_SOURCES[kind]} Fields marked * are required.
 			</p>
 			<div className="grid items-start gap-x-3 gap-y-4 sm:grid-cols-2">
 				{isShip ? (
@@ -491,8 +507,8 @@ export function IssueDocumentPanel({
 	const issue = useIssueDocumentMutation(item.bookingItemId)
 	const form = useDocumentDetailsForm()
 	const sanitationForm = useSanitationForm()
-	// CRT-5: a sanitation Service issues a permit or a certificate, not the vaccination record.
-	const sanitation = sanitationDocumentType(item.service.documentType)
+	// CRT-5, CRT-6: these Services issue a permit or a certificate with a validity period, not the vaccination record.
+	const sanitation = validityDocumentType(item.service.documentType)
 	// One key per issue, so a double click issues one document, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
 	const exempt = !sanitation && allowExemption && form.mode === "exempt"
@@ -507,6 +523,7 @@ export function IssueDocumentPanel({
 				exemption: exempt ? form.exemptionDetails() : null,
 				sanitaryPermit: sanitation === "sanitary-permit" ? sanitationForm.sanitaryPermit() : null,
 				shipSanitation: sanitation === "ship-sanitation" ? sanitationForm.shipSanitation() : null,
+				haccp: sanitation === "haccp" ? sanitationForm.haccp() : null,
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
@@ -514,6 +531,25 @@ export function IssueDocumentPanel({
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "Could not issue the document")
 		}
+	}
+
+	// CRT-6: a seminar attendee is issued from the session roster, with everyone else.
+	if (isSeminarService(item.service.documentType)) {
+		return (
+			<div className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+				<h2 className="font-semibold">Issue document</h2>
+				<p className="text-muted-foreground text-sm">
+					Food Safety Training Certificates are issued from the seminar session, together with the
+					other attendees who are marked present.
+				</p>
+				<Link
+					href={"/seminars" as Route}
+					className={cn(buttonVariants({ variant: "outline" }), "self-start")}
+				>
+					Open seminar sessions
+				</Link>
+			</div>
+		)
 	}
 
 	return (
@@ -537,7 +573,9 @@ export function IssueDocumentPanel({
 				{issue.isPending
 					? "Issuing…"
 					: sanitation
-						? `Issue ${documentTypeLabel(sanitation).toLowerCase()}`
+						? sanitation === "haccp"
+							? "Issue HACCP certificate"
+							: `Issue ${documentTypeLabel(sanitation).toLowerCase()}`
 						: exempt
 							? "Issue exemption certificate"
 							: "Issue certificate"}
@@ -563,6 +601,9 @@ function DocumentStatusActions({
 	const [reason, setReason] = useState("")
 	const { document } = item
 	const exemptionDocument = document.documentType === "medical-exemption"
+	// Only the vaccination record and the exemption can be reissued so far (CRT-8); the
+	// sanitation and food safety documents can still be revoked.
+	const canReissue = document.documentType === "icv-record" || exemptionDocument
 	const busy = revoke.isPending || reissue.isPending
 
 	function close() {
@@ -597,16 +638,18 @@ function DocumentStatusActions({
 	if (action === "none") {
 		return (
 			<div className="flex flex-wrap gap-2 border-t pt-3">
-				<Button
-					type="button"
-					variant="outline"
-					onClick={() => {
-						form.setMode(exemptionDocument ? "exempt" : "vaccinated")
-						setAction("reissue")
-					}}
-				>
-					Reissue with corrections
-				</Button>
+				{canReissue ? (
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() => {
+							form.setMode(exemptionDocument ? "exempt" : "vaccinated")
+							setAction("reissue")
+						}}
+					>
+						Reissue with corrections
+					</Button>
+				) : null}
 				<Button type="button" variant="destructive" onClick={() => setAction("revoke")}>
 					Revoke
 				</Button>
@@ -648,7 +691,7 @@ function DocumentStatusActions({
 					variant={action === "revoke" ? "destructive" : "default"}
 					disabled={busy || !reason.trim() || (action === "reissue" && form.missing)}
 				>
-					{busy ? "Savingâ€¦" : action === "revoke" ? "Revoke document" : "Reissue document"}
+					{busy ? "Saving…" : action === "revoke" ? "Revoke document" : "Reissue document"}
 				</Button>
 				<Button type="button" variant="ghost" disabled={busy} onClick={close}>
 					Cancel
