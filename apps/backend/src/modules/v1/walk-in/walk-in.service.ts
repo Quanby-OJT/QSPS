@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto"
 import { Injectable, Logger } from "@nestjs/common"
+import { randomUUID } from "node:crypto"
 import { ORPCError } from "@orpc/server"
 import { and, asc, eq, gt, gte, inArray, isNull, lt, or, sql } from "drizzle-orm"
 
+import { authEnv, getAuth } from "@repo/auth"
 import type {
 	Booking,
 	CreateWalkInBookingInput,
@@ -175,6 +176,9 @@ export class WalkInService {
 					birthDate: input.birthDate,
 					nationality: input.nationality,
 					gender: input.gender,
+					// The officer entered the whole profile (AUTH-1 fields), so the client is
+					// not asked again at first sign-in. Without a mobile it is not complete yet.
+					profileCompletedAt: input.mobile ? now : null,
 					createdAt: now,
 					updatedAt: now,
 				})
@@ -376,7 +380,8 @@ export class WalkInService {
 	 */
 	private async sendInvitation(email: string): Promise<void> {
 		try {
-			const { authEnv, getAuth } = await import("@repo/auth")
+			// Static import, like auth.config.ts: a dynamic import can load a second
+			// copy of @repo/auth whose Better Auth instance is not the one in use.
 			await getAuth().api.requestPasswordReset({
 				body: { email, redirectTo: `${authEnv.APP_WEB_URL}/reset-password` },
 			})

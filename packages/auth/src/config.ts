@@ -567,7 +567,10 @@ export function createAuth() {
 				 * AUTH-3: CAPTCHA first, before any database work. The token comes
 				 * in a header so the forms' JSON bodies stay as Better Auth expects.
 				 */
-				if (CAPTCHA_PATHS.has(ctx.path)) {
+				// A call from our own server code (auth.api.* with no HTTP request,
+				// e.g. the PRC-2 walk-in invitation) has no browser to solve a
+				// CAPTCHA and cannot come from the internet. Every HTTP request is checked.
+				if (CAPTCHA_PATHS.has(ctx.path) && ctx.request) {
 					const token = ctx.headers?.get(CAPTCHA_HEADER) ?? null
 					const address = ctx.headers?.get(AUTH_CLIENT_ADDRESS_HEADER) ?? null
 					if (!(await captcha.verify(token, address))) {
