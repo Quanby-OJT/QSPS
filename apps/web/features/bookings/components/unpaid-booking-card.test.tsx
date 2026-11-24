@@ -115,3 +115,33 @@ describe("UnpaidBookingDetails (BKG-2)", () => {
 		expect(screen.getByText(`₱${feeInPesos(200000)}`)).toBeInTheDocument()
 	})
 })
+
+describe("UnpaidBookingDetails application form (CRT-4)", () => {
+	const physicalExam: Booking["items"][number] = {
+		id: 218,
+		serviceId: 55,
+		serviceName: "Physical Examination",
+		locationId: 2,
+		locationName: "Manila",
+		scheduleSlotId: 9,
+		startsAt: new Date("2026-12-02T00:00:00.000Z"),
+		endsAt: new Date("2026-12-02T04:00:00.000Z"),
+		feeCentavos: 50000,
+		status: "booked",
+	}
+
+	it("links the client to their own Physical Examination application form", () => {
+		renderDetails({ items: [...booking.items, physicalExam] })
+		const link = screen.getByRole("link", { name: /application form for Physical Examination/ })
+		expect(link).toHaveAttribute(
+			"href",
+			expect.stringContaining("/certificates/printouts/booking-items/218/application-form")
+		)
+		expect(link).toHaveAttribute("target", "_blank")
+	})
+
+	it("shows no application form link without a Physical Examination", () => {
+		renderDetails()
+		expect(screen.queryByRole("link", { name: /application form/ })).not.toBeInTheDocument()
+	})
+})

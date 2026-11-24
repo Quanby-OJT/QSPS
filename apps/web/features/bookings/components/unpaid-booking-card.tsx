@@ -27,6 +27,7 @@ import {
 	feeLinesFromItems,
 } from "@/features/bookings/components/booking-fee-lines"
 import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
+import { applicationFormDownloadUrl } from "@/features/processing/api/printouts.hooks"
 import { dateLabel, manilaDateKey, manilaTime } from "@/features/schedules/lib/calendar"
 
 function newIdempotencyKey(): string {
@@ -127,6 +128,9 @@ export function UnpaidBookingDetails({
 }: UnpaidBookingDetailsProps) {
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
 	const busy = paying || choosingOnsite || cancelling
+	// CRT-4: the client downloads their own Physical Examination application form.
+	// Items carry no category, so match the seeded Service name; the API refuses anything else.
+	const physicalExamItems = booking.items.filter(item => /physical exam/i.test(item.serviceName))
 
 	return (
 		<Card className="border-t-gold border-t-4">
@@ -148,6 +152,23 @@ export function UnpaidBookingDetails({
 					lines={feeLinesFromItems(booking.items)}
 					totalCentavos={booking.totalCentavos}
 				/>
+
+				{physicalExamItems.length > 0 ? (
+					<div className="flex flex-col gap-1">
+						<p className="text-muted-foreground text-sm">Application form</p>
+						{physicalExamItems.map(item => (
+							<a
+								key={item.id}
+								href={applicationFormDownloadUrl(item.id)}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-primary text-sm underline underline-offset-4"
+							>
+								Download the application form for {item.serviceName}
+							</a>
+						))}
+					</div>
+				) : null}
 
 				{booking.payOnsite ? (
 					<p className="text-sm">
