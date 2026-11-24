@@ -137,8 +137,8 @@ export function UnpaidBookingDetails({
 					<CardTitle>Booking awaiting payment</CardTitle>
 					<div className="flex items-center gap-2">
 						<Badge variant="secondary">Pending payment</Badge>
-						<Button asChild size="sm" variant="ghost">
-							<Link href={`/bookings/${booking.id}`}>View details</Link>
+						<Button size="sm" variant="ghost" render={<Link href={`/book/${booking.id}`} />}>
+							View details
 						</Button>
 					</div>
 				</div>

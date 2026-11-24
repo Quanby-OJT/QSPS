@@ -37,23 +37,15 @@ const item: Booking["items"][number] = {
 const slots: SlotAvailability[] = [
 	{
 		id: 7,
-		serviceId: 1,
-		locationId: 2,
 		startsAt: new Date("2026-12-02T00:00:00.000Z"),
 		endsAt: new Date("2026-12-02T04:00:00.000Z"),
-		capacity: 10,
-		bookedCount: 5,
 		remainingCapacity: 5,
 		isAvailable: true,
 	},
 	{
 		id: 12,
-		serviceId: 1,
-		locationId: 2,
 		startsAt: new Date("2026-12-04T00:00:00.000Z"),
 		endsAt: new Date("2026-12-04T04:00:00.000Z"),
-		capacity: 10,
-		bookedCount: 2,
 		remainingCapacity: 8,
 		isAvailable: true,
 	},
