@@ -31,6 +31,15 @@ const messages: Record<NotificationTemplate, [string, string]> = {
 	assessment_returned: ["Assessment returned", "Your assessment requires your attention."],
 	assessment_rejected: ["Assessment rejected", "Sign in to view your assessment details."],
 	document_ready: ["Document ready", "Your document is ready. Sign in to view or download it."],
+	// CRT-8
+	document_revoked: [
+		"Document revoked",
+		"One of your documents has been revoked by BOQ and is no longer valid. Sign in to see your documents.",
+	],
+	document_reissued: [
+		"Document reissued",
+		"BOQ has reissued one of your documents with corrected details. The old one is no longer valid. Sign in to view or download the new one.",
+	],
 }
 
 function escapeHtml(value: string): string {

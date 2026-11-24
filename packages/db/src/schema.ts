@@ -639,6 +639,14 @@ export const documents = createTable(
 		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
 		/** How many times staff printed it (CRT-3); above 1 means it was reprinted. */
 		printCount: t.integer("print_count").notNull().default(0),
+		/** CRT-8: the document that replaced this one when it was reissued. No foreign key: a self-reference written only by DocumentService. */
+		supersededBy: t.integer("superseded_by"),
+		/** CRT-8: why it was revoked or reissued. */
+		statusReason: t.text("status_reason"),
+		/** CRT-8: who revoked or reissued it. */
+		statusChangedBy: t
+			.text("status_changed_by")
+			.references(() => users.id, { onDelete: "restrict" }),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
@@ -838,25 +846,29 @@ export interface ReceiptServiceLine {
  * transaction that marks the Payment `succeeded`; never updated. The PDF is
  * rendered on demand from this row and its Payment, never stored as a file.
  */
-export const receipts = createTable("receipts", t => ({
-	id: t.serial("id").primaryKey(),
-	paymentId: t
-		.integer("payment_id")
-		.notNull()
-		.unique()
-		.references(() => payments.id, { onDelete: "restrict" }),
-	/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
-	receiptNumber: t.text("receipt_number").notNull().unique(),
-	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
-	verificationToken: t.text("verification_token").notNull().unique(),
-	/** PAY-2a: the client's name at payment time. */
-	clientName: t.text("client_name").notNull(),
-	/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
-	channelName: t.text("channel_name").notNull(),
-	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
-	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
-	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
-}), t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)])
+export const receipts = createTable(
+	"receipts",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		paymentId: t
+			.integer("payment_id")
+			.notNull()
+			.unique()
+			.references(() => payments.id, { onDelete: "restrict" }),
+		/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
+		receiptNumber: t.text("receipt_number").notNull().unique(),
+		/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
+		verificationToken: t.text("verification_token").notNull().unique(),
+		/** PAY-2a: the client's name at payment time. */
+		clientName: t.text("client_name").notNull(),
+		/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
+		channelName: t.text("channel_name").notNull(),
+		/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
+		serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
+		issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+	}),
+	t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)]
+)
 
 // ============================================================================
 // POLICIES
