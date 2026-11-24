@@ -122,6 +122,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "settings.policies:manage",
 	},
 	{
+		label: "Transactions",
+		href: "/transactions",
+		icon: File01Icon,
+		section: "Administration",
+		requiredPermission: "reports.transactions:read",
+	},
+	{
 		label: "Audit log",
 		href: "/audit-log",
 		icon: ShieldKeyIcon,
