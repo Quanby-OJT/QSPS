@@ -15,11 +15,13 @@ import type { Response } from "express"
 import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 
-import { PrintoutService } from "./printouts.service"
+import { PrintoutService, type OwnerApplicationForm } from "./printouts.service"
 import { sendPdf } from "./send-pdf"
 
 /**
  * Printouts that are not issued Documents (CRT-4):
+ * - GET  /api/v1/certificates/printouts/bookings/{id}/application-forms,
+ *   the client's own Booking: which of its items have an application form.
  * - GET  /api/v1/certificates/printouts/booking-items/{id}/application-form,
  *   the client downloads their own application form.
  * - POST /api/v1/certificates/printouts/booking-items/{id}/application-form/print,
@@ -36,6 +38,19 @@ export class PrintoutsController {
 		private readonly printoutService: PrintoutService,
 		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver
 	) {}
+
+	@RequirePermissions("bookings.own:read")
+	@Get("bookings/:bookingId/application-forms")
+	async listApplicationForms(
+		@Param("bookingId", ParseIntPipe) bookingId: number,
+		@Session() session?: UserSession
+	): Promise<{ items: OwnerApplicationForm[] }> {
+		const items = await this.printoutService.applicationFormsForOwner(
+			bookingId,
+			session?.user?.id ?? null
+		)
+		return { items }
+	}
 
 	@RequirePermissions("bookings.own:read")
 	@Get("booking-items/:bookingItemId/application-form")

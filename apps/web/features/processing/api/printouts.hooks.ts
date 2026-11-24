@@ -1,6 +1,6 @@
 "use client"
 
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -67,4 +67,35 @@ export function usePrintRequestForPaymentMutation() {
  */
 export function applicationFormDownloadUrl(bookingItemId: number): string {
 	return `${API_BASE}/certificates/printouts/booking-items/${bookingItemId}/application-form`
+}
+
+/** One application form a client can download for their own Booking. */
+export interface ApplicationFormLink {
+	bookingItemId: number
+	serviceName: string
+}
+
+/**
+ * The application forms the signed-in client can download for one of their
+ * own Bookings (CRT-4). Empty when the Booking has none; an error (for
+ * example 404) just means no links are shown.
+ */
+export function useApplicationFormsQuery(bookingId: number) {
+	return useQuery({
+		queryKey: ["certificates", "application-forms", bookingId] as const,
+		queryFn: async (): Promise<ApplicationFormLink[]> => {
+			const response = await fetch(
+				`${API_BASE}/certificates/printouts/bookings/${bookingId}/application-forms`,
+				{ credentials: "include" }
+			)
+			if (!response.ok) {
+				throw new ApiError(
+					response.status,
+					`Could not load the application forms (${response.status})`
+				)
+			}
+			const body = (await response.json()) as { items: ApplicationFormLink[] }
+			return body.items
+		},
+	})
 }

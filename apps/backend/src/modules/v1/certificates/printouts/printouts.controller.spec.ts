@@ -26,6 +26,15 @@ describe("Printouts permissions (CRT-4)", () => {
 		).toEqual(["bookings.own:read"])
 	})
 
+	it("requires bookings.own:read to list a booking's application forms", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				PrintoutsController.prototype.listApplicationForms
+			)
+		).toEqual(["bookings.own:read"])
+	})
+
 	it("requires certificates.documents:print for both staff prints", () => {
 		expect(
 			Reflect.getMetadata(
@@ -65,6 +74,22 @@ describe("PrintoutsController", () => {
 			'inline; filename="form.pdf"'
 		)
 		expect(response.end).toHaveBeenCalledWith(Buffer.from("%PDF-1.3"))
+	})
+
+	it("lists the client's own application forms", async () => {
+		const applicationFormsForOwner = jest
+			.fn()
+			.mockResolvedValue([{ bookingItemId: 44, serviceName: "Physical Examination" }])
+		const controller = new PrintoutsController({
+			applicationFormsForOwner,
+		} as unknown as PrintoutService)
+
+		const result = await controller.listApplicationForms(31, { user: { id: "client-1" } } as never)
+
+		expect(applicationFormsForOwner).toHaveBeenCalledWith(31, "client-1")
+		expect(result).toEqual({
+			items: [{ bookingItemId: 44, serviceName: "Physical Examination" }],
+		})
 	})
 
 	it("prints the application form in the caller's Scope", async () => {

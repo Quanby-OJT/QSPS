@@ -289,4 +289,75 @@ describe("PrintoutService", () => {
 			expect(audit.record).not.toHaveBeenCalled()
 		})
 	})
+
+	describe("applicationFormsForOwner", () => {
+		const formRow = {
+			id: 44,
+			serviceName: "Physical Examination",
+			categoryCode: "physical-exam",
+			clientId: "client-1",
+		}
+
+		it("lists the Physical Examination items that have an Applicant type answer", async () => {
+			selectReturns([
+				formRow,
+				{
+					...formRow,
+					id: 45,
+					serviceName: "Yellow fever vaccination",
+					categoryCode: "immunization",
+				},
+			])
+			answers.mockResolvedValue({ "Applicant type": "Local" })
+
+			const forms = await service.applicationFormsForOwner(31, "client-1")
+
+			expect(forms).toEqual([{ bookingItemId: 44, serviceName: "Physical Examination" }])
+			// The vaccination item is skipped before its answers are read.
+			expect(answers).toHaveBeenCalledTimes(1)
+			expect(audit.record).not.toHaveBeenCalled()
+		})
+
+		it("leaves out a Physical Examination item with no Applicant type answer", async () => {
+			selectReturns([formRow])
+			answers.mockResolvedValue({})
+
+			await expect(service.applicationFormsForOwner(31, "client-1")).resolves.toEqual([])
+		})
+
+		it("answers 404 and audits a denial for another client", async () => {
+			selectReturns([formRow])
+
+			await expect(service.applicationFormsForOwner(31, "client-2")).rejects.toThrow(
+				NotFoundException
+			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "printout.application.read",
+					outcome: "denied",
+					actorId: "client-2",
+					targetType: "booking",
+					reason: "not_owner",
+				})
+			)
+		})
+
+		it("answers the same 404 for a booking that does not exist", async () => {
+			selectReturns([])
+
+			await expect(service.applicationFormsForOwner(99, "client-1")).rejects.toThrow(
+				NotFoundException
+			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({ outcome: "denied", reason: "not_found" })
+			)
+		})
+
+		it("answers 404 without an audit entry when nobody is signed in", async () => {
+			selectReturns([formRow])
+
+			await expect(service.applicationFormsForOwner(31, null)).rejects.toThrow(NotFoundException)
+			expect(audit.record).not.toHaveBeenCalled()
+		})
+	})
 })

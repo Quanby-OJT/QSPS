@@ -22,6 +22,7 @@ import {
 	usePayOnsiteMutation,
 	useUnpaidBookingQuery,
 } from "@/features/bookings/api/bookings.hooks"
+import { ApplicationFormLinks } from "@/features/bookings/components/application-form-links"
 import {
 	BookingFeeLines,
 	feeLinesFromItems,
@@ -96,6 +97,7 @@ export function UnpaidBookingCard() {
 					<PaymentCheckout bookingId={booking.id} onRedirect={() => setRedirecting(true)} />
 				) : null
 			}
+			forms={<ApplicationFormLinks bookingId={booking.id} />}
 			onPayOnsite={() => void chooseOnsite()}
 			onCancel={() => void cancelBooking()}
 		/>
@@ -112,6 +114,8 @@ interface UnpaidBookingDetailsProps {
 	onCancel: () => void
 	/** The channel picker, once the client chose to pay online (PAY-5). */
 	checkout?: ReactNode
+	/** CRT-4: download links for the booking's application forms, when it has any. */
+	forms?: ReactNode
 }
 
 /** What the card shows, without the requests (tested on its own). */
@@ -124,6 +128,7 @@ export function UnpaidBookingDetails({
 	onPayOnsite,
 	onCancel,
 	checkout,
+	forms,
 }: UnpaidBookingDetailsProps) {
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
 	const busy = paying || choosingOnsite || cancelling
@@ -148,6 +153,8 @@ export function UnpaidBookingDetails({
 					lines={feeLinesFromItems(booking.items)}
 					totalCentavos={booking.totalCentavos}
 				/>
+
+				{forms}
 
 				{booking.payOnsite ? (
 					<p className="text-sm">

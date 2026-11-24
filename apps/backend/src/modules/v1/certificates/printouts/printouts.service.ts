@@ -36,6 +36,12 @@ export interface RenderedPrintout {
 	pdf: Buffer
 }
 
+/** One application form a client can download for their own Booking (CRT-4). */
+export interface OwnerApplicationForm {
+	bookingItemId: number
+	serviceName: string
+}
+
 /** One Booking Item with everything the application form needs. */
 async function loadItem(bookingItemId: number) {
 	const [row] = await db
@@ -151,6 +157,55 @@ export class PrintoutService {
 		}
 		const { fileName, pdf } = await this.renderApplication(row)
 		return { fileName, pdf }
+	}
+
+	/**
+	 * The application forms a client can download for one of their own
+	 * Bookings: one per Physical Examination item that has an Applicant type
+	 * answer, which is the same condition under which the download works.
+	 * Anyone else, and a Booking that does not exist, gets the same 404, and
+	 * the attempt is audited.
+	 */
+	async applicationFormsForOwner(
+		bookingId: number,
+		actorId: string | null
+	): Promise<OwnerApplicationForm[]> {
+		const rows = await db
+			.select({
+				id: bookingItems.id,
+				serviceName: services.name,
+				categoryCode: serviceCategories.code,
+				clientId: bookings.clientId,
+			})
+			.from(bookingItems)
+			.innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.innerJoin(serviceCategories, eq(serviceCategories.id, services.serviceCategoryId))
+			.where(eq(bookingItems.bookingId, bookingId))
+			.orderBy(asc(bookingItems.id))
+
+		const first = rows[0]
+		if (!first || !actorId || first.clientId !== actorId) {
+			if (actorId) {
+				await this.recordDenied(
+					"printout.application.read",
+					"booking",
+					bookingId,
+					actorId,
+					first ? "not_owner" : "not_found"
+				)
+			}
+			throw new NotFoundException("Booking not found")
+		}
+
+		const forms: OwnerApplicationForm[] = []
+		for (const row of rows) {
+			if (row.categoryCode !== PHYSICAL_EXAM_CATEGORY_CODE) continue
+			if (applicantTypeOf(await readableAnswers(db, row.id))) {
+				forms.push({ bookingItemId: row.id, serviceName: row.serviceName })
+			}
+		}
+		return forms
 	}
 
 	/**
