@@ -169,7 +169,11 @@ export function BookingDetailContent({
 							</div>
 						) : (
 							<div className="flex flex-wrap gap-2">
-								{choosingChannel ? null : (
+								{choosingChannel ? (
+									<div className="basis-full">
+										<PaymentCheckout bookingId={booking.id} onRedirect={onRedirect} />
+									</div>
+								) : (
 									<Button type="button" size="sm" disabled={busy} onClick={() => onPayNow?.()}>
 										{paying ? "Opening checkout…" : "Pay now"}
 									</Button>
