@@ -1,6 +1,7 @@
 import {
 	AccountSetting01Icon,
 	Add01Icon,
+	Alert02Icon,
 	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
 	File01Icon,
@@ -63,6 +64,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/cashier",
 		icon: Ticket01Icon,
 		requiredPermission: "payments.onsite:collect",
+	},
+	{
+		// PAY-6: late and duplicate payments staff must resolve.
+		label: "Payment exceptions",
+		href: "/payment-exceptions",
+		icon: Alert02Icon,
+		requiredPermission: "payments.transactions:read",
 	},
 	{
 		label: "User Management",

@@ -7,6 +7,7 @@ import { healthContract } from "./health/health.contract.js"
 import { locationsContract } from "./locations/locations.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { cashierContract } from "./payments/cashier.contract.js"
+import { paymentExceptionsContract } from "./payments/payment-exceptions.contract.js"
 import { paymentChannelsContract, paymentsContract } from "./payments/payments.contract.js"
 import { policiesContract } from "./policies/policies.contract.js"
 import { policyDocumentsContract } from "./policies/policy-documents.contract.js"
@@ -31,6 +32,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		payments: paymentsContract,
 		paymentChannels: paymentChannelsContract,
 		cashier: cashierContract,
+		paymentExceptions: paymentExceptionsContract,
 		policies: policiesContract,
 		policyDocuments: policyDocumentsContract,
 		processing: processingContract,

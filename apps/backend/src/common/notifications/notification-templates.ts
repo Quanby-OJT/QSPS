@@ -13,6 +13,12 @@ const messages: Record<NotificationTemplate, [string, string]> = {
 		"Payment received",
 		"We have received your payment, but it could not be applied to your booking. BOQ staff will review it and contact you. Your electronic receipt is attached.",
 	],
+	// PAY-6: a second payment for a booking that was already paid. No second
+	// receipt is issued, so none is attached.
+	payment_duplicate_review: [
+		"Payment received",
+		"We have received a second payment for a booking that was already paid. BOQ staff will review it and contact you about a refund or a new booking.",
+	],
 	booking_cancelled: ["Booking cancelled", "Your booking has been cancelled."],
 	booking_rescheduled: [
 		"Booking rescheduled",

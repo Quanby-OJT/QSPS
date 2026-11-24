@@ -119,6 +119,27 @@ export type {
 	CheckoutChannels,
 } from "./modules/v1/payments/payments.schema.js"
 
+// Payment exceptions contracts + schemas (PAY-6)
+export { paymentExceptionsContract } from "./modules/v1/payments/payment-exceptions.contract.js"
+export {
+	PAYMENT_REVIEW_REASONS,
+	PaymentReviewReasonSchema,
+	PAYMENT_REVIEW_RESOLUTIONS,
+	PaymentReviewResolutionSchema,
+	PaymentExceptionSchema,
+	PaymentExceptionListSchema,
+	ResolvePaymentReviewSchema,
+	ResolvePaymentReviewResultSchema,
+} from "./modules/v1/payments/payment-exceptions.schema.js"
+export type {
+	PaymentReviewReason,
+	PaymentReviewResolution,
+	PaymentException,
+	PaymentExceptionList,
+	ResolvePaymentReviewInput,
+	ResolvePaymentReviewResult,
+} from "./modules/v1/payments/payment-exceptions.schema.js"
+
 // Cashier contracts + schemas (PAY-4)
 export { cashierContract } from "./modules/v1/payments/cashier.contract.js"
 export {

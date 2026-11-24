@@ -127,6 +127,11 @@ describe("navItems", () => {
 					requiredPermission: "payments.onsite:collect",
 				}),
 				expect.objectContaining({
+					label: "Payment exceptions",
+					href: "/payment-exceptions",
+					requiredPermission: "payments.transactions:read",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -251,7 +256,7 @@ describe("navItems", () => {
 					"reports.dashboard:read",
 				],
 			}).map(item => item.label)
-		).toEqual(["Dashboard", "Cashier"])
+		).toEqual(["Dashboard", "Cashier", "Payment exceptions"])
 
 		// ADM-3: the Audit log link needs audit.logs:read.
 		expect(
@@ -267,6 +272,7 @@ describe("navItems", () => {
 			"Processing",
 			"Approvals",
 			"Cashier",
+			"Payment exceptions",
 			"User Management",
 			"Locations",
 			"Services",
@@ -299,6 +305,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
+		expect(getDashboardRouteTitle("/payment-exceptions")).toBe("Payment exceptions")
 	})
 
 	it("marks only the most specific link active (PRC-3)", () => {

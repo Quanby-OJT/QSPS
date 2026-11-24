@@ -9,11 +9,13 @@ import { PolicyService } from "@/common/policy/policy.service"
 import {
 	expiryReason,
 	IN_FLIGHT_PAYMENT_STATUSES,
+	PAYMENT_DEFERRAL_MAX_HOURS,
 	PAYMENT_IN_FLIGHT_MINUTES,
 } from "@/modules/v1/bookings/booking-expiry"
 import { BookingService } from "@/modules/v1/bookings/bookings.service"
 
 const MS_PER_MINUTE = 60_000
+const MS_PER_HOUR = 60 * MS_PER_MINUTE
 
 /** The most Bookings one run cancels; the rest wait for the next minute. */
 const BATCH_SIZE = 100
@@ -32,7 +34,7 @@ export interface BookingExpiryResult {
  * Every minute, in one transaction, it picks `pending_payment` Bookings whose
  * hold has passed (online only) or whose earliest slot starts within
  * `booking.arrival_cutoff_minutes`, skipping any with a Payment still in
- * flight. The rows are taken `FOR UPDATE SKIP LOCKED`, so a second run at the
+ * flight (PAY-6 deferral rule: see `PAYMENT_IN_FLIGHT_MINUTES`). The rows are taken `FOR UPDATE SKIP LOCKED`, so a second run at the
  * same time (another instance, or an overlapping tick) skips them instead of
  * cancelling them again. Each Booking is cancelled through
  * `BookingService.cancel` in its own savepoint, so one bad row does not undo
@@ -74,6 +76,9 @@ export class BookingExpiryService {
 		const inFlightSinceIso = new Date(
 			now.getTime() - PAYMENT_IN_FLIGHT_MINUTES * MS_PER_MINUTE
 		).toISOString()
+		const deferralLimitIso = new Date(
+			now.getTime() - PAYMENT_DEFERRAL_MAX_HOURS * MS_PER_HOUR
+		).toISOString()
 		const inFlightStatuses = sql.join(
 			IN_FLIGHT_PAYMENT_STATUSES.map(status => sql`${status}`),
 			sql`, `
@@ -81,7 +86,7 @@ export class BookingExpiryService {
 
 		const holdExpiredSql = sql<boolean>`(${bookings.payOnsite} = false and ${bookings.holdExpiresAt} is not null and ${bookings.holdExpiresAt} <= ${nowIso})`
 		const pastArrivalCutoffSql = sql<boolean>`exists (select 1 from ${bookingItems} inner join ${scheduleSlots} on ${scheduleSlots.id} = ${bookingItems.scheduleSlotId} where ${bookingItems.bookingId} = ${bookings.id} and ${scheduleSlots.startsAt} <= ${cutoffIso})`
-		const paymentInFlight = sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${bookings.id} and ${payments.status} in (${inFlightStatuses}) and ${payments.createdAt} > ${inFlightSinceIso})`
+		const paymentInFlight = sql<boolean>`exists (select 1 from ${payments} where ${payments.bookingId} = ${bookings.id} and ${payments.status} in (${inFlightStatuses}) and ${payments.updatedAt} > ${inFlightSinceIso} and ${payments.createdAt} > ${deferralLimitIso})`
 
 		return db.transaction(async tx => {
 			const due = await tx

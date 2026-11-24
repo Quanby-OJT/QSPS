@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common"
 import { createHash } from "node:crypto"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, isNotNull, lte, ne } from "drizzle-orm"
 
 import type {
 	CollectOnsiteInput,
@@ -10,6 +10,7 @@ import type {
 	PaymentCheckout,
 	PaymentStatus,
 	PaymentStatusResponse,
+	ResolvePaymentReviewInput,
 } from "@repo/contracts"
 import {
 	bookingItems,
@@ -18,6 +19,7 @@ import {
 	paymentEvents,
 	payments,
 	receipts,
+	refundRequests,
 	services,
 	users,
 } from "@repo/db/schema"
@@ -27,6 +29,7 @@ import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { env } from "@/config/env.config"
 
+import { PAYMENT_REQUERY_MINUTES } from "../bookings/booking-expiry"
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { chargeFor } from "./convenience-fee"
 import { PaymentChannelService } from "./payment-channels.service"
@@ -48,6 +51,22 @@ export type NotificationOutcome =
 	| "ignored"
 	| "invalid_signature"
 	| "unknown_provider"
+
+/** What one run of the re-query job did (PAY-6). */
+export interface ReconcileResult {
+	/** Asked the provider. */
+	checked: number
+	/** The provider said paid; confirmed through `confirm`. */
+	confirmed: number
+	/** The provider said failed or expired. */
+	closed: number
+	/** Still pending at the provider; asked again next interval. */
+	stillPending: number
+	/** Paid, but for a different amount: left alone and alerted. */
+	amountMismatch: number
+	/** The provider could not be asked (unknown code, network error). */
+	failed: number
+}
 
 export interface ConfirmResult {
 	/** True when an earlier notification already confirmed this payment. */
@@ -458,72 +477,101 @@ export class PaymentService {
 		)
 		const needsReview = !bookingPaid
 
+		// PAY-6: why it needs review. A Booking another Payment already paid
+		// makes this one a duplicate: real money, recorded, but no second
+		// receipt. Otherwise the Booking was closed (cancelled, forfeited) before
+		// the money arrived: a late payment, with a receipt as proof.
+		let reviewReason: "duplicate" | "late_payment" | null = null
+		if (needsReview) {
+			const [earlier] = await tx
+				.select({ id: payments.id })
+				.from(payments)
+				.where(
+					and(
+						eq(payments.bookingId, payment.bookingId),
+						eq(payments.status, "succeeded"),
+						ne(payments.id, paymentId)
+					)
+				)
+				.limit(1)
+			reviewReason = earlier ? "duplicate" : "late_payment"
+		}
+
 		await tx
 			.update(payments)
 			.set({ status: "succeeded", needsReview, updatedAt: now })
 			.where(eq(payments.id, paymentId))
 
-		// PAY-2a: the receipt keeps the names as they are right now, so a later
-		// rename of the client, channel or Service never changes a reprint.
-		const [names] = await tx
-			.select({ clientName: users.name, channelName: paymentChannels.name })
-			.from(bookings)
-			.innerJoin(users, eq(users.id, bookings.clientId))
-			.leftJoin(paymentChannels, eq(paymentChannels.code, payment.channelCode))
-			.where(eq(bookings.id, payment.bookingId))
-			.limit(1)
-		if (!names) {
-			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking not found for payment" })
-		}
-		const serviceLines = await tx
-			.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
-			.from(bookingItems)
-			.innerJoin(services, eq(services.id, bookingItems.serviceId))
-			.where(eq(bookingItems.bookingId, payment.bookingId))
-			.orderBy(asc(bookingItems.id))
-		// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
-		// transaction. The unique payment_id makes a second insert a no-op.
-		const [receipt] = await tx
-			.insert(receipts)
-			.values({
-				paymentId,
-				receiptNumber: receiptNumberFor(paymentId, now),
-				verificationToken: newVerificationToken(),
-				clientName: names.clientName,
-				// Payments made before PAY-5 have a channel code with no row; keep the code.
-				// Cashier payments (PAY-4) name the tender instead.
-				channelName:
-					names.channelName ??
-					(payment.providerCode === ONSITE_PROVIDER_CODE
-						? onsiteChannelName(payment.tenderType)
-						: payment.channelCode),
-				serviceLines,
-				issuedAt: now,
-			})
-			.onConflictDoNothing({ target: receipts.paymentId })
-			.returning({ id: receipts.id, receiptNumber: receipts.receiptNumber })
-		if (receipt) {
-			await this.auditService.record(
-				{
-					domain: AUDIT_DOMAIN_PAYMENTS,
-					action: "receipt.issue",
-					actorId: options.actorId,
-					targetType: "receipt",
-					targetId: String(receipt.id),
-					oldValue: null,
-					newValue: { paymentId, receiptNumber: receipt.receiptNumber },
-				},
-				tx
-			)
+		let receipt: { id: number; receiptNumber: string } | undefined
+		if (reviewReason !== "duplicate") {
+			// PAY-2a: the receipt keeps the names as they are right now, so a later
+			// rename of the client, channel or Service never changes a reprint.
+			const [names] = await tx
+				.select({ clientName: users.name, channelName: paymentChannels.name })
+				.from(bookings)
+				.innerJoin(users, eq(users.id, bookings.clientId))
+				.leftJoin(paymentChannels, eq(paymentChannels.code, payment.channelCode))
+				.where(eq(bookings.id, payment.bookingId))
+				.limit(1)
+			if (!names) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Booking not found for payment" })
+			}
+			const serviceLines = await tx
+				.select({ serviceName: services.name, feeCentavos: bookingItems.feeCentavos })
+				.from(bookingItems)
+				.innerJoin(services, eq(services.id, bookingItems.serviceId))
+				.where(eq(bookingItems.bookingId, payment.bookingId))
+				.orderBy(asc(bookingItems.id))
+			// PAY-2: exactly one e-Receipt per succeeded Payment, in this same
+			// transaction. The unique payment_id makes a second insert a no-op.
+			const issued = await tx
+				.insert(receipts)
+				.values({
+					paymentId,
+					receiptNumber: receiptNumberFor(paymentId, now),
+					verificationToken: newVerificationToken(),
+					clientName: names.clientName,
+					// Payments made before PAY-5 have a channel code with no row; keep the code.
+					// Cashier payments (PAY-4) name the tender instead.
+					channelName:
+						names.channelName ??
+						(payment.providerCode === ONSITE_PROVIDER_CODE
+							? onsiteChannelName(payment.tenderType)
+							: payment.channelCode),
+					serviceLines,
+					issuedAt: now,
+				})
+				.onConflictDoNothing({ target: receipts.paymentId })
+				.returning({ id: receipts.id, receiptNumber: receipts.receiptNumber })
+			receipt = issued[0]
+			if (receipt) {
+				await this.auditService.record(
+					{
+						domain: AUDIT_DOMAIN_PAYMENTS,
+						action: "receipt.issue",
+						actorId: options.actorId,
+						targetType: "receipt",
+						targetId: String(receipt.id),
+						oldValue: null,
+						newValue: { paymentId, receiptNumber: receipt.receiptNumber },
+					},
+					tx
+				)
+			}
 		}
 
-		// NTF-1: the client always gets the e-Receipt. The booking QR goes only
-		// with a Booking that actually became paid; late money on a cancelled
-		// (or already paid) Booking gets the review message instead (D7).
+		// NTF-1: the client gets proof of payment. The booking QR goes only with
+		// a Booking that actually became paid; late money on a closed Booking
+		// gets the review message with its receipt (D7), and a duplicate gets
+		// the review message alone (PAY-6). Both say BOQ will contact them.
 		await NotificationService.enqueue(
 			tx,
 			payment.bookingId,
-			bookingPaid ? "payment_received" : "payment_received_review",
+			bookingPaid
+				? "payment_received"
+				: reviewReason === "duplicate"
+					? "payment_duplicate_review"
+					: "payment_received_review",
 			`payment:${paymentId}:succeeded`,
 			{ paymentId }
 		)
@@ -541,6 +589,7 @@ export class PaymentService {
 					bookingId: payment.bookingId,
 					amountCentavos: payment.amountCentavos,
 					needsReview,
+					...(reviewReason ? { reviewReason } : {}),
 				},
 			},
 			tx
@@ -548,7 +597,10 @@ export class PaymentService {
 		await markEventProcessed()
 
 		if (needsReview) {
-			this.alert("paid_unpayable_booking", { paymentId, bookingId: payment.bookingId })
+			this.alert(reviewReason === "duplicate" ? "duplicate_payment" : "paid_unpayable_booking", {
+				paymentId,
+				bookingId: payment.bookingId,
+			})
 		}
 		return { alreadyConfirmed: false, needsReview, receiptNumber: receipt?.receiptNumber ?? null }
 	}
@@ -752,6 +804,230 @@ export class PaymentService {
 	}
 
 	/** A notification that needs a person to look at it. No personal data here. */
+	/**
+	 * The re-query job (PAY-6, Flow C failure branch). For each Payment still
+	 * `pending` and not heard from for `PAYMENT_REQUERY_MINUTES`, ask the
+	 * provider (`queryStatus`) and apply the answer:
+	 *
+	 * - paid, for the right amount → `confirm` (Booking paid, or the Payment
+	 *   flagged for review when the Booking was closed or already paid)
+	 * - failed or expired → the Payment moves there
+	 * - still pending → `updated_at` is touched, so it is asked again after the
+	 *   interval and keeps its Booking from expiring (the deferral rule in
+	 *   `PAYMENT_IN_FLIGHT_MINUTES`)
+	 * - paid for a different amount → nothing changes; alerted for staff
+	 *
+	 * The provider is asked outside any transaction, so a slow gateway holds no
+	 * locks. Every change goes through the same code as a notification would,
+	 * and is audited as a system action (no actor). Oldest-checked first, at
+	 * most `batchSize` a run.
+	 */
+	async reconcilePending(now: Date = new Date(), batchSize = 50): Promise<ReconcileResult> {
+		const dueBefore = new Date(now.getTime() - PAYMENT_REQUERY_MINUTES * 60_000)
+		const due = await db
+			.select({
+				id: payments.id,
+				providerCode: payments.providerCode,
+				providerReference: payments.providerReference,
+				amountCentavos: payments.amountCentavos,
+			})
+			.from(payments)
+			.where(
+				and(
+					eq(payments.status, "pending"),
+					lte(payments.updatedAt, dueBefore),
+					isNotNull(payments.providerReference),
+					// The cashier confirms onsite payments itself; there is no one to ask.
+					ne(payments.providerCode, ONSITE_PROVIDER_CODE)
+				)
+			)
+			.orderBy(asc(payments.updatedAt), asc(payments.id))
+			.limit(batchSize)
+
+		const result: ReconcileResult = {
+			checked: 0,
+			confirmed: 0,
+			closed: 0,
+			stillPending: 0,
+			amountMismatch: 0,
+			failed: 0,
+		}
+
+		for (const payment of due) {
+			const provider = this.providers.find(payment.providerCode)
+			if (!provider || !payment.providerReference) {
+				result.failed++
+				this.alert("requery_unknown_provider", {
+					paymentId: payment.id,
+					providerCode: payment.providerCode,
+				})
+				await this.touchPending(payment.id, now)
+				continue
+			}
+
+			try {
+				const status = await provider.queryStatus(payment.providerReference)
+				result.checked++
+				if (status.status === "succeeded") {
+					if (status.amountCentavos !== payment.amountCentavos) {
+						result.amountMismatch++
+						this.alert("amount_mismatch", {
+							source: "requery",
+							paymentId: payment.id,
+							expectedCentavos: payment.amountCentavos,
+							reportedCentavos: status.amountCentavos,
+						})
+						await this.touchPending(payment.id, now)
+						continue
+					}
+					await this.confirm(payment.id, { actorId: null }, now)
+					result.confirmed++
+				} else if (status.status === "failed" || status.status === "expired") {
+					await this.moveTo(payment.id, status.status, null, now)
+					result.closed++
+				} else {
+					await this.touchPending(payment.id, now)
+					result.stillPending++
+				}
+			} catch (error) {
+				// One unreachable gateway or bad row must not stop the rest.
+				result.failed++
+				this.logger.error({
+					event: "payments.requery.failed",
+					paymentId: payment.id,
+					providerCode: payment.providerCode,
+					error: error instanceof Error ? error.message : String(error),
+				})
+				await this.touchPending(payment.id, now).catch(() => undefined)
+			}
+		}
+		return result
+	}
+
+	/**
+	 * Resolve a payment exception (PAY-6): staff rebooked the client, or opened
+	 * a Refund Request for the money. Recorded on the Payment (who, when, how,
+	 * why) and audited in one transaction; a Payment is resolved once.
+	 *
+	 * Scope and `bookings.all:override` are checked by the caller
+	 * (PaymentExceptionsService and RbacGuard).
+	 */
+	async resolveReview(
+		input: ResolvePaymentReviewInput,
+		actorId: string,
+		now: Date = new Date()
+	): Promise<{ paymentId: number; resolution: ResolvePaymentReviewInput["resolution"]; refundRequestId: number | null }> {
+		return db.transaction(async tx => {
+			const [payment] = await tx
+				.select({
+					id: payments.id,
+					bookingId: payments.bookingId,
+					status: payments.status,
+					needsReview: payments.needsReview,
+					reviewResolution: payments.reviewResolution,
+				})
+				.from(payments)
+				.where(eq(payments.id, input.paymentId))
+				.for("update")
+			if (!payment) {
+				throw new ORPCError("NOT_FOUND", { message: "Payment not found" })
+			}
+			if (payment.status !== "succeeded" || !payment.needsReview) {
+				throw new ORPCError("CONFLICT", { message: "This payment does not need review" })
+			}
+			if (payment.reviewResolution) {
+				throw new ORPCError("CONFLICT", {
+					message: "This payment was already resolved",
+					data: { resolution: payment.reviewResolution },
+				})
+			}
+
+			let rebookedBookingId: number | null = null
+			if (input.resolution === "rebooked") {
+				const reference = input.rebookedReferenceNumber?.trim().toUpperCase() ?? ""
+				const [original] = await tx
+					.select({ clientId: bookings.clientId })
+					.from(bookings)
+					.where(eq(bookings.id, payment.bookingId))
+					.limit(1)
+				const [rebooked] = await tx
+					.select({ id: bookings.id, clientId: bookings.clientId })
+					.from(bookings)
+					.where(eq(bookings.referenceNumber, reference))
+					.limit(1)
+				if (!rebooked || !original || rebooked.clientId !== original.clientId) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Enter the Reference Number of the new booking made for this client",
+					})
+				}
+				if (rebooked.id === payment.bookingId) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "The new booking must be a different booking",
+					})
+				}
+				rebookedBookingId = rebooked.id
+			}
+
+			let refundRequestId: number | null = null
+			if (input.resolution === "refund_requested") {
+				const [request] = await tx
+					.insert(refundRequests)
+					.values({
+						bookingId: payment.bookingId,
+						paymentId: payment.id,
+						kind: "refund",
+						status: "requested",
+						reason: input.note,
+						requestedBy: actorId,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.returning({ id: refundRequests.id })
+				refundRequestId = request?.id ?? null
+			}
+
+			await tx
+				.update(payments)
+				.set({
+					reviewResolution: input.resolution,
+					reviewNote: input.note,
+					rebookedBookingId,
+					reviewedBy: actorId,
+					reviewedAt: now,
+					updatedAt: now,
+				})
+				.where(eq(payments.id, payment.id))
+
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_PAYMENTS,
+					action: "payment.review.resolve",
+					actorId,
+					targetType: "payment",
+					targetId: String(payment.id),
+					oldValue: { needsReview: true, reviewResolution: null },
+					newValue: {
+						reviewResolution: input.resolution,
+						bookingId: payment.bookingId,
+						...(rebookedBookingId !== null ? { rebookedBookingId } : {}),
+						...(refundRequestId !== null ? { refundRequestId } : {}),
+					},
+				},
+				tx
+			)
+
+			return { paymentId: payment.id, resolution: input.resolution, refundRequestId }
+		})
+	}
+
+	/** Still pending at the provider: ask again after the interval (PAY-6). */
+	private async touchPending(paymentId: number, now: Date): Promise<void> {
+		await db
+			.update(payments)
+			.set({ updatedAt: now })
+			.where(and(eq(payments.id, paymentId), eq(payments.status, "pending")))
+	}
+
 	private alert(reason: string, details: Record<string, unknown>): void {
 		this.logger.error({ event: "payments.notification.alert", reason, ...details })
 	}
