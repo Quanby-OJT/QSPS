@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, desc, eq, ilike, inArray, type SQL, sql } from "drizzle-orm"
+import { and, asc, desc, eq, ilike, inArray, sql, type SQL } from "drizzle-orm"
 
 import type {
 	CashierBooking,
@@ -22,10 +22,11 @@ import {
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { denyOutsideScope } from "@/common/scope/scope-denial"
-import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import { NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
 
+import { visibleToCashier } from "./cashier-scope"
 import { PaymentService } from "./payments.service"
-import { type ReceiptLayout, ReceiptService, type RenderedReceipt } from "./receipts.service"
+import { ReceiptService, type ReceiptLayout, type RenderedReceipt } from "./receipts.service"
 
 /**
  * Same rule as `REFERENCE_NUMBER_PATTERN` in @repo/contracts. Kept here
@@ -67,9 +68,10 @@ type ItemRow = CashierBooking["items"][number] & {
  * `PaymentService.collectOnsite`: nothing here edits client data or
  * schedules (Annex A).
  *
- * Scope (ADM-2): a booking is visible when at least one of its Services is in
- * the cashier's Scope (Service Category and Location), which is where the
- * client is standing. Asking for one outside it answers the same 404 as a
+ * Scope (ADM-2): a booking is visible when one of its items is at a Location
+ * the cashier's Scope covers, which is where the client is standing. The
+ * Service Category is not checked: cashiers are scoped to the `cashier`
+ * category (see cashier-scope.ts). Asking for one outside it answers the same 404 as a
  * missing booking, and the denial is audited.
  */
 @Injectable()
@@ -114,7 +116,12 @@ export class CashierService {
 		const rows = await this.bookingRows(condition, SEARCH_LIMIT * 3)
 		const items = await this.itemRows(rows.map(row => row.id))
 		const visible = rows
-			.filter(row => this.visible(items.filter(item => item.bookingId === row.id), scope))
+			.filter(row =>
+				this.visible(
+					items.filter(item => item.bookingId === row.id),
+					scope
+				)
+			)
 			.slice(0, SEARCH_LIMIT)
 
 		return {
@@ -197,9 +204,7 @@ export class CashierService {
 	}
 
 	private visible(items: ItemRow[], scope: ResolvedScope): boolean {
-		return items.some(item =>
-			inScope(scope, { serviceCategoryId: item.serviceCategoryId, locationId: item.locationId })
-		)
+		return visibleToCashier(items, scope)
 	}
 
 	private bookingRows(condition: SQL, limit = 1): Promise<BookingRow[]> {

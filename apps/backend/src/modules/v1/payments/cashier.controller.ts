@@ -18,7 +18,6 @@ import type { Response } from "express"
 import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
-import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 import { IdempotencyInterceptor } from "@/shared/interceptors/idempotency.interceptor"
 
 import { CashierService } from "./cashier.service"
@@ -62,9 +61,9 @@ export class CashierController {
 		)
 	}
 
-	// Idempotent: a double click or a retried request with the same
+	// Normal throttle, not the strict one: several cashier terminals in one office
+	// share an IP. Idempotent: a double click or a retried request with the same
 	// Idempotency-Key replays the first answer instead of creating a second Payment.
-	@StrictThrottle()
 	@RequirePermissions("payments.onsite:collect")
 	@UseInterceptors(IdempotencyInterceptor)
 	@Implement(v1.cashier.collect)
