@@ -24,4 +24,33 @@ export class ReportsController {
 			return this.reportsService.dashboard(input.period, input.date, scope)
 		})
 	}
+
+	@RequirePermissions("reports.transactions:read")
+	@Implement(v1.reports.listTransactions)
+	async listTransactions(@Session() session?: UserSession) {
+		return implement(v1.reports.listTransactions).handler(async ({ input }) => {
+			const scope = await this.scopeService.resolve(session?.user?.id ?? null)
+			return this.reportsService.listTransactions(input, scope)
+		})
+	}
+
+	@RequirePermissions("reports.transactions:read")
+	@Implement(v1.reports.exportTransactions)
+	async exportTransactions(@Session() session?: UserSession) {
+		return implement(v1.reports.exportTransactions).handler(async ({ input }) => {
+			const userId = session?.user?.id ?? ""
+			const scope = await this.scopeService.resolve(userId)
+			return this.reportsService.exportTransactions(input, scope, userId)
+		})
+	}
+
+	@RequirePermissions("reports.transactions:read", "bookings.all:read")
+	@Implement(v1.reports.transactionDetail)
+	async transactionDetail(@Session() session?: UserSession) {
+		return implement(v1.reports.transactionDetail).handler(async ({ input }) => {
+			const userId = session?.user?.id ?? ""
+			const scope = await this.scopeService.resolve(userId)
+			return this.reportsService.transactionDetail(input.id, userId, scope)
+		})
+	}
 }

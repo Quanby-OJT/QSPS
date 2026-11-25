@@ -94,6 +94,7 @@ export class BookingsController {
 		)
 	}
 
+
 	// BKG-2: the client cancels their own unpaid booking, freeing the place.
 	@StrictThrottle()
 	@RequirePermissions("bookings.own:cancel")
@@ -113,6 +114,18 @@ export class BookingsController {
 	async payOnsite(@Session() session?: UserSession) {
 		return implement(v1.bookings.payOnsite).handler(({ input }) =>
 			this.bookingService.choosePayOnsite(input.bookingId, actorId(session))
+		)
+	}
+
+	// BKG-5: move one booked item in a pending_payment or paid booking to another
+	// open slot for the same service and location.
+	@StrictThrottle()
+	@RequirePermissions("bookings.own:reschedule")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.bookings.rescheduleItem)
+	async rescheduleItem(@Session() session?: UserSession) {
+		return implement(v1.bookings.rescheduleItem).handler(({ input }) =>
+			this.bookingService.rescheduleItem(input, actorId(session))
 		)
 	}
 

@@ -1,5 +1,5 @@
-import { defineRelations, sql } from "drizzle-orm"
-import { index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
+import { defineRelations, sql, type SQL } from "drizzle-orm"
+import { check as pgCheck, index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -524,6 +524,10 @@ export const bookingItems = createTable(
 			.integer("schedule_slot_id")
 			.notNull()
 			.references(() => scheduleSlots.id, { onDelete: "restrict" }),
+		rescheduleCount: t
+			.integer("reschedule_count")
+			.notNull()
+			.default(0),	
 		locationId: t
 			.integer("location_id")
 			.notNull()
@@ -551,6 +555,9 @@ export const bookingItems = createTable(
 	t => [
 		index("booking_items_booking_idx").on(t.bookingId),
 		index("booking_items_slot_idx").on(t.scheduleSlotId),
+		index("booking_items_status_idx").on(t.status),
+		check("booking_items_fee_nonnegative_chk").on(sql`${t.feeCentavos} >= 0`),
+		check("booking_items_reschedule_count_nonnegative_chk").on(sql`${t.rescheduleCount} >= 0`),
 	]
 )
 
@@ -1486,3 +1493,9 @@ export const schema = Object.assign(
 	},
 	relations
 )
+function check(arg0: string) {
+	return {
+		on: (expression: SQL) => pgCheck(arg0, expression),
+	}
+}
+

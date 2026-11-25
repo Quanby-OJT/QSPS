@@ -17,10 +17,12 @@ import {
 
 import {
 	accounts,
+	locations,
 	permissions,
 	rolePermissions,
 	roles,
 	schema,
+	userScopes,
 	userRoles,
 	users,
 } from "./schema.js"
@@ -50,6 +52,9 @@ const LEGACY_TEMPLATE_PERMISSIONS = [
 	"users:read-directory",
 	"users:manage",
 ]
+
+const RPT4_SCOPE_TEST_ROLE = "RPT-4 Scope Test Staff"
+const RPT4_SCOPE_TEST_USER_ID = "seed-user-rpt4-scope-staff"
 
 async function hashPassword(password: string): Promise<string> {
 	const saltHex = randomBytes(16).toString("hex")
@@ -115,6 +120,16 @@ async function seedDatabase() {
 			name: "Sam Rivera",
 			email: "sam@qsps.local",
 			emailVerified: false,
+			image: null,
+			createdAt: now,
+			updatedAt: now,
+		},
+		{
+			id: RPT4_SCOPE_TEST_USER_ID,
+			name: "RPT-4 Scope Test Staff",
+			email: "scope-staff@qsps.local",
+			emailVerified: true,
+			accountType: "staff",
 			image: null,
 			createdAt: now,
 			updatedAt: now,
@@ -207,10 +222,11 @@ async function seedDatabase() {
 	}))
 
 	// User id -> role name.
-	const userRoleAssignments: Array<{ userId: string; roleName: RoleName }> = [
+	const userRoleAssignments: Array<{ userId: string; roleName: string }> = [
 		{ userId: "seed-user-admin", roleName: ADMIN_ROLE },
 		{ userId: "seed-user-alex", roleName: "Client" },
 		{ userId: "seed-user-sam", roleName: "Client" },
+		{ userId: RPT4_SCOPE_TEST_USER_ID, roleName: RPT4_SCOPE_TEST_ROLE },
 	]
 
 	let rolePermissionCount = 0
@@ -304,6 +320,24 @@ async function seedDatabase() {
 					})
 			}
 
+			await tx
+				.insert(roles)
+				.values({
+					name: RPT4_SCOPE_TEST_ROLE,
+					description:
+						"Development-only staff role for verifying transaction-monitor Location Scope.",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: roles.name,
+					set: {
+						description:
+							"Development-only staff role for verifying transaction-monitor Location Scope.",
+						updatedAt: now,
+					},
+				})
+
 			for (const permission of seedPermissions) {
 				await tx
 					.insert(permissions)
@@ -330,6 +364,17 @@ async function seedDatabase() {
 				}
 			}
 
+			const rpt4RoleId = roleIdByName.get(RPT4_SCOPE_TEST_ROLE)
+			if (rpt4RoleId !== undefined) {
+				await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, rpt4RoleId))
+				for (const permissionName of ["reports.transactions:read", "bookings.all:read"] as const) {
+					const permissionId = permissionIdByName.get(permissionName)
+					if (permissionId !== undefined) {
+						seedRolePermissions.push({ roleId: rpt4RoleId, permissionId })
+					}
+				}
+			}
+
 			for (const row of seedRolePermissions) {
 				await tx.insert(rolePermissions).values(row).onConflictDoNothing()
 			}
@@ -346,6 +391,26 @@ async function seedDatabase() {
 				await tx.insert(userRoles).values(row).onConflictDoNothing()
 			}
 			userRoleCount = seedUserRoles.length
+
+			const [bacolod] = await tx
+				.select({ id: locations.id })
+				.from(locations)
+				.where(eq(locations.code, "BCD"))
+				.limit(1)
+			if (!bacolod) {
+				throw new Error(
+					"Cannot seed the RPT-4 scoped staff account: expected BOQ Location code BCD (Bacolod)."
+				)
+			}
+
+			await tx.delete(userScopes).where(eq(userScopes.userId, RPT4_SCOPE_TEST_USER_ID))
+			await tx.insert(userScopes).values({
+				userId: RPT4_SCOPE_TEST_USER_ID,
+				serviceCategoryId: null,
+				locationId: bacolod.id,
+				createdAt: now,
+				updatedAt: now,
+			})
 		})
 
 		// The password is printed ONLY when this run generated it AND actually

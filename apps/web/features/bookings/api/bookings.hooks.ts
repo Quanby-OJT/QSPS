@@ -10,6 +10,7 @@ import type {
 	CreateBookingInput,
 	FormUpload,
 	MyBookingsResponse,
+	RescheduleBookingItemInput,
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
@@ -420,4 +421,41 @@ export function useCancelBookingMutation() {
 /** Pay at the BOQ cashier instead of online (BKG-2). */
 export function usePayOnsiteMutation() {
 	return useBookingAction("pay-onsite")
+}
+
+/**
+ * BKG-5: move one booked item in a pending_payment or paid booking to another
+ * open schedule slot for the same service and location.
+ */
+export function useRescheduleBookingItemMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({
+			idempotencyKey,
+			bookingId,
+			bookingItemId,
+			scheduleSlotId,
+		}: RescheduleBookingItemInput & { idempotencyKey: string }): Promise<Booking> => {
+			const response = await fetch(
+				`${API_BASE}/bookings/${bookingId}/items/${bookingItemId}/reschedule`,
+				{
+					method: "POST",
+					credentials: "include",
+					headers: {
+						"Content-Type": "application/json",
+						"Idempotency-Key": idempotencyKey,
+					},
+					body: JSON.stringify({ scheduleSlotId }),
+				}
+			)
+			if (!response.ok) throw await readError(response)
+			return toBooking((await response.json()) as BookingJson)
+		},
+		onSuccess: updated => {
+			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
+			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: MY_BOOKINGS_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: bookingDetailQueryKey(updated.id) })
+		},
+	})
 }

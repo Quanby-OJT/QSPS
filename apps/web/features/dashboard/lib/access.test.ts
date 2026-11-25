@@ -301,6 +301,7 @@ describe("navItems", () => {
 			"Schedules",
 			"Payment Channels",
 			"Policies",
+			"Transaction monitor",
 			"Audit log",
 		])
 
@@ -318,6 +319,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
 		expect(getDashboardRouteTitle("/payment-channels")).toBe("Payment Channels")
+		expect(getDashboardRouteTitle("/transaction-monitor")).toBe("Transaction monitor")
 		expect(getDashboardRouteTitle("/audit-log")).toBe("Audit log")
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
