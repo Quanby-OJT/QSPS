@@ -71,8 +71,9 @@ describe("issuing a human remains or biological document (CRT-7)", () => {
 		)
 	})
 
-	it("refuses a request with none, or with two kinds of details", () => {
-		expect(IssueDocumentSchema.safeParse({ bookingItemId: 7 }).success).toBe(false)
+	it("refuses a request with two kinds of details", () => {
+		// CRT-9: no details is valid at the schema level (the PE certificate needs none); DocumentService refuses it for types that need details.
+		expect(IssueDocumentSchema.safeParse({ bookingItemId: 7 }).success).toBe(true)
 		expect(
 			IssueDocumentSchema.safeParse({
 				bookingItemId: 7,
