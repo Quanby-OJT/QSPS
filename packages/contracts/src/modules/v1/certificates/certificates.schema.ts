@@ -14,6 +14,7 @@ const dateField = z
  * Certificate; CRT-7 to CRT-10 add the rest.
  */
 export const DOCUMENT_TYPES = [
+	"pe-medical-certificate",
 	"icv-record",
 	"medical-exemption",
 	"sanitary-permit",
@@ -34,6 +35,7 @@ export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
  * HACCP certificates (CRT-6) by food safety Services.
  */
 export const SERVICE_DOCUMENT_TYPES = [
+	"pe-medical-certificate",
 	"icv-record",
 	"sanitary-permit",
 	"ship-sanitation",
@@ -225,7 +227,7 @@ export const IssueDocumentSchema = z
 			value.biologicalCertification,
 			value.biologicalPermit,
 		]
-		if (given.filter(entry => entry !== null).length === 1) return
+		if (given.filter(entry => entry !== null).length <= 1) return
 		// Keep the CRT-3 wording when no sanitation or food safety details are involved.
 		const vaccinationOnly =
 			value.sanitaryPermit === null &&

@@ -20,6 +20,8 @@ import {
 } from "@/features/processing/api/processing.hooks"
 import { pendingRequiredSteps } from "@/features/processing/lib/labels"
 
+import { PeReleaseControls } from "./pe-release-controls"
+
 function newKey(): string {
 	return crypto.randomUUID()
 }
@@ -42,7 +44,15 @@ function recordedAtLabel(value: Date | string): string {
  * first one starts the assessment) and can correct it while it is in assessment;
  * a correction is saved as the next version and the earlier one is kept.
  */
-export function StepsPanel({ item, canRecord }: { item: ProcessingItem; canRecord: boolean }) {
+export function StepsPanel({
+	item,
+	canRecord,
+	canRelease = false,
+}: {
+	item: ProcessingItem
+	canRecord: boolean
+	canRelease?: boolean
+}) {
 	const steps = item.steps ?? []
 	const pending = pendingRequiredSteps(steps)
 	const requiredCount = steps.filter(step => step.required).length
@@ -70,6 +80,10 @@ export function StepsPanel({ item, canRecord }: { item: ProcessingItem; canRecor
 					/>
 				))}
 			</ol>
+			{canRelease && item.service.documentType === "pe-medical-certificate" &&
+				requiredCount === 3 && pending.length === 0 ? (
+					<PeReleaseControls itemId={item.bookingItemId} />
+				) : null}
 		</div>
 	)
 }

@@ -14,6 +14,8 @@ import { toast } from "sonner"
 
 import type { BookingDetail } from "@repo/contracts"
 
+import { PeResultsDownload } from "@/features/bookings/components/pe-results-download"
+
 import { Badge } from "@/core/components/ui/badge"
 import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
@@ -271,6 +273,7 @@ export function BookingDetailContent({
 								<p className="text-muted-foreground text-xs">
 									{slotDetail(item.locationName, item)}
 								</p>
+								{item.serviceName === "Physical Examination" ? <PeResultsDownload itemId={item.id} /> : null}
 							</div>
 							<p className="text-sm font-semibold tabular-nums">₱{feeInPesos(item.feeCentavos)}</p>
 						</div>

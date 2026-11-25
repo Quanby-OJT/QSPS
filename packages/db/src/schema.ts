@@ -1192,6 +1192,7 @@ export const stepResults = createTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "restrict" }),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		releasedAt: t.timestamp("released_at"),
 	}),
 	t => [
 		uniqueIndex("step_results_item_step_version_uq").on(

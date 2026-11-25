@@ -294,6 +294,9 @@ export class ProcessingService {
 	): Promise<ProcessingItem> {
 		const staffId = requireActor(actorId)
 		await this.requireItemInScope(input.bookingItemId, staffId, "assessment.create", scope)
+		if (input.outcome === "cleared") {
+			await this.documentService.assertPeClearancePermission(input.bookingItemId, staffId)
+		}
 
 		await db.transaction(async tx => {
 			// PRC-4: an item stays in_assessment until every required step has a
@@ -480,6 +483,9 @@ export class ProcessingService {
 		}
 
 		const to = input.decision === "approve" ? "cleared" : "in_assessment"
+		if (to === "cleared") {
+			await this.documentService.assertPeClearancePermission(input.bookingItemId, approverId)
+		}
 		const outcome = input.decision === "approve" ? "cleared" : "returned"
 		const notes = input.notes.length > 0 ? input.notes : null
 
@@ -540,6 +546,7 @@ export class ProcessingService {
 			requireStation: false,
 		})
 
+		await this.documentService.assertPeClearancePermission(input.bookingItemId, approverId)
 		await db.transaction(async tx => {
 			// PRC-4 (Sir Sean, 24 Nov): an override does not waive required steps.
 			await this.requireStepsDone(tx, input.bookingItemId, "overriding")

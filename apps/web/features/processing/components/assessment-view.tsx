@@ -108,6 +108,7 @@ export function AssessmentView({
 	bookingItemId,
 	canApprove = false,
 	canIssue = false,
+	canRelease = false,
 	canPrint = false,
 	canRevoke = false,
 }: {
@@ -116,6 +117,7 @@ export function AssessmentView({
 	canApprove?: boolean
 	/** CRT-3: the caller holds certificates.documents:issue. */
 	canIssue?: boolean
+	canRelease?: boolean
 	/** CRT-3: the caller holds certificates.documents:print. */
 	canPrint?: boolean
 	/** CRT-8: the caller holds certificates.documents:revoke. */
@@ -152,6 +154,7 @@ export function AssessmentView({
 					item={item.data}
 					canApprove={canApprove}
 					canIssue={canIssue}
+					canRelease={canRelease}
 					canPrint={canPrint}
 					canRevoke={canRevoke}
 				/>
@@ -164,12 +167,14 @@ function AssessmentBody({
 	item,
 	canApprove,
 	canIssue,
+	canRelease,
 	canPrint,
 	canRevoke,
 }: {
 	item: ProcessingItem
 	canApprove: boolean
 	canIssue: boolean
+	canRelease: boolean
 	canPrint: boolean
 	canRevoke: boolean
 }) {
@@ -270,6 +275,7 @@ function AssessmentBody({
 				{(item.steps ?? []).length > 0 ? (
 					<StepsPanel
 						item={item}
+						canRelease={canRelease}
 						canRecord={item.status === "in_assessment" || item.status === "checked_in"}
 					/>
 				) : null}
@@ -372,7 +378,9 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 
 	const needsNote = outcome !== "cleared"
 	const noteMissing = needsNote && notes.trim().length === 0
-	const needsCertificate = outcome === "cleared" && issuesOnClear(item)
+	const issuesCertificate = outcome === "cleared" && issuesOnClear(item)
+	const needsCertificate =
+		issuesCertificate && item.service.documentType !== "pe-medical-certificate"
 	// CRT-3: an exempt client gets a Medical Exemption Certificate instead.
 	const allowExemption = allowsExemption(item.service.documentType)
 	const exempt = needsCertificate && allowExemption && documentForm.mode === "exempt"

@@ -7,11 +7,14 @@ import {
 	formTemplates,
 	serviceSteps,
 	stepResults,
+	services,
 	users,
 } from "@repo/db/schema"
 
 import type { db } from "@/common/database/database.client"
 import { displayAnswer } from "@/modules/v1/forms/form-answers-display"
+
+import { decryptPeAnswers, PE_SERVICE_CODE } from "./pe-results"
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 /** The database, or the transaction a caller is in. */
@@ -119,11 +122,14 @@ export async function itemSteps(
 			formTemplateId: stepResults.formTemplateId,
 			version: stepResults.version,
 			answers: stepResults.answers,
+			serviceCode: services.code,
 			recordedById: stepResults.recordedBy,
 			recordedByName: users.name,
 			createdAt: stepResults.createdAt,
 		})
 		.from(stepResults)
+		.innerJoin(bookingItems, eq(bookingItems.id, stepResults.bookingItemId))
+		.innerJoin(services, eq(services.id, bookingItems.serviceId))
 		.innerJoin(users, eq(users.id, stepResults.recordedBy))
 		.where(eq(stepResults.bookingItemId, bookingItemId))
 		.orderBy(desc(stepResults.version))
@@ -163,15 +169,21 @@ export async function itemSteps(
 	return ordered.map((step): ItemStep => {
 		const versions: StepResult[] = results
 			.filter(result => result.serviceStepId === step.id)
-			.map(result => ({
-				id: result.id,
-				version: result.version,
-				formTemplateId: result.formTemplateId,
-				answers: readableStepAnswers(fields.get(result.formTemplateId) ?? [], result.answers),
-				values: result.answers as FormAnswers,
-				recordedBy: { id: result.recordedById, name: result.recordedByName },
-				recordedAt: result.createdAt,
-			}))
+			.map((result): StepResult => {
+				const values = result.serviceCode === PE_SERVICE_CODE
+					? decryptPeAnswers(result.answers, { ...result, bookingItemId })
+					: result.answers
+
+				return {
+					id: result.id,
+					version: result.version,
+					formTemplateId: result.formTemplateId,
+					answers: readableStepAnswers(fields.get(result.formTemplateId) ?? [], values),
+					values: values as FormAnswers,
+					recordedBy: { id: result.recordedById, name: result.recordedByName },
+					recordedAt: result.createdAt,
+				}
+			})
 		const form = step.isActive ? forms.get(step.id) : undefined
 		return {
 			stepId: step.id,

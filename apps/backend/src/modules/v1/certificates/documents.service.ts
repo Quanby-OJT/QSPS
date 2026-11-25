@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common"
 import { timingSafeEqual } from "node:crypto"
 import { ORPCError } from "@orpc/server"
 import { and, desc, eq, sql, type SQL } from "drizzle-orm"
@@ -35,15 +35,24 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { PdfService } from "@/common/pdf/pdf.service"
+import type { RbacService } from "@/common/rbac/rbac.service"
 import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import type { ScopeService } from "@/common/scope/scope.service"
 import { env } from "@/config/env.config"
 import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { newVerificationToken } from "../payments/receipt-number"
+import {
+	isPeItem,
+	PE_DOCUMENT_TYPE,
+	PE_SERVICE_CODE,
+	peEvaluation,
+} from "../processing/steps/pe-results"
 import { hasExpired } from "./document-expiry"
 import { formatDocumentNumber } from "./document-number"
 import type { PdfExtras, RenderableDocumentType } from "./document-types/document-type"
+import { peMedicalCertificate } from "./document-types/pe-medical-certificate"
 import { MissingAnswerError } from "./document-types/questionnaire-answers"
 import {
 	biologicalCertification,
@@ -61,6 +70,7 @@ import {
 } from "./document-types/registry"
 import { holderNameOf, maskName } from "./mask-name"
 import { openPayload, parsePayloadKey, payloadAad, sealPayload } from "./payload-cipher"
+import { PE_RBAC, PE_SCOPE } from "./pe-access.tokens"
 
 const AUDIT_DOMAIN_CERTIFICATES = "certificates"
 
@@ -226,8 +236,30 @@ export class DocumentService {
 	constructor(
 		private readonly auditService: AuditService,
 		private readonly bookingService: BookingService,
-		private readonly pdfService: PdfService
+		private readonly pdfService: PdfService,
+		@Optional() @Inject(PE_RBAC) private readonly peRbac?: RbacService,
+		@Optional() @Inject(PE_SCOPE) private readonly peScope?: ScopeService
 	) {}
+
+	async assertPeClearancePermission(bookingItemId: number, actorId: string): Promise<void> {
+		if (!(await isPeItem(db, bookingItemId))) return
+
+		const required = ["processing.assessments:perform", "certificates.documents:issue"]
+		const missing = this.peRbac
+			? await this.peRbac.getMissingPermissions(actorId, required)
+			: required
+		if (missing.length === 0) return
+
+		await this.peRbac?.recordPermissionDenial({
+			actorId,
+			route: "DocumentService.assertPeClearancePermission",
+			requiredPermissions: required,
+			missingPermissions: missing,
+		})
+		throw new ORPCError("FORBIDDEN", {
+			message: "You do not have permission to issue a Physical Examination certificate",
+		})
+	}
 
 	/**
 	 * Issue the document for one cleared Booking Item, in the caller's
@@ -270,6 +302,7 @@ export class DocumentService {
 		const [context] = await tx
 			.select({
 				documentType: services.documentType,
+				serviceCode: services.code,
 				serviceName: services.name,
 				locationCode: locations.code,
 				locationName: locations.name,
@@ -318,7 +351,33 @@ export class DocumentService {
 		let type: RenderableDocumentType
 		let payload: Record<string, unknown>
 		let validUntil: string | null
-		if (request.exemption) {
+		if (context.serviceCode === PE_SERVICE_CODE || serviceType.type === PE_DOCUMENT_TYPE) {
+			if (context.serviceCode !== PE_SERVICE_CODE || serviceType.type !== PE_DOCUMENT_TYPE) {
+				throw new ORPCError("CONFLICT", {
+					message: "The Physical Examination Service and document type do not match",
+				})
+			}
+			if (
+				request.details ||
+				request.exemption ||
+				request.sanitaryPermit ||
+				request.shipSanitation ||
+				request.haccp
+			) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "The Physical Examination certificate uses the recorded evaluation",
+				})
+			}
+			const evaluation = await peEvaluation(tx, item.id)
+			if (evaluation.outcome !== "Fit") {
+				throw new ORPCError("CONFLICT", {
+					message: "Only a Fit evaluation can receive a medical certificate",
+				})
+			}
+			type = peMedicalCertificate
+			payload = peMedicalCertificate.buildPayload(issueContext, undefined)
+			validUntil = peMedicalCertificate.validUntil(undefined)
+		} else if (request.exemption) {
 			if (!isVaccinationType(serviceType.type)) {
 				throw new ORPCError("CONFLICT", {
 					message: `A medical exemption applies only to a vaccination; ${context.serviceName} is not one`,
@@ -490,11 +549,23 @@ export class DocumentService {
 	 */
 	async issueOnClearance(tx: Transaction, request: IssueRequest): Promise<IssueResult | null> {
 		const [service] = await tx
-			.select({ autoIssue: services.autoIssue, documentType: services.documentType })
+			.select({
+				autoIssue: services.autoIssue,
+				documentType: services.documentType,
+				code: services.code,
+			})
 			.from(bookingItems)
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, request.bookingItemId))
 			.limit(1)
+		if (service?.code === PE_SERVICE_CODE) {
+			if (!service.autoIssue || service.documentType !== PE_DOCUMENT_TYPE) {
+				throw new ORPCError("CONFLICT", {
+					message: "Enable the medical certificate for Physical Examination before clearing",
+				})
+			}
+			return this.issue(tx, request)
+		}
 		// Only the vaccination record is issued on clearance (CRT-5): the sanitation
 		// documents need validity dates (and findings) that clearing cannot carry,
 		// so staff issue them afterwards even if an admin switches auto-issue on.
@@ -532,26 +603,44 @@ export class DocumentService {
 		}
 
 		const [item] = await db
-			.select({ id: bookingItems.id, locationId: bookingItems.locationId })
+			.select({
+				id: bookingItems.id,
+				locationId: bookingItems.locationId,
+				serviceCategoryId: services.serviceCategoryId,
+				serviceCode: services.code,
+			})
 			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, input.bookingItemId))
 			.limit(1)
 		if (!item) {
 			throw new ORPCError("NOT_FOUND", { message: "Booking item not found at your location" })
 		}
 
-		const locationId = await this.staffLocationId(actorId)
-		if (locationId !== item.locationId) {
-			await this.auditService.record({
-				domain: AUDIT_DOMAIN_CERTIFICATES,
-				action: "document.issue",
-				outcome: "denied",
-				actorId,
-				targetType: "booking_item",
-				targetId: String(item.id),
-				reason: locationId === null ? "no_location" : "outside_scope",
+		if (item.serviceCode === PE_SERVICE_CODE) {
+			if (!this.peScope) {
+				throw new ORPCError("NOT_FOUND", { message: "Booking item not found" })
+			}
+			await this.peScope.assert(actorId, item, {
+				type: "booking_item",
+				id: item.id,
+				notFoundMessage: "Booking item not found",
 			})
-			throw new ORPCError("NOT_FOUND", { message: "Booking item not found at your location" })
+			await this.assertPeClearancePermission(item.id, actorId)
+		} else {
+			const locationId = await this.staffLocationId(actorId)
+			if (locationId !== item.locationId) {
+				await this.auditService.record({
+					domain: AUDIT_DOMAIN_CERTIFICATES,
+					action: "document.issue",
+					outcome: "denied",
+					actorId,
+					targetType: "booking_item",
+					targetId: String(item.id),
+					reason: locationId === null ? "no_location" : "outside_scope",
+				})
+				throw new ORPCError("NOT_FOUND", { message: "Booking item not found at your location" })
+			}
 		}
 
 		const result = await db.transaction(tx =>

@@ -8,6 +8,7 @@ import { BookingsModule } from "../bookings/bookings.module"
 import { CertificatesModule } from "../certificates/certificates.module"
 import { ProcessingController } from "./processing.controller"
 import { ProcessingService } from "./processing.service"
+import { PeResultsController } from "./steps/pe-results.controller"
 import { ServiceStepsService } from "./steps/service-steps.service"
 import { StepResultsService } from "./steps/step-results.service"
 import { StepsController } from "./steps/steps.controller"
@@ -17,7 +18,7 @@ import { StepsController } from "./steps/steps.controller"
 	// documents are issued on clearance through DocumentService (CRT-1).
 	// PRC-4: Service Steps and their results, with a printable result (PdfModule).
 	imports: [StorageModule, BookingsModule, CertificatesModule, ScopeModule, PdfModule],
-	controllers: [ProcessingController, StepsController],
+	controllers: [ProcessingController, StepsController, PeResultsController],
 	providers: [ProcessingService, ServiceStepsService, StepResultsService],
 })
 export class ProcessingModule {}

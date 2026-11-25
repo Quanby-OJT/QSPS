@@ -8,6 +8,7 @@ import {
 } from "./item-steps"
 
 jest.mock("@/common/database/database.client", () => ({ db: {} }))
+jest.mock("@orpc/server", () => ({ ORPCError: Error }))
 
 /** A query that resolves to `rows` however it is chained. */
 function query(rows: unknown[]) {

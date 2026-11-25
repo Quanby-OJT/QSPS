@@ -100,14 +100,17 @@ describe("ProcessingService", () => {
 		transitionItem: jest.Mock
 		overrideItem: jest.Mock
 	}
-	let documentService: { issueOnClearance: jest.Mock }
+	let documentService: { issueOnClearance: jest.Mock; assertPeClearancePermission: jest.Mock }
 	const tx = { insert: jest.fn() }
 
 	beforeEach(() => {
 		jest.clearAllMocks()
 		auditService = { record: jest.fn().mockResolvedValue(undefined) }
 		bookingService = { checkInItems: jest.fn(), transitionItem: jest.fn(), overrideItem: jest.fn() }
-		documentService = { issueOnClearance: jest.fn().mockResolvedValue(null) }
+		documentService = {
+			issueOnClearance: jest.fn().mockResolvedValue(null),
+			assertPeClearancePermission: jest.fn().mockResolvedValue(undefined),
+		}
 		jest.mocked(db.transaction).mockImplementation(callback => callback(tx as never) as never)
 		processingService = new ProcessingService(
 			bookingService as unknown as BookingService,

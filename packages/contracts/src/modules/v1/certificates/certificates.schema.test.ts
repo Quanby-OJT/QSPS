@@ -137,7 +137,7 @@ describe("certificate schemas", () => {
 			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44, details, exemption }).success).toBe(
 				false
 			)
-			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44 }).success).toBe(false)
+			expect(IssueDocumentSchema.safeParse({ bookingItemId: 44 }).success).toBe(true)
 		})
 
 		it("is never a type a Service can be set to issue", () => {
