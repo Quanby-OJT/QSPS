@@ -6,6 +6,7 @@ import Link from "next/link"
 import { toast } from "sonner"
 
 import type {
+	BiologicalPermitDetails,
 	HaccpDetails,
 	IcvIssueDetails,
 	MedicalExemptionDetails,
@@ -27,10 +28,12 @@ import {
 	useRevokeDocumentMutation,
 } from "@/features/processing/api/processing.hooks"
 import {
+	confirmationDocumentType,
 	documentTypeLabel,
 	isSeminarService,
 	printCountLabel,
 	validityDocumentType,
+	type ConfirmationDocumentType,
 	type ValidityDocumentType,
 } from "@/features/processing/lib/labels"
 import { manilaDateKey } from "@/features/schedules/lib/calendar"
@@ -143,6 +146,10 @@ export function useSanitationForm() {
 		return { validFrom: fields.validFrom, validUntil: fields.validUntil }
 	}
 
+	function biologicalPermit(): BiologicalPermitDetails {
+		return { validFrom: fields.validFrom, validUntil: fields.validUntil }
+	}
+
 	function shipSanitation(): ShipSanitationDetails {
 		return {
 			findings: fields.findings.trim(),
@@ -159,6 +166,7 @@ export function useSanitationForm() {
 		sanitaryPermit,
 		shipSanitation,
 		haccp,
+		biologicalPermit,
 	}
 }
 
@@ -345,12 +353,15 @@ const VALIDITY_TITLES: Record<ValidityDocumentType, string> = {
 	"sanitary-permit": "Sanitary Permit",
 	"ship-sanitation": "Ship Sanitation Certificate",
 	"haccp": "HACCP Certificate",
+	"biological-permit": "Biological Substance Permit",
 }
 
 const VALIDITY_SOURCES: Record<ValidityDocumentType, string> = {
 	"sanitary-permit": "The establishment details come from the client's application form.",
 	"ship-sanitation": "The vessel details come from the client's application form.",
 	"haccp": "The establishment details come from the client's application form.",
+	"biological-permit":
+		"The substance, quantity, origin and destination come from the client's application form.",
 }
 
 /**
@@ -413,6 +424,29 @@ export function SanitationFields({
 					<p className="text-muted-foreground text-xs">The last day it is valid.</p>
 				</div>
 			</div>
+		</fieldset>
+	)
+}
+
+const CONFIRMATION_SOURCES: Record<ConfirmationDocumentType, string> = {
+	"human-remains":
+		"The deceased, the consignee and the transport details come from the client's application form.",
+	"biological-certification":
+		"The substance, quantity, origin and destination come from the client's application form.",
+}
+
+/**
+ * CRT-7: the Human Remains Certificate and the Biological Substance Certification
+ * have nothing to type. Staff see where the details come from and issue.
+ */
+export function ConfirmationFields({ kind }: { kind: ConfirmationDocumentType }) {
+	return (
+		<fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+			<legend className="px-1 text-sm font-medium">{documentTypeLabel(kind)}</legend>
+			<p className="text-muted-foreground text-xs">
+				{CONFIRMATION_SOURCES[kind]} There is nothing to enter here. The details are stored
+				encrypted.
+			</p>
 		</fieldset>
 	)
 }
@@ -509,21 +543,31 @@ export function IssueDocumentPanel({
 	const sanitationForm = useSanitationForm()
 	// CRT-5, CRT-6: these Services issue a permit or a certificate with a validity period, not the vaccination record.
 	const sanitation = validityDocumentType(item.service.documentType)
+	// CRT-7: human remains and biological certification Services issue from the answers, with nothing typed.
+	const confirmation = confirmationDocumentType(item.service.documentType)
 	// One key per issue, so a double click issues one document, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
-	const exempt = !sanitation && allowExemption && form.mode === "exempt"
-	const missing = sanitation ? sanitationForm.missing(sanitation) : form.missing
+	const exempt = !sanitation && !confirmation && allowExemption && form.mode === "exempt"
+	const missing = sanitation
+		? sanitationForm.missing(sanitation)
+		: confirmation
+			? false
+			: form.missing
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
 		if (missing) return
 		try {
 			const document = await issue.mutateAsync({
-				details: sanitation || exempt ? null : form.details(),
+				details: sanitation || confirmation || exempt ? null : form.details(),
 				exemption: exempt ? form.exemptionDetails() : null,
 				sanitaryPermit: sanitation === "sanitary-permit" ? sanitationForm.sanitaryPermit() : null,
 				shipSanitation: sanitation === "ship-sanitation" ? sanitationForm.shipSanitation() : null,
 				haccp: sanitation === "haccp" ? sanitationForm.haccp() : null,
+				humanRemains: confirmation === "human-remains" ? {} : null,
+				biologicalCertification: confirmation === "biological-certification" ? {} : null,
+				biologicalPermit:
+					sanitation === "biological-permit" ? sanitationForm.biologicalPermit() : null,
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
@@ -561,6 +605,8 @@ export function IssueDocumentPanel({
 			<h2 className="font-semibold">Issue document</h2>
 			{sanitation ? (
 				<SanitationFields form={sanitationForm} kind={sanitation} idPrefix="issue" />
+			) : confirmation ? (
+				<ConfirmationFields kind={confirmation} />
 			) : (
 				<DocumentDetailsFields
 					form={form}
@@ -576,9 +622,11 @@ export function IssueDocumentPanel({
 						? sanitation === "haccp"
 							? "Issue HACCP certificate"
 							: `Issue ${documentTypeLabel(sanitation).toLowerCase()}`
-						: exempt
-							? "Issue exemption certificate"
-							: "Issue certificate"}
+						: confirmation
+							? `Issue ${documentTypeLabel(confirmation).toLowerCase()}`
+							: exempt
+								? "Issue exemption certificate"
+								: "Issue certificate"}
 			</Button>
 		</form>
 	)

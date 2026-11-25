@@ -20,6 +20,9 @@ export const DOCUMENT_TYPES = [
 	"ship-sanitation",
 	"food-safety-training",
 	"haccp",
+	"human-remains",
+	"biological-certification",
+	"biological-permit",
 ] as const
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
 
@@ -36,6 +39,9 @@ export const SERVICE_DOCUMENT_TYPES = [
 	"ship-sanitation",
 	"food-safety-training",
 	"haccp",
+	"human-remains",
+	"biological-certification",
+	"biological-permit",
 ] as const
 
 /** The document types that exempt a client from a vaccine (CRT-3). */
@@ -157,13 +163,42 @@ export const HaccpDetailsSchema = z
 	})
 
 /**
+ * What staff type when a Human Remains Certificate is issued (CRT-7, TOR §VIII.3):
+ * nothing. The deceased, the consignee and the transport are copied from the
+ * client's questionnaire answers. The empty object says "issue this document
+ * from the answers", and anything typed in is refused.
+ */
+export const HumanRemainsDetailsSchema = z.strictObject({})
+
+/** Same for a Biological Substance Certification (CRT-7): the answers are the whole content. */
+export const BiologicalCertificationDetailsSchema = z.strictObject({})
+
+/**
+ * What staff type when a Biological Substance Permit is issued (CRT-7): only the
+ * validity. The substance, quantity, origin and destination come from the
+ * client's answers. An end date is required, as for a Sanitary Permit: the
+ * public verification page shows the permit as expired the day after it.
+ */
+export const BiologicalPermitDetailsSchema = z
+	.object({
+		validFrom: BusinessDateSchema,
+		validUntil: BusinessDateSchema,
+	})
+	.refine(value => value.validUntil >= value.validFrom, {
+		message: "Valid until cannot be before valid from",
+		path: ["validUntil"],
+	})
+
+/**
  * Staff issue a document for a cleared Booking Item (services with auto-issue
  * off, or after head approval). Give exactly one of: `details` for the
  * vaccination record, `exemption` for a Medical Exemption Certificate (CRT-3),
  * `sanitaryPermit` for a Sanitary Permit or `shipSanitation` for a Ship
  * Sanitation Certificate (CRT-5), or `haccp` for a HACCP Certificate (CRT-6).
  * A Food Safety Training Certificate takes no details: it is issued for a
- * whole seminar session from its roster.
+ * whole seminar session from its roster. CRT-7 adds `humanRemains` and
+ * `biologicalCertification` (an empty object: everything comes from the client's
+ * answers) and `biologicalPermit` (its validity).
  */
 export const IssueDocumentSchema = z
 	.object({
@@ -173,6 +208,11 @@ export const IssueDocumentSchema = z
 		sanitaryPermit: SanitaryPermitDetailsSchema.nullish().transform(value => value ?? null),
 		shipSanitation: ShipSanitationDetailsSchema.nullish().transform(value => value ?? null),
 		haccp: HaccpDetailsSchema.nullish().transform(value => value ?? null),
+		humanRemains: HumanRemainsDetailsSchema.nullish().transform(value => value ?? null),
+		biologicalCertification: BiologicalCertificationDetailsSchema.nullish().transform(
+			value => value ?? null
+		),
+		biologicalPermit: BiologicalPermitDetailsSchema.nullish().transform(value => value ?? null),
 	})
 	.superRefine((value, context) => {
 		const given = [
@@ -181,11 +221,19 @@ export const IssueDocumentSchema = z
 			value.sanitaryPermit,
 			value.shipSanitation,
 			value.haccp,
+			value.humanRemains,
+			value.biologicalCertification,
+			value.biologicalPermit,
 		]
 		if (given.filter(entry => entry !== null).length === 1) return
 		// Keep the CRT-3 wording when no sanitation or food safety details are involved.
 		const vaccinationOnly =
-			value.sanitaryPermit === null && value.shipSanitation === null && value.haccp === null
+			value.sanitaryPermit === null &&
+			value.shipSanitation === null &&
+			value.haccp === null &&
+			value.humanRemains === null &&
+			value.biologicalCertification === null &&
+			value.biologicalPermit === null
 		context.addIssue({
 			code: "custom",
 			message: vaccinationOnly
@@ -319,6 +367,9 @@ export type MedicalExemptionDetails = z.infer<typeof MedicalExemptionDetailsSche
 export type SanitaryPermitDetails = z.infer<typeof SanitaryPermitDetailsSchema>
 export type ShipSanitationDetails = z.infer<typeof ShipSanitationDetailsSchema>
 export type HaccpDetails = z.infer<typeof HaccpDetailsSchema>
+export type HumanRemainsDetails = z.infer<typeof HumanRemainsDetailsSchema>
+export type BiologicalCertificationDetails = z.infer<typeof BiologicalCertificationDetailsSchema>
+export type BiologicalPermitDetails = z.infer<typeof BiologicalPermitDetailsSchema>
 export type IssueDocumentInput = z.infer<typeof IssueDocumentSchema>
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>
