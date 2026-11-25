@@ -7,10 +7,13 @@ import type {
 	ApprovalQueue,
 	ApprovalQueueView,
 	AssessmentOutcome,
+	BiologicalCertificationDetails,
+	BiologicalPermitDetails,
 	CheckInResponse,
 	DocumentSummary,
 	FormAnswers,
 	HaccpDetails,
+	HumanRemainsDetails,
 	IcvIssueDetails,
 	ItemStep,
 	MedicalExemptionDetails,
@@ -300,6 +303,12 @@ export interface IssueDocumentRequest {
 	shipSanitation?: ShipSanitationDetails | null
 	/** CRT-6: issue a HACCP Certificate. */
 	haccp?: HaccpDetails | null
+	/** CRT-7: issue a Human Remains Certificate. Nothing to enter: send an empty object. */
+	humanRemains?: HumanRemainsDetails | null
+	/** CRT-7: issue a Biological Substance Certification. Nothing to enter: send an empty object. */
+	biologicalCertification?: BiologicalCertificationDetails | null
+	/** CRT-7: issue a Biological Substance Permit, with its validity. */
+	biologicalPermit?: BiologicalPermitDetails | null
 	idempotencyKey: string
 }
 

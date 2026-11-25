@@ -920,6 +920,9 @@ describe("DocumentService", () => {
 						sanitaryPermit: null,
 						shipSanitation: null,
 						haccp: null,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
 					},
 					"staff-1"
 				)
@@ -947,6 +950,9 @@ describe("DocumentService", () => {
 						sanitaryPermit: null,
 						shipSanitation: null,
 						haccp: null,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
 					},
 					"staff-1"
 				)
@@ -965,6 +971,9 @@ describe("DocumentService", () => {
 						sanitaryPermit: permitDetails,
 						shipSanitation: null,
 						haccp: null,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
 					},
 					"staff-1"
 				)
@@ -991,6 +1000,9 @@ describe("DocumentService", () => {
 						sanitaryPermit: null,
 						shipSanitation: null,
 						haccp: haccpDetails,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
 					},
 					"staff-1"
 				)
@@ -1016,6 +1028,9 @@ describe("DocumentService", () => {
 						sanitaryPermit: null,
 						shipSanitation: null,
 						haccp: null,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
 					},
 					null
 				)

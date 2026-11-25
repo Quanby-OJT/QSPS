@@ -100,6 +100,12 @@ export function documentTypeLabel(type: DocumentType): string {
 			return "Food Safety Training Certificate"
 		case "haccp":
 			return "HACCP Certificate"
+		case "human-remains":
+			return "Human Remains Certificate"
+		case "biological-certification":
+			return "Biological Substance Certification"
+		case "biological-permit":
+			return "Biological Substance Permit"
 	}
 }
 
