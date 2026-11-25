@@ -23,6 +23,7 @@ const sampleItem = {
 	startsAt: "2026-12-02T00:00:00.000Z",
 	endsAt: "2026-12-02T04:00:00.000Z",
 	feeCentavos: 150000,
+	rescheduleCount: 0,
 	status: "booked",
 } as const
 

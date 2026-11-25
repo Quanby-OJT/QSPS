@@ -28,6 +28,7 @@ jest.mock("@/config/api-versions.config", () => ({
 			unpaid: {},
 			cancel: {},
 			payOnsite: {},
+			rescheduleItem: {},
 		},
 	},
 }))
@@ -78,12 +79,22 @@ describe("BookingsController permissions", () => {
 		expect(permissions(BookingsController.prototype.getOwn)).toEqual(["bookings.own:read"])
 	})
 
+
 	it("requires bookings.own:cancel to cancel (BKG-2)", () => {
 		expect(permissions(BookingsController.prototype.cancel)).toEqual(["bookings.own:cancel"])
 	})
 
 	it("requires payments.own:create to choose paying at the office (BKG-2)", () => {
 		expect(permissions(BookingsController.prototype.payOnsite)).toEqual(["payments.own:create"])
+	})
+
+	it("requires bookings.own:reschedule to reschedule a booked item (BKG-5)", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				BookingsController.prototype.rescheduleItem
+			)
+		).toEqual(["bookings.own:reschedule"])
 	})
 })
 
@@ -122,3 +133,7 @@ describe("BookingsController own bookings (BKG-4)", () => {
 		expect(listOwn).toHaveBeenCalledWith(null)
 	})
 })
+
+jest.mock("@/modules/v1/forms/form-submissions.service", () => ({
+	FormSubmissionService: jest.fn(),
+}))
