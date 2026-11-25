@@ -193,7 +193,7 @@ describe("BookingDetailContent (BKG-4 AC 2 & AC 3)", () => {
 		expect(screen.getByText("QSPS-R-261123-000001")).toBeInTheDocument()
 		expect(screen.getByRole("link", { name: /View e-Receipt/i })).toHaveAttribute(
 			"href",
-			"/receipts/AbCdEfGhIjKlMnOpQrSt_-"
+			"/receipts/verify/AbCdEfGhIjKlMnOpQrSt_-"
 		)
 		expect(screen.getByText("ICV-MNL-2026-000001")).toBeInTheDocument()
 		expect(screen.getByText("Valid")).toBeInTheDocument()

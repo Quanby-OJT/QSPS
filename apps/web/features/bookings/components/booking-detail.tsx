@@ -355,7 +355,7 @@ export function BookingDetailContent({
 										</p>
 									</div>
 									<Link
-										href={`/receipts/${booking.receipt.verificationToken}`}
+										href={`/receipts/verify/${booking.receipt.verificationToken}`}
 										className={buttonVariants({ variant: "outline", size: "sm" })}
 									>
 										View e-Receipt
