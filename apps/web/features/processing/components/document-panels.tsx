@@ -3,7 +3,13 @@
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { IcvIssueDetails, MedicalExemptionDetails, ProcessingItem } from "@repo/contracts"
+import type {
+	IcvIssueDetails,
+	MedicalExemptionDetails,
+	ProcessingItem,
+	SanitaryPermitDetails,
+	ShipSanitationDetails,
+} from "@repo/contracts"
 
 import { BoqLoader } from "@/core/components/boq-loader"
 import { Button } from "@/core/components/ui/button"
@@ -17,11 +23,19 @@ import {
 	useReissueDocumentMutation,
 	useRevokeDocumentMutation,
 } from "@/features/processing/api/processing.hooks"
-import { documentTypeLabel, printCountLabel } from "@/features/processing/lib/labels"
+import {
+	documentTypeLabel,
+	printCountLabel,
+	sanitationDocumentType,
+	type SanitationDocumentType,
+} from "@/features/processing/lib/labels"
 import { manilaDateKey } from "@/features/schedules/lib/calendar"
 
 /** Same limit as MAX_EXEMPTION_REASON_LENGTH in @repo/contracts. */
 const MAX_REASON_LENGTH = 500
+
+/** Same limit as MAX_SHIP_FINDINGS_LENGTH in @repo/contracts. */
+const MAX_FINDINGS_LENGTH = 1000
 
 /** CRT-3: the client was vaccinated, or is medically exempt from the vaccine. */
 export type DocumentMode = "vaccinated" | "exempt"
@@ -96,6 +110,50 @@ export function useDocumentDetailsForm() {
 }
 
 export type DocumentDetailsForm = ReturnType<typeof useDocumentDetailsForm>
+
+/**
+ * CRT-5: what staff type to issue a Sanitary Permit or a Ship Sanitation
+ * Certificate: the validity period and, for a ship, the inspection findings.
+ * The establishment or vessel details are not typed again: they come from the
+ * client's application form.
+ */
+export function useSanitationForm() {
+	const today = manilaDateKey(new Date())
+	const [fields, setFields] = useState({ validFrom: today, validUntil: "", findings: "" })
+
+	/** Both dates are required, and the document cannot end before it starts. */
+	function missing(kind: SanitationDocumentType): boolean {
+		return (
+			fields.validFrom.length === 0 ||
+			fields.validUntil.length === 0 ||
+			fields.validUntil < fields.validFrom ||
+			(kind === "ship-sanitation" && fields.findings.trim().length === 0)
+		)
+	}
+
+	function sanitaryPermit(): SanitaryPermitDetails {
+		return { validFrom: fields.validFrom, validUntil: fields.validUntil }
+	}
+
+	function shipSanitation(): ShipSanitationDetails {
+		return {
+			findings: fields.findings.trim(),
+			validFrom: fields.validFrom,
+			validUntil: fields.validUntil,
+		}
+	}
+
+	return {
+		fields,
+		setField: (field: keyof typeof fields, value: string) =>
+			setFields(current => ({ ...current, [field]: value })),
+		missing,
+		sanitaryPermit,
+		shipSanitation,
+	}
+}
+
+export type SanitationForm = ReturnType<typeof useSanitationForm>
 
 const MODES: { value: DocumentMode; label: string; hint: string }[] = [
 	{
@@ -275,6 +333,75 @@ export function DocumentDetailsFields({
 }
 
 /**
+ * The fields for a Sanitary Permit or a Ship Sanitation Certificate (CRT-5).
+ * The permit or certificate is valid through its last day, then the public
+ * verification page shows it as expired.
+ */
+export function SanitationFields({
+	form,
+	kind,
+	idPrefix,
+}: {
+	form: SanitationForm
+	kind: SanitationDocumentType
+	idPrefix: string
+}) {
+	const { fields } = form
+	const isShip = kind === "ship-sanitation"
+
+	return (
+		<fieldset className="flex flex-col gap-3 rounded-lg border p-3">
+			<legend className="px-1 text-sm font-medium">
+				{isShip ? "Ship Sanitation Certificate" : "Sanitary Permit"}
+			</legend>
+			<p className="text-muted-foreground text-xs">
+				{isShip
+					? "The vessel details come from the client's application form."
+					: "The establishment details come from the client's application form."}{" "}
+				Fields marked * are required.
+			</p>
+			<div className="grid items-start gap-x-3 gap-y-4 sm:grid-cols-2">
+				{isShip ? (
+					<div className="flex flex-col gap-1.5 sm:col-span-2">
+						<Label htmlFor={`${idPrefix}-findings`}>Inspection findings *</Label>
+						<Textarea
+							id={`${idPrefix}-findings`}
+							placeholder="e.g. Galley, potable water and waste systems inspected; no infestation found."
+							value={fields.findings}
+							maxLength={MAX_FINDINGS_LENGTH}
+							rows={4}
+							onChange={event => form.setField("findings", event.target.value)}
+							aria-invalid={!fields.findings.trim() || undefined}
+						/>
+					</div>
+				) : null}
+				<div className="flex flex-col gap-1.5">
+					<Label htmlFor={`${idPrefix}-san-from`}>Valid from *</Label>
+					<Input
+						id={`${idPrefix}-san-from`}
+						type="date"
+						value={fields.validFrom}
+						onChange={event => form.setField("validFrom", event.target.value)}
+					/>
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<Label htmlFor={`${idPrefix}-san-until`}>Valid until *</Label>
+					<Input
+						id={`${idPrefix}-san-until`}
+						type="date"
+						value={fields.validUntil}
+						min={fields.validFrom || undefined}
+						onChange={event => form.setField("validUntil", event.target.value)}
+						aria-invalid={!fields.validUntil || undefined}
+					/>
+					<p className="text-muted-foreground text-xs">The last day it is valid.</p>
+				</div>
+			</div>
+		</fieldset>
+	)
+}
+
+/**
  * The item's issued document (CRT-1), with its type, how often it was
  * printed, and, for staff with `certificates.documents:print`, a Print
  * button (CRT-3). The vaccination record prints on the yellow card.
@@ -349,9 +476,10 @@ function newKey(): string {
 }
 
 /**
- * Issue the document for a cleared item that has none yet (CRT-1, CRT-3):
- * Services with auto-issue off, or items cleared after head approval. Staff
- * enter the vaccination details or record the medical exemption here.
+ * Issue the document for a cleared item that has none yet (CRT-1, CRT-3,
+ * CRT-5): Services with auto-issue off, or items cleared after head approval.
+ * Staff enter the vaccination details, record the medical exemption, or, for
+ * a sanitation Service, the validity period of the permit or certificate.
  */
 export function IssueDocumentPanel({
 	item,
@@ -362,17 +490,23 @@ export function IssueDocumentPanel({
 }) {
 	const issue = useIssueDocumentMutation(item.bookingItemId)
 	const form = useDocumentDetailsForm()
+	const sanitationForm = useSanitationForm()
+	// CRT-5: a sanitation Service issues a permit or a certificate, not the vaccination record.
+	const sanitation = sanitationDocumentType(item.service.documentType)
 	// One key per issue, so a double click issues one document, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
-	const exempt = allowExemption && form.mode === "exempt"
+	const exempt = !sanitation && allowExemption && form.mode === "exempt"
+	const missing = sanitation ? sanitationForm.missing(sanitation) : form.missing
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
-		if (form.missing) return
+		if (missing) return
 		try {
 			const document = await issue.mutateAsync({
-				details: exempt ? null : form.details(),
+				details: sanitation || exempt ? null : form.details(),
 				exemption: exempt ? form.exemptionDetails() : null,
+				sanitaryPermit: sanitation === "sanitary-permit" ? sanitationForm.sanitaryPermit() : null,
+				shipSanitation: sanitation === "ship-sanitation" ? sanitationForm.shipSanitation() : null,
 				idempotencyKey,
 			})
 			setIdempotencyKey(newKey())
@@ -389,18 +523,24 @@ export function IssueDocumentPanel({
 		>
 			{issue.isPending ? <BoqLoader label="Issuing the certificate" /> : null}
 			<h2 className="font-semibold">Issue document</h2>
-			<DocumentDetailsFields
-				form={form}
-				allowExemption={allowExemption}
-				idPrefix="issue"
-				intro="This item is cleared but has no document yet."
-			/>
-			<Button type="submit" disabled={issue.isPending || form.missing} className="self-start">
+			{sanitation ? (
+				<SanitationFields form={sanitationForm} kind={sanitation} idPrefix="issue" />
+			) : (
+				<DocumentDetailsFields
+					form={form}
+					allowExemption={allowExemption}
+					idPrefix="issue"
+					intro="This item is cleared but has no document yet."
+				/>
+			)}
+			<Button type="submit" disabled={issue.isPending || missing} className="self-start">
 				{issue.isPending
 					? "Issuing…"
-					: exempt
-						? "Issue exemption certificate"
-						: "Issue certificate"}
+					: sanitation
+						? `Issue ${documentTypeLabel(sanitation).toLowerCase()}`
+						: exempt
+							? "Issue exemption certificate"
+							: "Issue certificate"}
 			</Button>
 		</form>
 	)

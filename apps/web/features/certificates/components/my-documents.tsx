@@ -19,6 +19,8 @@ const DOCUMENT_TITLES: Record<DocumentSummary["documentType"], string> = {
 	"icv-record": "International Certificate of Vaccination",
 	// CRT-3: issued instead of the vaccination record when the client is medically exempt.
 	"medical-exemption": "Medical Exemption Certificate",
+	"sanitary-permit": "Sanitary Permit",
+	"ship-sanitation": "Ship Sanitation Certificate",
 }
 
 const STATUS_LABELS: Record<DocumentSummary["status"], string> = {

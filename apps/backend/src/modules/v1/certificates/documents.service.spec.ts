@@ -6,11 +6,13 @@ import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import type { PdfService } from "@/common/pdf/pdf.service"
+import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import type { BookingService } from "../bookings/bookings.service"
 import { icvCardLayout } from "./document-types/icv-card"
 import { icvRecord } from "./document-types/icv-record"
 import { medicalExemption } from "./document-types/medical-exemption"
+import { sanitaryPermit } from "./document-types/sanitary-permit"
 import { DocumentService } from "./documents.service"
 
 // ADM-6: BookingService now reads PolicyService, which loads @repo/contracts
@@ -34,6 +36,10 @@ jest.mock("@/common/database/database.client", () => ({
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { APP_WEB_URL: "http://localhost:3001" },
+}))
+// CRT-5: the sanitation documents are built from the client's questionnaire answers.
+jest.mock("@/modules/v1/forms/form-answers-display", () => ({
+	readableAnswers: jest.fn(),
 }))
 
 /** 13:00 on Thursday 19 November 2026 in Manila. */
@@ -102,6 +108,38 @@ const details = {
 	validFrom: "2026-11-29",
 	validUntil: null,
 	passportOrIdNumber: null,
+}
+const permitContext = {
+	...context,
+	documentType: "sanitary-permit",
+	serviceName: "Sanitary Permit",
+}
+const shipContext = {
+	...context,
+	documentType: "ship-sanitation",
+	serviceName: "Ship Sanitation Certificate",
+}
+const permitDetails = { validFrom: "2026-12-01", validUntil: "2027-11-30" }
+const shipDetails = {
+	findings: "Galley, potable water and waste systems inspected; no infestation found.",
+	validFrom: "2026-12-01",
+	validUntil: "2027-05-31",
+}
+const permitAnswers = {
+	"Establishment name": "Mercado Fresh Foods",
+	"Type of establishment": "Restaurant",
+	"Owner or operator": "Ana Reyes",
+	"Business address": "12 Rizal St, Manila",
+	"Contact number": "Not answered",
+}
+const shipAnswers = {
+	"Vessel name": "MV Pacific Star",
+	"Type of vessel": "Cargo ship",
+	"Registry or IMO number": "IMO 9321483",
+	"Flag or port of registry": "Manila",
+	"Gross tonnage": "Not answered",
+	"Master or agent": "Capt. Dela Cruz",
+	"Last port of call": "Cebu",
 }
 const exemption = {
 	reason: "Egg allergy (anaphylaxis)",
@@ -326,6 +364,195 @@ describe("DocumentService", () => {
 			})
 			expect(result.document.documentNumber).toBe("ICV-MNL-2026-000124")
 		})
+
+		describe("sanitation documents (CRT-5)", () => {
+			it("issues a Sanitary Permit built from the client's answers, with its own number series and validity", async () => {
+				jest.mocked(readableAnswers).mockResolvedValue(permitAnswers)
+				const { tx, inserted } = fakeTransaction(
+					[[clearedItem], [], [permitContext], [{ id: 11, nextNumber: 1 }]],
+					[[{ id: 12 }]]
+				)
+
+				const result = await service.issue(tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					sanitaryPermit: permitDetails,
+					now: NOW,
+				})
+
+				expect(readableAnswers).toHaveBeenCalledWith(tx, 44)
+				expect(result.document).toMatchObject({
+					id: 12,
+					documentType: "sanitary-permit",
+					documentNumber: "SPM-MNL-2026-000001",
+					status: "valid",
+					validUntil: "2027-11-30",
+				})
+				expect(inserted[0]?.values).toMatchObject({
+					documentType: "sanitary-permit",
+					locationId: 2,
+				})
+				expect(inserted[1]?.values).toMatchObject({
+					documentType: "sanitary-permit",
+					documentNumber: "SPM-MNL-2026-000001",
+					verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+					validUntil: "2027-11-30",
+					status: "valid",
+					issuedBy: "staff-1",
+					payload: {
+						holder: { name: "Mercado Fresh Foods" },
+						establishmentType: "Restaurant",
+						ownerName: "Ana Reyes",
+						address: "12 Rizal St, Manila",
+						contactNumber: null,
+						serviceName: "Sanitary Permit",
+						dateIssued: "2026-11-19",
+						validFrom: "2026-12-01",
+						validUntil: "2027-11-30",
+						issuingStation: "BOQ Manila",
+					},
+				})
+				expect(bookingService.transitionItem).toHaveBeenCalledWith(
+					tx,
+					44,
+					"issued",
+					expect.anything()
+				)
+				expect(audit.record).toHaveBeenCalledWith(
+					expect.objectContaining({
+						action: "document.issue",
+						newValue: expect.not.objectContaining({ payload: expect.anything() }),
+					}),
+					tx
+				)
+			})
+
+			it("issues a Ship Sanitation Certificate with the officer's findings and validity", async () => {
+				jest.mocked(readableAnswers).mockResolvedValue(shipAnswers)
+				const { tx, inserted } = fakeTransaction(
+					[[clearedItem], [], [shipContext], [{ id: 13, nextNumber: 4 }]],
+					[[{ id: 14 }]]
+				)
+
+				const result = await service.issue(tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					shipSanitation: shipDetails,
+					now: NOW,
+				})
+
+				expect(result.document).toMatchObject({
+					documentType: "ship-sanitation",
+					documentNumber: "SSC-MNL-2026-000004",
+					validUntil: "2027-05-31",
+				})
+				expect(inserted[1]?.values).toMatchObject({
+					documentType: "ship-sanitation",
+					validUntil: "2027-05-31",
+					payload: expect.objectContaining({
+						holder: { name: "MV Pacific Star" },
+						registryNumber: "IMO 9321483",
+						registryPort: "Manila",
+						grossTonnage: null,
+						findings: shipDetails.findings,
+					}),
+				})
+			})
+
+			it("refuses an item that is not cleared, before reading any answer or saving anything", async () => {
+				const { tx, inserted } = fakeTransaction([
+					[{ ...clearedItem, status: "in_assessment" }],
+					[],
+				])
+				await expect(
+					service.issue(tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						sanitaryPermit: permitDetails,
+						now: NOW,
+					})
+				).rejects.toMatchObject({ code: "CONFLICT" })
+				expect(readableAnswers).not.toHaveBeenCalled()
+				expect(inserted).toEqual([])
+				expect(bookingService.transitionItem).not.toHaveBeenCalled()
+			})
+
+			it("refuses a permit for a Service that issues another document, and the reverse", async () => {
+				const forVaccination = fakeTransaction([[clearedItem], [], [context]])
+				await expect(
+					service.issue(forVaccination.tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						sanitaryPermit: permitDetails,
+						now: NOW,
+					})
+				).rejects.toMatchObject({ code: "CONFLICT" })
+				expect(forVaccination.inserted).toEqual([])
+
+				const forPermit = fakeTransaction([[clearedItem], [], [permitContext]])
+				await expect(
+					service.issue(forPermit.tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						details,
+						now: NOW,
+					})
+				).rejects.toMatchObject({ code: "CONFLICT" })
+				expect(forPermit.inserted).toEqual([])
+
+				const forShip = fakeTransaction([[clearedItem], [], [shipContext]])
+				await expect(
+					service.issue(forShip.tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						sanitaryPermit: permitDetails,
+						now: NOW,
+					})
+				).rejects.toMatchObject({ code: "CONFLICT" })
+				expect(forShip.inserted).toEqual([])
+			})
+
+			it("never issues the exemption for a sanitation Service", async () => {
+				const { tx, inserted } = fakeTransaction([[clearedItem], [], [permitContext]])
+				await expect(
+					service.issue(tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						exemption,
+						now: NOW,
+					})
+				).rejects.toMatchObject({ code: "CONFLICT" })
+				expect(inserted).toEqual([])
+			})
+
+			it("names the missing question when the client left a required answer out, saving nothing", async () => {
+				jest.mocked(readableAnswers).mockResolvedValue({
+					...permitAnswers,
+					"Business address": "Not answered",
+				})
+				const { tx, inserted } = fakeTransaction([[clearedItem], [], [permitContext]])
+
+				const outcome = service.issue(tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					sanitaryPermit: permitDetails,
+					now: NOW,
+				})
+
+				await expect(outcome).rejects.toMatchObject({ code: "CONFLICT" })
+				await expect(outcome).rejects.toThrow("Business address")
+				expect(inserted).toEqual([])
+				expect(bookingService.transitionItem).not.toHaveBeenCalled()
+			})
+
+			it("asks for the validity dates when a sanitation Service gets no details", async () => {
+				const { tx, inserted } = fakeTransaction([[clearedItem], [], [permitContext]])
+				await expect(
+					service.issue(tx as never, { bookingItemId: 44, actorId: "staff-1", now: NOW })
+				).rejects.toMatchObject({ code: "BAD_REQUEST" })
+				expect(inserted).toEqual([])
+			})
+		})
 	})
 
 	describe("issueOnClearance", () => {
@@ -387,6 +614,20 @@ describe("DocumentService", () => {
 			})
 		})
 
+		it("never issues a sanitation document on clearance, even with auto-issue switched on (CRT-5)", async () => {
+			const { tx, inserted } = fakeTransaction([
+				[{ autoIssue: true, documentType: "sanitary-permit" }],
+			])
+			await expect(
+				service.issueOnClearance(tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					now: NOW,
+				})
+			).resolves.toBeNull()
+			expect(inserted).toEqual([])
+		})
+
 		it("issues the document, recorded against the officer who cleared it", async () => {
 			const { tx, inserted } = fakeTransaction(
 				[
@@ -419,7 +660,16 @@ describe("DocumentService", () => {
 		it("answers 404 for an item at another Location and audits the denial", async () => {
 			dbSelects([{ id: 44, locationId: 2 }], [{ locationId: 9 }])
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, "staff-1")
+				service.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details,
+						exemption: null,
+						sanitaryPermit: null,
+						shipSanitation: null,
+					},
+					"staff-1"
+				)
 			).rejects.toMatchObject({ code: "NOT_FOUND" })
 			expect(db.transaction).not.toHaveBeenCalled()
 			expect(audit.record).toHaveBeenCalledWith(
@@ -436,14 +686,57 @@ describe("DocumentService", () => {
 		it("answers 404 for a staff user with no Location", async () => {
 			dbSelects([{ id: 44, locationId: 2 }], [])
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, "staff-1")
+				service.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details,
+						exemption: null,
+						sanitaryPermit: null,
+						shipSanitation: null,
+					},
+					"staff-1"
+				)
 			).rejects.toMatchObject({ code: "NOT_FOUND" })
 			expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ reason: "no_location" }))
 		})
 
+		it("answers 404 for a sanitation item at another Location and audits the denial (CRT-5)", async () => {
+			dbSelects([{ id: 44, locationId: 2 }], [{ locationId: 9 }])
+			await expect(
+				service.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details: null,
+						exemption: null,
+						sanitaryPermit: permitDetails,
+						shipSanitation: null,
+					},
+					"staff-1"
+				)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+			expect(db.transaction).not.toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.issue",
+					outcome: "denied",
+					targetId: "44",
+					reason: "outside_scope",
+				})
+			)
+		})
+
 		it("refuses a request with no signed-in user", async () => {
 			await expect(
-				service.issueAsStaff({ bookingItemId: 44, details, exemption: null }, null)
+				service.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details,
+						exemption: null,
+						sanitaryPermit: null,
+						shipSanitation: null,
+					},
+					null
+				)
 			).rejects.toMatchObject({ code: "UNAUTHORIZED" })
 		})
 	})
@@ -595,6 +888,26 @@ describe("DocumentService", () => {
 
 			expect(pdf.render).toHaveBeenCalledWith(
 				{ title: "Medical Exemption Certificate MEC-MNL-2026-000001" },
+				expect.any(Function)
+			)
+			expect(draw).toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({ newValue: expect.objectContaining({ layout: "a4" }) }),
+				expect.anything()
+			)
+			draw.mockRestore()
+		})
+
+		it("prints a Sanitary Permit on A4 (CRT-5)", async () => {
+			arrange([
+				{ ...printRow, documentType: "sanitary-permit", documentNumber: "SPM-MNL-2026-000001" },
+			])
+			const draw = jest.spyOn(sanitaryPermit, "draw").mockImplementation(() => undefined)
+
+			await service.printForStaff(5, "staff-1", MANILA_YF as never)
+
+			expect(pdf.render).toHaveBeenCalledWith(
+				{ title: "Sanitary Permit SPM-MNL-2026-000001" },
 				expect.any(Function)
 			)
 			expect(draw).toHaveBeenCalled()

@@ -9,17 +9,24 @@ const dateField = z
 /**
  * Document types QSPS can issue (DOMAIN-MODEL.md section 4, "Document types").
  * CRT-1 adds the vaccination record; CRT-3 adds the Medical Exemption
- * Certificate; CRT-5 to CRT-10 add the rest.
+ * Certificate; CRT-5 adds the Sanitary Permit and the Ship Sanitation
+ * Certificate; CRT-6 to CRT-10 add the rest.
  */
-export const DOCUMENT_TYPES = ["icv-record", "medical-exemption"] as const
+export const DOCUMENT_TYPES = [
+	"icv-record",
+	"medical-exemption",
+	"sanitary-permit",
+	"ship-sanitation",
+] as const
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
 
 /**
  * The types a Service can be set to issue (CRT-3). A Medical Exemption is not
  * a Service of its own: staff issue it instead of the vaccination record of
- * a vaccination Service when the client is medically exempt.
+ * a vaccination Service when the client is medically exempt. The two
+ * sanitation types (CRT-5) are issued by sanitation Services.
  */
-export const SERVICE_DOCUMENT_TYPES = ["icv-record"] as const
+export const SERVICE_DOCUMENT_TYPES = ["icv-record", "sanitary-permit", "ship-sanitation"] as const
 
 /** The document types that exempt a client from a vaccine (CRT-3). */
 export const VACCINATION_DOCUMENT_TYPES: readonly string[] = ["icv-record"]
@@ -81,20 +88,74 @@ export const MedicalExemptionDetailsSchema = z
 		path: ["validUntil"],
 	})
 
+/** Longest inspection findings text staff may write on a Ship Sanitation Certificate. */
+export const MAX_SHIP_FINDINGS_LENGTH = 1000
+
+/**
+ * What staff type when a Sanitary Permit is issued (CRT-5, TOR §VIII.3). The
+ * establishment's details are copied from the client's questionnaire answers,
+ * so staff only set the validity. An end date is required: the public
+ * verification page shows the permit as expired the day after it. Assumed
+ * fields until BOQ gives its template (PRD open item 6).
+ */
+export const SanitaryPermitDetailsSchema = z
+	.object({
+		validFrom: BusinessDateSchema,
+		validUntil: BusinessDateSchema,
+	})
+	.refine(value => value.validUntil >= value.validFrom, {
+		message: "Valid until cannot be before valid from",
+		path: ["validUntil"],
+	})
+
+/**
+ * What staff type when a Ship Sanitation Certificate is issued (CRT-5, TOR
+ * §VIII.3): the inspection findings and the validity. The vessel's name and
+ * registry details are copied from the client's questionnaire answers.
+ * Assumed fields until BOQ gives its template (PRD open item 6).
+ */
+export const ShipSanitationDetailsSchema = z
+	.object({
+		findings: z
+			.string()
+			.trim()
+			.min(1, "Enter the inspection findings")
+			.max(MAX_SHIP_FINDINGS_LENGTH),
+		validFrom: BusinessDateSchema,
+		validUntil: BusinessDateSchema,
+	})
+	.refine(value => value.validUntil >= value.validFrom, {
+		message: "Valid until cannot be before valid from",
+		path: ["validUntil"],
+	})
+
 /**
  * Staff issue a document for a cleared Booking Item (services with auto-issue
- * off, or after head approval). Give `details` for the vaccination record, or
- * `exemption` for a Medical Exemption Certificate (CRT-3), never both.
+ * off, or after head approval). Give exactly one of: `details` for the
+ * vaccination record, `exemption` for a Medical Exemption Certificate (CRT-3),
+ * `sanitaryPermit` for a Sanitary Permit or `shipSanitation` for a Ship
+ * Sanitation Certificate (CRT-5).
  */
 export const IssueDocumentSchema = z
 	.object({
 		bookingItemId: z.coerce.number().int().positive(),
 		details: IcvIssueDetailsSchema.nullish().transform(value => value ?? null),
 		exemption: MedicalExemptionDetailsSchema.nullish().transform(value => value ?? null),
+		sanitaryPermit: SanitaryPermitDetailsSchema.nullish().transform(value => value ?? null),
+		shipSanitation: ShipSanitationDetailsSchema.nullish().transform(value => value ?? null),
 	})
-	.refine(value => (value.details === null) !== (value.exemption === null), {
-		message: "Enter the vaccination details or the exemption details, not both",
-		path: ["details"],
+	.superRefine((value, context) => {
+		const given = [value.details, value.exemption, value.sanitaryPermit, value.shipSanitation]
+		if (given.filter(entry => entry !== null).length === 1) return
+		// Keep the CRT-3 wording when no sanitation details are involved.
+		const vaccinationOnly = value.sanitaryPermit === null && value.shipSanitation === null
+		context.addIssue({
+			code: "custom",
+			message: vaccinationOnly
+				? "Enter the vaccination details or the exemption details, not both"
+				: "Enter the details of one document only",
+			path: ["details"],
+		})
 	})
 
 /** One document as listed to its owner or shown to staff. */
@@ -152,6 +213,9 @@ export const ManualVerificationSchema = z.object({
 		),
 })
 
+/** What the public page can say about a document: the stored status, plus `expired`. */
+export const DocumentVerificationStatusSchema = z.enum([...DocumentStatusSchema.options, "expired"])
+
 /**
  * What the public verification page shows (TOR §VIII.4). Read from the
  * database, never from the PDF. Only what is needed to recognise the
@@ -167,8 +231,14 @@ export const DocumentVerificationSchema = z.object({
 	holderName: z.string(),
 	issuingLocation: z.string(),
 	issuedAt: dateField,
-	status: DocumentStatusSchema,
-	/** When it stopped being valid; null while it is valid. */
+	/**
+	 * `expired` is worked out on every lookup (CRT-5), never stored: a `valid`
+	 * document is `expired` from the day after `validUntil` (Asia/Manila).
+	 */
+	status: DocumentVerificationStatusSchema,
+	/** The last day the document is valid (YYYY-MM-DD); null when it does not expire. */
+	validUntil: z.string().nullable(),
+	/** When it was revoked or superseded; null otherwise, expired included. */
 	statusChangedAt: dateField.nullable(),
 })
 
@@ -206,8 +276,11 @@ export const ReissueDocumentSchema = z
 
 export type DocumentType = z.infer<typeof DocumentTypeSchema>
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>
+export type DocumentVerificationStatus = z.infer<typeof DocumentVerificationStatusSchema>
 export type IcvIssueDetails = z.infer<typeof IcvIssueDetailsSchema>
 export type MedicalExemptionDetails = z.infer<typeof MedicalExemptionDetailsSchema>
+export type SanitaryPermitDetails = z.infer<typeof SanitaryPermitDetailsSchema>
+export type ShipSanitationDetails = z.infer<typeof ShipSanitationDetailsSchema>
 export type IssueDocumentInput = z.infer<typeof IssueDocumentSchema>
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>

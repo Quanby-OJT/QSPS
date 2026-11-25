@@ -1,25 +1,31 @@
-import type { IcvIssueDetails } from "@repo/contracts"
-
-import type { DocumentTypeDefinition, RenderableDocumentType } from "./document-type"
+import type { RenderableDocumentType } from "./document-type"
 import { icvRecord } from "./icv-record"
 import { medicalExemption } from "./medical-exemption"
+import { sanitaryPermit } from "./sanitary-permit"
+import { shipSanitation } from "./ship-sanitation"
 
 /**
  * Every document type QSPS can issue (CRT-1). A document's `document_type`
- * must be a key here. Later types (CRT-5 to CRT-10) add one line each.
+ * must be a key here. Later types (CRT-6 to CRT-10) add one line each.
  */
 const REGISTRY: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
 	// CRT-3: issued instead of the vaccination record when the client is medically exempt.
 	[medicalExemption.type]: medicalExemption,
+	// CRT-5: issued by sanitation Services. Wording and numbering await BOQ sign-off (PRD open item 6).
+	[sanitaryPermit.type]: sanitaryPermit,
+	[shipSanitation.type]: shipSanitation,
 }
 
 /**
- * The types a Service can be set to issue, with the details staff type for
- * them. A Medical Exemption is never a Service's type (CRT-3).
+ * The types a Service can be set to issue. A Medical Exemption is never a
+ * Service's type (CRT-3). Which details staff type for each is decided in
+ * `DocumentService.issue`.
  */
-const SERVICE_TYPES: Record<string, DocumentTypeDefinition<IcvIssueDetails>> = {
+const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
+	[sanitaryPermit.type]: sanitaryPermit,
+	[shipSanitation.type]: shipSanitation,
 }
 
 /**
@@ -29,7 +35,7 @@ const SERVICE_TYPES: Record<string, DocumentTypeDefinition<IcvIssueDetails>> = {
  */
 const VACCINATION_TYPES: readonly string[] = [icvRecord.type]
 
-export { medicalExemption }
+export { icvRecord, medicalExemption, sanitaryPermit, shipSanitation }
 
 /** The definition of an existing document's type, or undefined when QSPS cannot draw it. */
 export function documentTypeFor(
@@ -41,7 +47,7 @@ export function documentTypeFor(
 /** The type a Service issues, or undefined when it issues none QSPS can generate. */
 export function serviceDocumentTypeFor(
 	type: string | null | undefined
-): DocumentTypeDefinition<IcvIssueDetails> | undefined {
+): RenderableDocumentType | undefined {
 	return type ? SERVICE_TYPES[type] : undefined
 }
 

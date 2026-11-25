@@ -16,6 +16,13 @@ function manilaDateTime(instant: Date): string {
 	}).format(instant)
 }
 
+/** A calendar day such as 2027-11-18, shown as written: no time zone shifts it. */
+function calendarDate(value: string): string {
+	return new Intl.DateTimeFormat("en-PH", { timeZone: "UTC", dateStyle: "long" }).format(
+		new Date(`${value}T00:00:00Z`)
+	)
+}
+
 const STATUS = {
 	valid: {
 		badge: "Valid document",
@@ -31,6 +38,11 @@ const STATUS = {
 		badge: "Superseded",
 		heading: "This document has been SUPERSEDED",
 		explanation: "A newer document replaced this one. Ask the holder for the current copy.",
+	},
+	expired: {
+		badge: "Expired",
+		heading: "This document has EXPIRED",
+		explanation: "Its validity period has ended. Ask the holder for a current document.",
 	},
 } as const
 
@@ -79,8 +91,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /**
  * What QSPS has on record for one document (CRT-2, TOR §VIII.4): type,
- * number, masked holder name, issuing office, issue date and status. Shared
- * by the QR page and the manual-entry page.
+ * number, masked holder name, issuing office, issue date, valid-until date
+ * (CRT-5) and status. Shared by the QR page and the manual-entry page.
  */
 export function VerificationResult({
 	isPending,
@@ -155,6 +167,11 @@ export function VerificationResult({
 				<Field label="Date issued (Asia/Manila)">
 					<dd>{manilaDateTime(data.issuedAt)}</dd>
 				</Field>
+				{data.validUntil ? (
+					<Field label="Valid until">
+						<dd>{calendarDate(data.validUntil)}</dd>
+					</Field>
+				) : null}
 			</dl>
 			<p className="text-muted-foreground border-t pt-4 text-xs">
 				These details come from the Bureau of Quarantine&apos;s QSPS records. If a printed document

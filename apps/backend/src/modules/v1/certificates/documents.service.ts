@@ -12,6 +12,8 @@ import type {
 	MedicalExemptionDetails,
 	MyDocuments,
 	ReissueDocumentInput,
+	SanitaryPermitDetails,
+	ShipSanitationDetails,
 } from "@repo/contracts"
 import {
 	bookingItems,
@@ -30,16 +32,22 @@ import { NotificationService } from "@/common/notifications/notification.service
 import { PdfService } from "@/common/pdf/pdf.service"
 import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
 import { env } from "@/config/env.config"
+import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { newVerificationToken } from "../payments/receipt-number"
+import { hasExpired } from "./document-expiry"
 import { formatDocumentNumber } from "./document-number"
 import type { PdfExtras, RenderableDocumentType } from "./document-types/document-type"
+import { MissingAnswerError } from "./document-types/questionnaire-answers"
 import {
 	documentTypeFor,
+	icvRecord,
 	isVaccinationType,
 	medicalExemption,
+	sanitaryPermit,
 	serviceDocumentTypeFor,
+	shipSanitation,
 } from "./document-types/registry"
 import { holderNameOf, maskName } from "./mask-name"
 
@@ -66,6 +74,49 @@ function codeMatches(token: string, code: string): boolean {
 	return tail.length === given.length && timingSafeEqual(tail, given)
 }
 
+/**
+ * The details staff sent must be for the document this Service issues (CRT-5),
+ * so a vaccination batch number cannot end up on a Sanitary Permit.
+ */
+function requireServiceType(
+	issued: RenderableDocumentType,
+	sent: RenderableDocumentType,
+	serviceName: string
+): void {
+	if (issued.type !== sent.type) {
+		throw new ORPCError("CONFLICT", {
+			message: `${serviceName} issues the ${issued.title}, so it cannot get a ${sent.title}.`,
+		})
+	}
+}
+
+/** What staff still have to enter, for a Service that issues `serviceType`. */
+function missingDetailsMessage(serviceType: RenderableDocumentType): string {
+	if (serviceType.type === sanitaryPermit.type) {
+		return "Enter the dates the Sanitary Permit is valid from and until."
+	}
+	if (serviceType.type === shipSanitation.type) {
+		return "Enter the inspection findings and the dates the certificate is valid from and until."
+	}
+	return "Enter the vaccine batch number and the vaccinator, or record the medical exemption."
+}
+
+/**
+ * Builds a payload from the client's questionnaire answers (CRT-5). A missing
+ * answer is for the client or the officer to fix, so it answers 409 with the
+ * question named, not a 500.
+ */
+function fromAnswers<T>(build: () => T): T {
+	try {
+		return build()
+	} catch (error) {
+		if (error instanceof MissingAnswerError) {
+			throw new ORPCError("CONFLICT", { message: error.message })
+		}
+		throw error
+	}
+}
+
 /** The public page a document's QR code points to (built in CRT-2, Flow D step 5). */
 export function documentVerifyUrl(token: string): string {
 	return `${env.APP_WEB_URL}/verify/${token}`
@@ -82,6 +133,10 @@ export interface IssueRequest {
 	 * is issued instead of the vaccination record. Give this or `details`.
 	 */
 	exemption?: MedicalExemptionDetails | null
+	/** CRT-5: the validity of a Sanitary Permit. The establishment comes from the questionnaire. */
+	sanitaryPermit?: SanitaryPermitDetails | null
+	/** CRT-5: the findings and validity of a Ship Sanitation Certificate. */
+	shipSanitation?: ShipSanitationDetails | null
 	now?: Date
 }
 
@@ -206,14 +261,32 @@ export class DocumentService {
 			payload = medicalExemption.buildPayload(issueContext, request.exemption)
 			validUntil = medicalExemption.validUntil(request.exemption)
 		} else if (request.details) {
-			type = serviceType
-			payload = serviceType.buildPayload(issueContext, request.details)
-			validUntil = serviceType.validUntil(request.details)
+			requireServiceType(serviceType, icvRecord, context.serviceName)
+			type = icvRecord
+			payload = icvRecord.buildPayload(issueContext, request.details)
+			validUntil = icvRecord.validUntil(request.details)
+		} else if (request.sanitaryPermit) {
+			// CRT-5: the establishment comes from the client's answers, the validity from staff.
+			requireServiceType(serviceType, sanitaryPermit, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const sanitaryDetails = request.sanitaryPermit
+			type = sanitaryPermit
+			payload = fromAnswers(() =>
+				sanitaryPermit.buildPayload({ ...issueContext, answers }, sanitaryDetails)
+			)
+			validUntil = sanitaryPermit.validUntil(sanitaryDetails)
+		} else if (request.shipSanitation) {
+			// CRT-5: the vessel comes from the client's answers, the findings and validity from staff.
+			requireServiceType(serviceType, shipSanitation, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const shipDetails = request.shipSanitation
+			type = shipSanitation
+			payload = fromAnswers(() =>
+				shipSanitation.buildPayload({ ...issueContext, answers }, shipDetails)
+			)
+			validUntil = shipSanitation.validUntil(shipDetails)
 		} else {
-			throw new ORPCError("BAD_REQUEST", {
-				message:
-					"Enter the vaccine batch number and the vaccinator, or record the medical exemption.",
-			})
+			throw new ORPCError("BAD_REQUEST", { message: missingDetailsMessage(serviceType) })
 		}
 
 		const sequence = await this.nextNumber(tx, type.type, item.locationId, now)
@@ -310,7 +383,14 @@ export class DocumentService {
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, request.bookingItemId))
 			.limit(1)
-		if (!service?.autoIssue || !serviceDocumentTypeFor(service.documentType)) {
+		// Only the vaccination record is issued on clearance (CRT-5): the sanitation
+		// documents need validity dates (and findings) that clearing cannot carry,
+		// so staff issue them afterwards even if an admin switches auto-issue on.
+		if (
+			!service?.autoIssue ||
+			!serviceDocumentTypeFor(service.documentType) ||
+			service.documentType !== icvRecord.type
+		) {
 			if (request.exemption) {
 				throw new ORPCError("BAD_REQUEST", {
 					message:
@@ -368,6 +448,8 @@ export class DocumentService {
 				actorId,
 				details: input.details,
 				exemption: input.exemption,
+				sanitaryPermit: input.sanitaryPermit,
+				shipSanitation: input.shipSanitation,
 			})
 		)
 		return result.document
@@ -589,11 +671,11 @@ export class DocumentService {
 	 * Runs inside an oRPC handler, so it throws ORPCError: oRPC turns any other
 	 * error into a 500.
 	 */
-	async verify(token: string): Promise<DocumentVerification> {
+	async verify(token: string, now: Date = new Date()): Promise<DocumentVerification> {
 		if (!DOCUMENT_TOKEN_PATTERN.test(token)) throw noRecord()
 		const [row] = await this.verificationRows(eq(documents.verificationToken, token), 1)
 		if (!row) throw noRecord()
-		return this.toVerification(row)
+		return this.toVerification(row, now)
 	}
 
 	/**
@@ -601,13 +683,16 @@ export class DocumentService {
 	 * Number plus the code printed under the QR code. The number alone is never
 	 * enough, because numbers run in sequence.
 	 */
-	async verifyByNumber(input: ManualVerificationInput): Promise<DocumentVerification> {
+	async verifyByNumber(
+		input: ManualVerificationInput,
+		now: Date = new Date()
+	): Promise<DocumentVerification> {
 		if (!VERIFICATION_CODE_PATTERN.test(input.code)) throw noRecord()
 		// Unique per document type, so a number can appear once per type at most.
 		const rows = await this.verificationRows(eq(documents.documentNumber, input.documentNumber), 5)
 		const row = rows.find(candidate => codeMatches(candidate.verificationToken, input.code))
 		if (!row) throw noRecord()
-		return this.toVerification(row)
+		return this.toVerification(row, now)
 	}
 
 	private verificationRows(where: SQL, limit: number) {
@@ -619,6 +704,7 @@ export class DocumentService {
 				status: documents.status,
 				issuedAt: documents.issuedAt,
 				updatedAt: documents.updatedAt,
+				validUntil: documents.validUntil,
 				payload: documents.payload,
 				issuingLocation: locations.name,
 			})
@@ -628,18 +714,23 @@ export class DocumentService {
 			.limit(limit)
 	}
 
-	private toVerification(row: {
-		documentType: string
-		documentNumber: string
-		status: "valid" | "revoked" | "superseded"
-		issuedAt: Date
-		updatedAt: Date
-		payload: Record<string, unknown>
-		issuingLocation: string
-	}): DocumentVerification {
+	private toVerification(
+		row: {
+			documentType: string
+			documentNumber: string
+			status: "valid" | "revoked" | "superseded"
+			issuedAt: Date
+			updatedAt: Date
+			validUntil?: string | null
+			payload: Record<string, unknown>
+			issuingLocation: string
+		},
+		now: Date
+	): DocumentVerification {
 		const type = documentTypeFor(row.documentType)
 		// A type QSPS cannot describe (legacy imports, MIG-4) is out of scope here.
 		if (!type) throw noRecord()
+		const validUntil = row.validUntil ?? null
 		return {
 			documentType: type.type as DocumentVerification["documentType"],
 			documentTitle: type.title,
@@ -647,7 +738,9 @@ export class DocumentService {
 			holderName: maskName(holderNameOf(row.payload)),
 			issuingLocation: row.issuingLocation,
 			issuedAt: row.issuedAt,
-			status: row.status,
+			// Revoked and superseded stay as they are; only a valid document can expire (CRT-5).
+			status: row.status === "valid" && hasExpired(validUntil, now) ? "expired" : row.status,
+			validUntil,
 			// Revoking or superseding is the last change to a document row.
 			statusChangedAt: row.status === "valid" ? null : row.updatedAt,
 		}
@@ -780,8 +873,14 @@ export class DocumentService {
 				payload = medicalExemption.buildPayload(issueContext, input.exemption)
 				validUntil = medicalExemption.validUntil(input.exemption)
 			} else {
+				// CRT-5: the reissue request carries only vaccination details, so a Sanitary
+				// Permit or Ship Sanitation Certificate cannot be reissued yet.
 				const serviceType = serviceDocumentTypeFor(context.serviceDocumentType)
-				if (!serviceType || serviceType.type !== found.documentType) {
+				if (
+					!serviceType ||
+					serviceType.type !== found.documentType ||
+					found.documentType !== icvRecord.type
+				) {
 					throw new ORPCError("CONFLICT", {
 						message: "This document type cannot be reissued by QSPS",
 					})
@@ -791,9 +890,9 @@ export class DocumentService {
 						message: "Enter the corrected vaccination details",
 					})
 				}
-				type = serviceType
-				payload = serviceType.buildPayload(issueContext, input.details)
-				validUntil = serviceType.validUntil(input.details)
+				type = icvRecord
+				payload = icvRecord.buildPayload(issueContext, input.details)
+				validUntil = icvRecord.validUntil(input.details)
 			}
 
 			// Superseded first: the partial unique index allows one valid document per item.

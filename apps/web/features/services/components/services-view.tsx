@@ -45,6 +45,8 @@ type DocumentType = (typeof SERVICE_DOCUMENT_TYPES)[number]
 /** Names shown to admins for each document type a Service can issue (CRT-1, CRT-3). */
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 	"icv-record": "International Certificate of Vaccination",
+	"sanitary-permit": "Sanitary Permit",
+	"ship-sanitation": "Ship Sanitation Certificate",
 }
 
 function isDocumentType(value: string | null): value is DocumentType {

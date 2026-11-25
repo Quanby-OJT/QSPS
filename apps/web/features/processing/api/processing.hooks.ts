@@ -15,6 +15,8 @@ import type {
 	MedicalExemptionDetails,
 	ProcessingItem,
 	ProcessingQueue,
+	SanitaryPermitDetails,
+	ShipSanitationDetails,
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
@@ -291,11 +293,15 @@ export interface IssueDocumentRequest {
 	details: IcvIssueDetails | null
 	/** CRT-3: issue a Medical Exemption Certificate instead of the vaccination record. */
 	exemption: MedicalExemptionDetails | null
+	/** CRT-5: issue a Sanitary Permit. */
+	sanitaryPermit?: SanitaryPermitDetails | null
+	/** CRT-5: issue a Ship Sanitation Certificate. */
+	shipSanitation?: ShipSanitationDetails | null
 	idempotencyKey: string
 }
 
 /**
- * Issue the document for a cleared item as a separate step (CRT-1, CRT-3):
+ * Issue the document for a cleared item as a separate step (CRT-1, CRT-3, CRT-5):
  * Services with auto-issue off, and items cleared after head approval.
  */
 export function useIssueDocumentMutation(bookingItemId: number) {

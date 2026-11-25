@@ -67,10 +67,12 @@ export function correctionsFromRows(
 	return corrections
 }
 
-/** Names staff see for each document type (CRT-1, CRT-3). An unknown type shows as stored. */
+/** Names staff see for each document type (CRT-1, CRT-3, CRT-5). An unknown type shows as stored. */
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 	"icv-record": "International Certificate of Vaccination",
 	"medical-exemption": "Medical Exemption Certificate",
+	"sanitary-permit": "Sanitary Permit",
+	"ship-sanitation": "Ship Sanitation Certificate",
 }
 
 export function documentTypeLabel(type: string): string {
@@ -91,6 +93,22 @@ export function printCountLabel(printCount: number): string {
  */
 export function allowsExemption(serviceDocumentType: string | null): boolean {
 	return serviceDocumentType === "icv-record"
+}
+
+/** CRT-5: the documents an officer issues by hand, each with a validity period. */
+export type SanitationDocumentType = "sanitary-permit" | "ship-sanitation"
+
+/**
+ * CRT-5: the sanitation document a Service issues, or null for any other
+ * Service. Such a Service never auto-issues: the officer enters the validity
+ * period (and, for a ship, the findings) when issuing.
+ */
+export function sanitationDocumentType(
+	serviceDocumentType: string | null
+): SanitationDocumentType | null {
+	return serviceDocumentType === "sanitary-permit" || serviceDocumentType === "ship-sanitation"
+		? serviceDocumentType
+		: null
 }
 
 /**

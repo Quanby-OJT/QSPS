@@ -12,6 +12,7 @@ import {
 	outcomeLabel,
 	pendingRequiredSteps,
 	printCountLabel,
+	sanitationDocumentType,
 } from "./labels"
 
 describe("processing labels", () => {
@@ -101,5 +102,30 @@ describe("head approval labels (PRC-3)", () => {
 			])
 		).toEqual(["X-ray", "Physician evaluation"])
 		expect(pendingRequiredSteps([])).toEqual([])
+	})
+})
+
+describe("sanitation documents (CRT-5)", () => {
+	it("names the sanitary permit and the ship sanitation certificate", () => {
+		expect(documentTypeLabel("sanitary-permit")).toBe("Sanitary Permit")
+		expect(documentTypeLabel("ship-sanitation")).toBe("Ship Sanitation Certificate")
+	})
+
+	it("recognises a sanitation Service by its document type, and no other Service", () => {
+		expect(sanitationDocumentType("sanitary-permit")).toBe("sanitary-permit")
+		expect(sanitationDocumentType("ship-sanitation")).toBe("ship-sanitation")
+		expect(sanitationDocumentType("icv-record")).toBeNull()
+		expect(sanitationDocumentType(null)).toBeNull()
+	})
+
+	it("offers no exemption for a sanitation Service", () => {
+		expect(allowsExemption("sanitary-permit")).toBe(false)
+		expect(allowsExemption("ship-sanitation")).toBe(false)
+	})
+
+	it("asks for issuing a cleared sanitation item that has no document yet", () => {
+		const service = { documentType: "ship-sanitation" }
+		expect(needsIssuing({ status: "cleared", service, document: null })).toBe(true)
+		expect(needsIssuing({ status: "cleared", service, document: { id: 2 } })).toBe(false)
 	})
 })
