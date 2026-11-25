@@ -1,4 +1,6 @@
 import type { RenderableDocumentType } from "./document-type"
+import { foodSafetyTraining } from "./food-safety-training"
+import { haccp } from "./haccp"
 import { icvRecord } from "./icv-record"
 import { medicalExemption } from "./medical-exemption"
 import { sanitaryPermit } from "./sanitary-permit"
@@ -6,7 +8,7 @@ import { shipSanitation } from "./ship-sanitation"
 
 /**
  * Every document type QSPS can issue (CRT-1). A document's `document_type`
- * must be a key here. Later types (CRT-6 to CRT-10) add one line each.
+ * must be a key here. Later types (CRT-7 to CRT-10) add one line each.
  */
 const REGISTRY: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
@@ -15,6 +17,9 @@ const REGISTRY: Record<string, RenderableDocumentType> = {
 	// CRT-5: issued by sanitation Services. Wording and numbering await BOQ sign-off (PRD open item 6).
 	[sanitaryPermit.type]: sanitaryPermit,
 	[shipSanitation.type]: shipSanitation,
+	// CRT-6: issued by food safety Services. Wording and numbering await BOQ sign-off (PRD open item 6).
+	[foodSafetyTraining.type]: foodSafetyTraining,
+	[haccp.type]: haccp,
 }
 
 /**
@@ -26,6 +31,8 @@ const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
 	[sanitaryPermit.type]: sanitaryPermit,
 	[shipSanitation.type]: shipSanitation,
+	[foodSafetyTraining.type]: foodSafetyTraining,
+	[haccp.type]: haccp,
 }
 
 /**
@@ -35,7 +42,7 @@ const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
  */
 const VACCINATION_TYPES: readonly string[] = [icvRecord.type]
 
-export { icvRecord, medicalExemption, sanitaryPermit, shipSanitation }
+export { foodSafetyTraining, haccp, icvRecord, medicalExemption, sanitaryPermit, shipSanitation }
 
 /** The definition of an existing document's type, or undefined when QSPS cannot draw it. */
 export function documentTypeFor(

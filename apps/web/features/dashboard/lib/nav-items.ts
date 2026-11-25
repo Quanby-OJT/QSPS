@@ -73,6 +73,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "processing.assessments:approve",
 	},
 	{
+		// CRT-6: the day's seminar sessions: mark attendance and issue Food Safety Training Certificates.
+		label: "Seminars",
+		href: "/seminars",
+		icon: UserMultipleIcon,
+		requiredPermission: "certificates.documents:issue",
+	},
+	{
 		// PAY-4: record onsite payments. Cashier and Collecting Officer.
 		label: "Cashier",
 		href: "/cashier",

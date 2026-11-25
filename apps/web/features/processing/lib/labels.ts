@@ -73,6 +73,9 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 	"medical-exemption": "Medical Exemption Certificate",
 	"sanitary-permit": "Sanitary Permit",
 	"ship-sanitation": "Ship Sanitation Certificate",
+	// CRT-6
+	"food-safety-training": "Food Safety Training Certificate",
+	"haccp": "HACCP Certificate",
 }
 
 export function documentTypeLabel(type: string): string {
@@ -109,6 +112,26 @@ export function sanitationDocumentType(
 	return serviceDocumentType === "sanitary-permit" || serviceDocumentType === "ship-sanitation"
 		? serviceDocumentType
 		: null
+}
+
+/**
+ * CRT-6: the documents an officer issues by hand with a validity period: the
+ * two sanitation documents and the HACCP Certificate.
+ */
+export type ValidityDocumentType = SanitationDocumentType | "haccp"
+
+export function validityDocumentType(
+	serviceDocumentType: string | null
+): ValidityDocumentType | null {
+	return serviceDocumentType === "haccp" ? "haccp" : sanitationDocumentType(serviceDocumentType)
+}
+
+/**
+ * CRT-6: whether a Service is a seminar. Its Food Safety Training Certificate
+ * is issued to the whole session from the seminar roster, not from one item.
+ */
+export function isSeminarService(serviceDocumentType: string | null): boolean {
+	return serviceDocumentType === "food-safety-training"
 }
 
 /**

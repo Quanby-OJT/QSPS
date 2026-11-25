@@ -6,6 +6,7 @@ import { and, desc, eq, sql, type SQL } from "drizzle-orm"
 import type {
 	DocumentSummary,
 	DocumentVerification,
+	HaccpDetails,
 	IcvIssueDetails,
 	IssueDocumentInput,
 	ManualVerificationInput,
@@ -21,6 +22,7 @@ import {
 	documents,
 	documentSequences,
 	locations,
+	scheduleSlots,
 	services,
 	users,
 	userScopes,
@@ -42,6 +44,8 @@ import type { PdfExtras, RenderableDocumentType } from "./document-types/documen
 import { MissingAnswerError } from "./document-types/questionnaire-answers"
 import {
 	documentTypeFor,
+	foodSafetyTraining,
+	haccp,
 	icvRecord,
 	isVaccinationType,
 	medicalExemption,
@@ -98,6 +102,9 @@ function missingDetailsMessage(serviceType: RenderableDocumentType): string {
 	if (serviceType.type === shipSanitation.type) {
 		return "Enter the inspection findings and the dates the certificate is valid from and until."
 	}
+	if (serviceType.type === haccp.type) {
+		return "Enter the dates the HACCP Certificate is valid from and until."
+	}
 	return "Enter the vaccine batch number and the vaccinator, or record the medical exemption."
 }
 
@@ -137,6 +144,8 @@ export interface IssueRequest {
 	sanitaryPermit?: SanitaryPermitDetails | null
 	/** CRT-5: the findings and validity of a Ship Sanitation Certificate. */
 	shipSanitation?: ShipSanitationDetails | null
+	/** CRT-6: the validity of a HACCP Certificate. The establishment comes from the questionnaire. */
+	haccp?: HaccpDetails | null
 	now?: Date
 }
 
@@ -216,12 +225,15 @@ export class DocumentService {
 				holderBirthDate: users.birthDate,
 				holderGender: users.gender,
 				holderNationality: users.nationality,
+				sessionStartsAt: scheduleSlots.startsAt,
+				sessionEndsAt: scheduleSlots.endsAt,
 			})
 			.from(bookingItems)
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
 			.innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
 			.innerJoin(users, eq(users.id, bookings.clientId))
+			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
 			.where(eq(bookingItems.id, item.id))
 			.limit(1)
 		if (!context) {
@@ -244,6 +256,8 @@ export class DocumentService {
 			serviceName: context.serviceName,
 			locationName: context.locationName,
 			issuedAt: now,
+			// CRT-6: the seminar session or audit slot the item is booked into.
+			session: { startsAt: context.sessionStartsAt, endsAt: context.sessionEndsAt },
 		}
 
 		// CRT-3: an exempt client gets a Medical Exemption Certificate, with its
@@ -285,6 +299,21 @@ export class DocumentService {
 				shipSanitation.buildPayload({ ...issueContext, answers }, shipDetails)
 			)
 			validUntil = shipSanitation.validUntil(shipDetails)
+		} else if (request.haccp) {
+			// CRT-6: the establishment comes from the client's answers, the validity from staff.
+			requireServiceType(serviceType, haccp, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const haccpDetails = request.haccp
+			type = haccp
+			payload = fromAnswers(() => haccp.buildPayload({ ...issueContext, answers }, haccpDetails))
+			validUntil = haccp.validUntil(haccpDetails)
+		} else if (serviceType.type === foodSafetyTraining.type) {
+			// CRT-6: staff type nothing. The participant, the seminar and the session
+			// come from the booking, so a whole roster can be issued in one go.
+			const answers = await readableAnswers(tx, item.id)
+			type = foodSafetyTraining
+			payload = foodSafetyTraining.buildPayload({ ...issueContext, answers }, undefined)
+			validUntil = foodSafetyTraining.validUntil(undefined)
 		} else {
 			throw new ORPCError("BAD_REQUEST", { message: missingDetailsMessage(serviceType) })
 		}
@@ -450,6 +479,7 @@ export class DocumentService {
 				exemption: input.exemption,
 				sanitaryPermit: input.sanitaryPermit,
 				shipSanitation: input.shipSanitation,
+				haccp: input.haccp,
 			})
 		)
 		return result.document
