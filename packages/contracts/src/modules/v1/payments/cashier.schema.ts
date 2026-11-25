@@ -57,7 +57,8 @@ export const CashierBookingSchema = z.object({
 	referenceNumber: ReferenceNumberSchema,
 	status: BookingStatusSchema,
 	clientName: z.string(),
-	clientEmail: z.string(),
+	/** Null when the client has no email (a mobile-only walk-in): show "No email". */
+	clientEmail: z.string().nullable(),
 	items: z.array(CashierBookingItemSchema),
 	/** The Service fees. Onsite payments carry no convenience fee, so this is the amount due. */
 	totalCentavos: z.number().int().min(0),

@@ -62,7 +62,9 @@ export class FormSubmissionService implements FormSubmissionPreparer {
 				and(
 					eq(formTemplates.serviceId, serviceId),
 					eq(formTemplates.status, "published"),
-					eq(formTemplates.isActive, true)
+					eq(formTemplates.isActive, true),
+					// PRC-4: a Service Step's result form is never the client's questionnaire.
+					eq(formTemplates.purpose, "questionnaire")
 				)
 			)
 		const [template] = lock ? await query.for("share") : await query.limit(1)

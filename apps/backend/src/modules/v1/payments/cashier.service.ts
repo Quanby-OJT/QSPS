@@ -23,6 +23,7 @@ import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { denyOutsideScope } from "@/common/scope/scope-denial"
 import { NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import { displayEmail } from "@/common/users/placeholder-email"
 
 import { visibleToCashier } from "./cashier-scope"
 import { PaymentService } from "./payments.service"
@@ -263,7 +264,7 @@ export class CashierService {
 			referenceNumber: booking.referenceNumber,
 			status: booking.status,
 			clientName: booking.clientName,
-			clientEmail: booking.clientEmail,
+			clientEmail: displayEmail(booking.clientEmail),
 			items: items.map(item => ({
 				serviceName: item.serviceName,
 				locationName: item.locationName,

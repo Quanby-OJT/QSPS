@@ -646,6 +646,14 @@ export const documents = createTable(
 		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
 		/** How many times staff printed it (CRT-3); above 1 means it was reprinted. */
 		printCount: t.integer("print_count").notNull().default(0),
+		/** CRT-8: the document that replaced this one when it was reissued. No foreign key: a self-reference written only by DocumentService. */
+		supersededBy: t.integer("superseded_by"),
+		/** CRT-8: why it was revoked or reissued. */
+		statusReason: t.text("status_reason"),
+		/** CRT-8: who revoked or reissued it. */
+		statusChangedBy: t
+			.text("status_changed_by")
+			.references(() => users.id, { onDelete: "restrict" }),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
@@ -741,11 +749,26 @@ export const payments = createTable(
 		collectedBy: t.text("collected_by").references(() => users.id, { onDelete: "restrict" }),
 		/** PAY-4: how an onsite payment was tendered at the cashier; null for online payments. */
 		tenderType: t.text("tender_type").$type<"cash" | "card" | "check">(),
+		/**
+		 * PAY-6: how staff resolved a `needs_review` Payment. Null while it is
+		 * still in the exceptions list. Set once, by `PaymentService.resolveReview`.
+		 */
+		reviewResolution: t.text("review_resolution").$type<"rebooked" | "refund_requested">(),
+		/** PAY-6: what staff wrote when resolving it. */
+		reviewNote: t.text("review_note"),
+		/** PAY-6: the new Booking made for the client, when resolved by rebooking. */
+		rebookedBookingId: t
+			.integer("rebooked_booking_id")
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		reviewedBy: t.text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+		reviewedAt: t.timestamp("reviewed_at"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
 	t => [
 		index("payments_booking_idx").on(t.bookingId),
+		// PAY-6: the re-query job reads pending payments oldest-checked first.
+		index("payments_status_updated_idx").on(t.status, t.updatedAt),
 		// A provider reference identifies one payment. Nulls (not yet sent to
 		// checkout) do not collide in Postgres.
 		uniqueIndex("payments_provider_reference_uq").on(t.providerCode, t.providerReference),
@@ -780,6 +803,46 @@ export const paymentEvents = createTable(
 	]
 )
 
+/**
+ * A request to return or forfeit a Booking's money (DOMAIN-MODEL.md
+ * `refund_requests`). Created by PAY-6 when staff resolve a payment exception
+ * by opening a refund; deciding and settling it is PAY-7.
+ */
+export const refundRequests = createTable(
+	"refund_requests",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		/** The Payment the money came from, when the request is about one Payment (PAY-6). */
+		paymentId: t.integer("payment_id").references(() => payments.id, { onDelete: "restrict" }),
+		kind: t.text("kind").notNull().$type<"refund" | "forfeiture">(),
+		status: t
+			.text("status")
+			.notNull()
+			.default("requested")
+			.$type<"requested" | "approved" | "settled" | "rejected">(),
+		reason: t.text("reason").notNull(),
+		requestedBy: t
+			.text("requested_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		decidedBy: t.text("decided_by").references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("refund_requests_booking_idx").on(t.bookingId),
+		// One open request per Payment: resolving the same exception twice cannot
+		// ask for the same money back twice.
+		uniqueIndex("refund_requests_payment_open_uq")
+			.on(t.paymentId)
+			.where(sql`${t.status} in ('requested', 'approved')`),
+	]
+)
+
 /** One printed line of an e-Receipt, as it was at payment time (PAY-2a). */
 export interface ReceiptServiceLine {
 	serviceName: string
@@ -790,25 +853,29 @@ export interface ReceiptServiceLine {
  * transaction that marks the Payment `succeeded`; never updated. The PDF is
  * rendered on demand from this row and its Payment, never stored as a file.
  */
-export const receipts = createTable("receipts", t => ({
-	id: t.serial("id").primaryKey(),
-	paymentId: t
-		.integer("payment_id")
-		.notNull()
-		.unique()
-		.references(() => payments.id, { onDelete: "restrict" }),
-	/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
-	receiptNumber: t.text("receipt_number").notNull().unique(),
-	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
-	verificationToken: t.text("verification_token").notNull().unique(),
-	/** PAY-2a: the client's name at payment time. */
-	clientName: t.text("client_name").notNull(),
-	/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
-	channelName: t.text("channel_name").notNull(),
-	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
-	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
-	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
-}))
+export const receipts = createTable(
+	"receipts",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		paymentId: t
+			.integer("payment_id")
+			.notNull()
+			.unique()
+			.references(() => payments.id, { onDelete: "restrict" }),
+		/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
+		receiptNumber: t.text("receipt_number").notNull().unique(),
+		/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
+		verificationToken: t.text("verification_token").notNull().unique(),
+		/** PAY-2a: the client's name at payment time. */
+		clientName: t.text("client_name").notNull(),
+		/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
+		channelName: t.text("channel_name").notNull(),
+		/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
+		serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
+		issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+	}),
+	t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)]
+)
 
 // ============================================================================
 // POLICIES
@@ -956,6 +1023,9 @@ export type FormFieldType =
 	| "yes_no"
 	| "file"
 
+/** What a Form Template is for (PRC-4). Same list as FORM_TEMPLATE_PURPOSES in @repo/contracts. */
+export type FormTemplatePurpose = "questionnaire" | "step_result"
+
 /**
  * One version of the questionnaire a client answers for a Service (FRM-1).
  *
@@ -974,7 +1044,21 @@ export const formTemplates = createTable(
 			.integer("service_id")
 			.notNull()
 			.references(() => services.id, { onDelete: "restrict" }),
-		/** 1, 2, 3… per Service, in the order versions were created. */
+		/**
+		 * PRC-4: `questionnaire` is the client's form for the Service (FRM-1);
+		 * `step_result` is the form staff fill at one Service Step, named by
+		 * `service_step_id`. Questionnaire screens and queries see only
+		 * questionnaires.
+		 */
+		purpose: t.text("purpose").notNull().default("questionnaire").$type<FormTemplatePurpose>(),
+		/** PRC-4: the Service Step this result form belongs to; null for questionnaires. */
+		serviceStepId: t
+			.integer("service_step_id")
+			.references(() => serviceSteps.id, { onDelete: "restrict" }),
+		/**
+		 * 1, 2, 3… in the order versions were created: per Service for a
+		 * questionnaire, per Service Step for a step result form.
+		 */
 		version: t.integer("version").notNull(),
 		status: t.text("status").notNull().default("draft").$type<"draft" | "published" | "retired">(),
 		isActive: t.boolean("is_active").notNull().default(true),
@@ -983,14 +1067,23 @@ export const formTemplates = createTable(
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
 	t => [
-		uniqueIndex("form_templates_service_version_uq").on(t.serviceId, t.version),
-		// At most one draft and one published version per Service.
+		uniqueIndex("form_templates_service_version_uq")
+			.on(t.serviceId, t.version)
+			.where(sql`${t.purpose} = 'questionnaire'`),
+		// At most one draft and one published questionnaire version per Service.
 		uniqueIndex("form_templates_one_draft_per_service_uq")
 			.on(t.serviceId)
-			.where(sql`${t.status} = 'draft'`),
+			.where(sql`${t.status} = 'draft' and ${t.purpose} = 'questionnaire'`),
 		uniqueIndex("form_templates_one_published_per_service_uq")
 			.on(t.serviceId)
-			.where(sql`${t.status} = 'published'`),
+			.where(sql`${t.status} = 'published' and ${t.purpose} = 'questionnaire'`),
+		// PRC-4: a step's result form is versioned per step, with one published version.
+		uniqueIndex("form_templates_step_version_uq")
+			.on(t.serviceStepId, t.version)
+			.where(sql`${t.serviceStepId} is not null`),
+		uniqueIndex("form_templates_one_published_per_step_uq")
+			.on(t.serviceStepId)
+			.where(sql`${t.status} = 'published' and ${t.serviceStepId} is not null`),
 	]
 )
 
@@ -1042,6 +1135,74 @@ export const formSubmissions = createTable(
 	]
 )
 
+/**
+ * An ordered station a Service's Booking Items pass through before
+ * clearance, such as Laboratory, X-ray or Physician evaluation (PRC-4, PRD
+ * assumption A3). Its result form is a `form_templates` row with
+ * `purpose = step_result`. A step with recorded results is never deleted,
+ * only disabled (`is_active` false), so old results keep their step.
+ */
+export const serviceSteps = createTable(
+	"service_steps",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		serviceId: t
+			.integer("service_id")
+			.notNull()
+			.references(() => services.id, { onDelete: "restrict" }),
+		name: t.text("name").notNull(),
+		/** 0-based order of the active steps. */
+		position: t.integer("position").notNull(),
+		/** A required step must have a result before the item can be cleared. */
+		required: t.boolean("required").notNull().default(true),
+		isActive: t.boolean("is_active").notNull().default(true),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [index("service_steps_service_idx").on(t.serviceId, t.position)]
+)
+
+/**
+ * The result recorded at one Service Step for one Booking Item (PRC-4).
+ * Insert-only: a correction adds the next `version`, and earlier versions
+ * are kept. The current result is the highest version. Points at the exact
+ * result form version filled, so an edited form never changes old results.
+ */
+export const stepResults = createTable(
+	"step_results",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingItemId: t
+			.integer("booking_item_id")
+			.notNull()
+			.references(() => bookingItems.id, { onDelete: "restrict" }),
+		serviceStepId: t
+			.integer("service_step_id")
+			.notNull()
+			.references(() => serviceSteps.id, { onDelete: "restrict" }),
+		formTemplateId: t
+			.integer("form_template_id")
+			.notNull()
+			.references(() => formTemplates.id, { onDelete: "restrict" }),
+		/** 1 for the first result, 2, 3… for each correction. */
+		version: t.integer("version").notNull(),
+		answers: t.jsonb("answers").notNull().$type<Record<string, unknown>>(),
+		recordedBy: t
+			.text("recorded_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [
+		uniqueIndex("step_results_item_step_version_uq").on(
+			t.bookingItemId,
+			t.serviceStepId,
+			t.version
+		),
+		index("step_results_step_idx").on(t.serviceStepId),
+	]
+)
+
 // ============================================================================
 // RELATIONS
 // ============================================================================
@@ -1067,6 +1228,7 @@ export const relations = defineRelations(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,
@@ -1081,6 +1243,8 @@ export const relations = defineRelations(
 		formTemplates,
 		formFields,
 		formSubmissions,
+		serviceSteps,
+		stepResults,
 	},
 	r => ({
 		users: {
@@ -1309,6 +1473,7 @@ export const schema = Object.assign(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,
@@ -1323,6 +1488,8 @@ export const schema = Object.assign(
 		formTemplates,
 		formFields,
 		formSubmissions,
+		serviceSteps,
+		stepResults,
 	},
 	relations
 )

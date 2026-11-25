@@ -10,10 +10,10 @@ import {
 	PERMISSION_NAMES,
 	ROLE_NAMES,
 	type AssignRoleRequest,
-	type CreateRoleInput,
-	type CreateStaffUserInput,
 	type AuditLogEntryDetail,
 	type AuditLogFilter,
+	type CreateRoleInput,
+	type CreateStaffUserInput,
 	type DeleteUserResponse,
 	type ExportAuditLogRequest,
 	type ExportAuditLogResponse,
@@ -51,11 +51,7 @@ import {
 	userScopes,
 } from "@repo/db/schema"
 
-import {
-	AUDIT_DOMAIN_AUDIT,
-	AUDIT_DOMAIN_RBAC,
-	AuditService,
-} from "@/common/audit/audit.service"
+import { AUDIT_DOMAIN_AUDIT, AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { ExportService } from "@/common/export/export.service"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
@@ -72,6 +68,7 @@ import {
 	userWithinScope,
 	type ResolvedScope,
 } from "@/common/scope/scope-match"
+import { displayEmail, NO_EMAIL_LABEL } from "@/common/users/placeholder-email"
 
 const PERMISSION_CATALOG = new Set<string>(PERMISSION_NAMES)
 
@@ -478,7 +475,7 @@ export class RbacAdminService {
 		const { items } = await this.queryFilteredUsers(query, includeDirectory, scope)
 		const rows = items.map(user => ({
 			name: user.name ?? "",
-			email: includeDirectory ? user.email : "[redacted]",
+			email: includeDirectory ? (user.email ?? NO_EMAIL_LABEL) : "[redacted]",
 			accountType: user.accountType,
 			status: user.status,
 			roles: user.roles.join(", "),
@@ -1301,7 +1298,7 @@ export class RbacAdminService {
 		return {
 			id: user.id,
 			name: user.name,
-			email: includeDirectory ? user.email : "",
+			email: includeDirectory ? displayEmail(user.email) : "",
 			accountType,
 			status,
 			roles: assignedRoles.slice().sort(),

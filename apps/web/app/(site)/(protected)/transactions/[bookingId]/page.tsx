@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
-import { BookingDetail } from "@/features/bookings/components/booking-detail"
+import { BookingDetailView } from "@/features/bookings/components/booking-detail"
 
 export const metadata: Metadata = {
-	title: "Booking details",
+	title: "Booking Details",
 }
 
 export default async function BookingDetailPage({
@@ -17,5 +17,6 @@ export default async function BookingDetailPage({
 	if (!Number.isInteger(parsedId) || parsedId <= 0) {
 		notFound()
 	}
-	return <BookingDetail bookingId={parsedId} />
+
+	return <BookingDetailView bookingId={parsedId} />
 }

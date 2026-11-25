@@ -447,6 +447,8 @@ describe("BookingService.create", () => {
 					clientId: "client-1",
 					status: "pending_payment",
 					kind: "regular",
+					// PRC-2: who encoded it; the client themself for an online booking.
+					createdBy: "client-1",
 					totalCentavos: 150000,
 					holdExpiresAt: "2026-11-17T08:00:00.000Z",
 					items: [
@@ -723,6 +725,100 @@ describe("BookingService.create", () => {
 			code: "INTERNAL_SERVER_ERROR",
 		})
 		expect(insert).not.toHaveBeenCalled()
+	})
+
+	describe("walk-in (PRC-2)", () => {
+		const walkIn = { clientId: "client-1", locationId: 2 }
+		/** Today 14:00–18:00 in Manila: already in progress at 15:00. */
+		const inProgress = makeSlot({
+			startsAt: new Date("2026-11-17T06:00:00.000Z"),
+			endsAt: new Date("2026-11-17T10:00:00.000Z"),
+			bookedCount: 3,
+		})
+
+		it("books for the client, as kind walk-in, recorded as created by the officer", async () => {
+			const { bookingValues, clientLock } = mockBookingTransaction({
+				slots: [inProgress],
+				savedBooking: { ...savedBooking, kind: "walk-in", createdBy: "officer-7" },
+			})
+
+			const booking = await bookingService.create(oneSlot(), "officer-7", NOW, walkIn)
+
+			expect(clientLock).toHaveBeenCalledWith("update")
+			expect(bookingValues).toHaveBeenCalledWith(
+				expect.objectContaining({
+					clientId: "client-1",
+					createdBy: "officer-7",
+					kind: "walk-in",
+					status: "pending_payment",
+				})
+			)
+			expect(booking.kind).toBe("walk-in")
+			expect(auditService.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "booking.create",
+					actorId: "officer-7",
+					newValue: expect.objectContaining({
+						clientId: "client-1",
+						createdBy: "officer-7",
+						kind: "walk-in",
+					}),
+				}),
+				expect.anything()
+			)
+		})
+
+		it("lets a walk-in join a slot in progress, but not one that has ended", async () => {
+			mockBookingTransaction({ slots: [inProgress] })
+			await expect(
+				bookingService.create(oneSlot(), "officer-7", NOW, walkIn)
+			).resolves.toMatchObject({ id: 31 })
+
+			const { insert } = mockBookingTransaction({
+				slots: [
+					makeSlot({
+						startsAt: new Date("2026-11-17T01:00:00.000Z"),
+						endsAt: new Date("2026-11-17T05:00:00.000Z"),
+					}),
+				],
+			})
+			await expect(
+				bookingService.create(oneSlot(), "officer-7", NOW, walkIn)
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining("already started"),
+			})
+			expect(insert).not.toHaveBeenCalled()
+		})
+
+		it("refuses a slot at another Location, creating nothing", async () => {
+			const { insert } = mockBookingTransaction({ slots: [inProgress] })
+			await expect(
+				bookingService.create(oneSlot(), "officer-7", NOW, { clientId: "client-1", locationId: 9 })
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining("not at your location"),
+			})
+			expect(insert).not.toHaveBeenCalled()
+		})
+
+		it("tells the officer when the client already has an unpaid booking", async () => {
+			mockBookingTransaction({ unpaid: [{ referenceNumber: "QSPS-261116-ZZ99ZZ" }] })
+			await expect(
+				bookingService.create(oneSlot(), "officer-7", NOW, walkIn)
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining("This client already has a booking awaiting payment"),
+			})
+		})
+
+		it("still refuses a slot that has started for a client's own booking", async () => {
+			mockBookingTransaction({ slots: [inProgress] })
+			await expect(bookingService.create(oneSlot(), "client-1", NOW)).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining("already started"),
+			})
+		})
 	})
 
 	it("refuses a request with no signed-in user before opening a transaction", async () => {

@@ -1,17 +1,20 @@
 import { oc } from "@orpc/contract"
 
 import { bookingsContract } from "./bookings/bookings.contract.js"
+import { walkInContract } from "./bookings/walk-in.contract.js"
 import { certificatesContract } from "./certificates/certificates.contract.js"
 import { formsContract } from "./forms/forms.contract.js"
 import { healthContract } from "./health/health.contract.js"
 import { locationsContract } from "./locations/locations.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { cashierContract } from "./payments/cashier.contract.js"
+import { paymentExceptionsContract } from "./payments/payment-exceptions.contract.js"
 import { paymentChannelsContract, paymentsContract } from "./payments/payments.contract.js"
 import { policiesContract } from "./policies/policies.contract.js"
 import { policyDocumentsContract } from "./policies/policy-documents.contract.js"
 import { processingContract } from "./processing/processing.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
+import { reportsContract } from "./reports/reports.contract.js"
 import { schedulesContract } from "./schedules/schedules.contract.js"
 import { servicesContract } from "./services/services.contract.js"
 import { supportContract } from "./support/support.contract.js"
@@ -31,13 +34,17 @@ export const v1Contract = oc.prefix("/v1").router(
 		payments: paymentsContract,
 		paymentChannels: paymentChannelsContract,
 		cashier: cashierContract,
+		paymentExceptions: paymentExceptionsContract,
 		policies: policiesContract,
 		policyDocuments: policyDocumentsContract,
 		processing: processingContract,
 		rbac: rbacContract,
+		reports: reportsContract,
 		schedules: schedulesContract,
 		services: servicesContract,
 		support: supportContract,
+		// PRC-2: walk-in clients booked by a Processing Officer.
+		walkIn: walkInContract,
 	})
 )
 

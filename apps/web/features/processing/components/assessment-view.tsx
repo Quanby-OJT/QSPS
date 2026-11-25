@@ -32,6 +32,8 @@ import {
 	IssueDocumentPanel,
 	useDocumentDetailsForm,
 } from "@/features/processing/components/document-panels"
+import { PrintoutsPanel } from "@/features/processing/components/printouts-panel"
+import { StepsPanel } from "@/features/processing/components/steps-panel"
 import {
 	allowsExemption,
 	canDecideApproval,
@@ -42,7 +44,9 @@ import {
 	itemStatusLabel,
 	needsIssuing,
 	outcomeLabel,
+	pendingRequiredSteps,
 } from "@/features/processing/lib/labels"
+import { printoutsFor } from "@/features/processing/lib/printouts"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
 
 const OUTCOMES: { value: AssessmentOutcome; label: string; hint: string }[] = [
@@ -105,6 +109,7 @@ export function AssessmentView({
 	canApprove = false,
 	canIssue = false,
 	canPrint = false,
+	canRevoke = false,
 }: {
 	bookingItemId: number
 	/** PRC-3: the caller holds processing.assessments:approve. */
@@ -113,6 +118,8 @@ export function AssessmentView({
 	canIssue?: boolean
 	/** CRT-3: the caller holds certificates.documents:print. */
 	canPrint?: boolean
+	/** CRT-8: the caller holds certificates.documents:revoke. */
+	canRevoke?: boolean
 }) {
 	const item = useProcessingItemQuery(bookingItemId)
 	// Hydration-safe: loading on the server and on the client's first render,
@@ -146,6 +153,7 @@ export function AssessmentView({
 					canApprove={canApprove}
 					canIssue={canIssue}
 					canPrint={canPrint}
+					canRevoke={canRevoke}
 				/>
 			) : null}
 		</section>
@@ -157,11 +165,13 @@ function AssessmentBody({
 	canApprove,
 	canIssue,
 	canPrint,
+	canRevoke,
 }: {
 	item: ProcessingItem
 	canApprove: boolean
 	canIssue: boolean
 	canPrint: boolean
+	canRevoke: boolean
 }) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
@@ -210,7 +220,7 @@ function AssessmentBody({
 					<h2 className="font-semibold">Client profile</h2>
 					<dl className="grid grid-cols-2 gap-3">
 						<Detail label="Name" value={item.client.name} />
-						<Detail label="Email" value={item.client.email} />
+						<Detail label="Email" value={item.client.email ?? "No email"} />
 						<Detail label="Mobile" value={item.client.mobile} />
 						<Detail label="Birth date" value={item.client.birthDate} />
 						<Detail label="Gender" value={item.client.gender} />
@@ -255,6 +265,15 @@ function AssessmentBody({
 			</div>
 
 			<div className="flex flex-col gap-6">
+				{/* PRC-4: the Service's steps, recorded before the item can be cleared. */}
+				{/* `?? []`: an item cached before steps existed has none until it refetches. */}
+				{(item.steps ?? []).length > 0 ? (
+					<StepsPanel
+						item={item}
+						canRecord={item.status === "in_assessment" || item.status === "checked_in"}
+					/>
+				) : null}
+
 				{canOpen(item.status) ? (
 					<div className="bg-card flex flex-col items-start gap-3 rounded-xl border p-4">
 						<h2 className="font-semibold">
@@ -282,13 +301,24 @@ function AssessmentBody({
 				) : null}
 
 				{item.document ? (
-					<IssuedDocumentPanel item={{ ...item, document: item.document }} canPrint={canPrint} />
+					<IssuedDocumentPanel
+						item={{ ...item, document: item.document }}
+						canPrint={canPrint}
+						canRevoke={canRevoke}
+					/>
 				) : needsIssuing(item) && canIssue ? (
 					<IssueDocumentPanel
 						item={item}
 						allowExemption={allowsExemption(item.service.documentType)}
 					/>
 				) : null}
+
+				{/* CRT-4: the application form and the Request for Payment, for Physical Examination. */}
+				<PrintoutsPanel
+					bookingId={item.booking.id}
+					bookingItemId={item.bookingItemId}
+					{...printoutsFor(item, canPrint)}
+				/>
 
 				<div className="bg-card flex flex-col gap-4 rounded-xl border p-4">
 					<h2 className="font-semibold">Assessment history</h2>
@@ -347,10 +377,12 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 	const allowExemption = allowsExemption(item.service.documentType)
 	const exempt = needsCertificate && allowExemption && documentForm.mode === "exempt"
 	const certificateMissing = needsCertificate && documentForm.missing
+	// PRC-4: clearing waits for every required step's result. Return and reject do not.
+	const stepsPending = outcome === "cleared" ? pendingRequiredSteps(item.steps ?? []) : []
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
-		if (noteMissing || certificateMissing) return
+		if (noteMissing || certificateMissing || stepsPending.length > 0) return
 		try {
 			const saved = await record.mutateAsync({
 				outcome,
@@ -409,6 +441,11 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 				{outcome === "cleared" && item.service.requiresApproval ? (
 					<p className="text-muted-foreground text-xs">
 						This service needs head approval, so clearing sends it to the Head for approval first.
+					</p>
+				) : null}
+				{stepsPending.length > 0 ? (
+					<p role="alert" className="text-destructive text-sm">
+						Record the result of every required step before clearing: {stepsPending.join(", ")}.
 					</p>
 				) : null}
 			</fieldset>
@@ -492,7 +529,7 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 
 			<Button
 				type="submit"
-				disabled={record.isPending || noteMissing || certificateMissing}
+				disabled={record.isPending || noteMissing || certificateMissing || stepsPending.length > 0}
 				className="self-start"
 			>
 				{record.isPending

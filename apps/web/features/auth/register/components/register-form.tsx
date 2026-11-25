@@ -17,9 +17,10 @@ import { Input } from "@/core/components/ui/input"
 import { useRateLimitCountdown } from "@/core/hooks/use-rate-limit-countdown"
 import { parseRateLimitError } from "@/core/lib/rate-limit-utils"
 import { cn } from "@/core/lib/utils"
-import { PasswordInput } from "@/features/auth/components/password-input"
 import { useCaptcha } from "@/features/auth/captcha/captcha"
+import { PasswordInput } from "@/features/auth/components/password-input"
 import { RateLimitBanner } from "@/features/auth/components/rate-limit-banner"
+import { PRIVACY_NOTICE_TEXT } from "@/features/auth/privacy-notice/lib/privacy-notice"
 
 import { useRegisterMutation } from "../api/register.hooks"
 import { RegisterSchema } from "../api/register.schema"
@@ -182,7 +183,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 													aria-describedby="privacy-notice"
 													disabled={isPending}
 												/>
-												<FieldLabel htmlFor={field.name} className="leading-snug font-normal">
+												<FieldLabel htmlFor={field.name} className="font-normal leading-snug">
 													I have read and accept the privacy notice below.
 												</FieldLabel>
 											</div>
@@ -190,11 +191,7 @@ export function RegisterForm({ className, ...props }: React.ComponentProps<"div"
 												id="privacy-notice"
 												className="bg-muted rounded-lg p-3 text-xs leading-relaxed"
 											>
-												The Bureau of Quarantine collects your name, email, mobile number, birth
-												date, nationality, and gender to create your account, schedule and process
-												the services you book, and issue your documents, as allowed by the Data
-												Privacy Act of 2012 (RA 10173). Your data is kept only as long as BOQ&apos;s
-												retention policy requires and is used only for the services you request.
+												{PRIVACY_NOTICE_TEXT}
 											</FieldDescription>
 											{isInvalid && <FieldError errors={field.state.meta.errors} />}
 										</Field>

@@ -161,6 +161,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 		slotStartsAt: Date
 		payOnsite?: boolean
 		bookedCount?: number
+		kind?: "regular" | "walk-in"
 	}) {
 		// Each slot gets its own start second: slots are unique per start time.
 		const startsAt = new Date(options.slotStartsAt.getTime() + slotOffset++ * 1000)
@@ -184,7 +185,7 @@ describe("BookingExpiryService (BKG-2)", () => {
 				referenceNumber: `QSPS-010101-${suffix}`,
 				clientId: fixture.userId,
 				status: "pending_payment",
-				kind: "regular",
+				kind: options.kind ?? "regular",
 				totalCentavos: 10000,
 				holdExpiresAt: options.holdExpiresAt,
 				payOnsite: options.payOnsite ?? false,
@@ -272,6 +273,36 @@ describe("BookingExpiryService (BKG-2)", () => {
 		expect(await bookedCount(slotId)).toBe(1)
 	})
 
+	itDb(
+		"never cancels a walk-in at the arrival cutoff, even in a slot in progress (PRC-2)",
+		async () => {
+			const { bookingId, slotId } = await makeBooking({
+				holdExpiresAt: minutes(45),
+				slotStartsAt: minutes(-30),
+				kind: "walk-in",
+			})
+
+			await jobs[0].expireDue(NOW)
+
+			expect((await bookingRow(bookingId)).status).toBe("pending_payment")
+			expect(await bookedCount(slotId)).toBe(2)
+		}
+	)
+
+	itDb("still releases an unpaid walk-in once its payment hold passes (PRC-2)", async () => {
+		const { bookingId, slotId } = await makeBooking({
+			holdExpiresAt: minutes(-1),
+			slotStartsAt: minutes(-30),
+			kind: "walk-in",
+		})
+
+		await expect(jobs[0].expireDue(NOW)).resolves.toEqual({ holdExpired: 1, noShow: 0, failed: 0 })
+
+		const row = await bookingRow(bookingId)
+		expect(row.cancelReason).toBe("hold_expired")
+		expect(await bookedCount(slotId)).toBe(1)
+	})
+
 	itDb("does not apply the hold to an onsite booking before its cutoff", async () => {
 		// A stale hold time left on the row must not cancel an onsite booking.
 		const { bookingId } = await makeBooking({
@@ -308,6 +339,48 @@ describe("BookingExpiryService (BKG-2)", () => {
 		await jobs[0].expireDue(minutes(51))
 		expect((await bookingRow(bookingId)).cancelReason).toBe("hold_expired")
 		expect(await bookedCount(slotId)).toBe(1)
+	})
+
+	itDb("keeps waiting while the provider still reports the payment pending (PAY-6 deferral)", async () => {
+		const { bookingId } = await makeBooking({
+			holdExpiresAt: minutes(-90),
+			slotStartsAt: minutes(24 * 60),
+		})
+		// Started two hours ago; the re-query job heard "still pending" 5 minutes ago.
+		await db.insert(payments).values({
+			bookingId,
+			channelCode: "seven-eleven",
+			providerCode: "fake",
+			amountCentavos: 10000,
+			status: "pending",
+			createdAt: minutes(-120),
+			updatedAt: minutes(-5),
+		})
+
+		await jobs[0].expireDue(NOW)
+
+		expect((await bookingRow(bookingId)).status).toBe("pending_payment")
+	})
+
+	itDb("stops waiting once a pending payment is older than the deferral limit (PAY-6)", async () => {
+		const { bookingId } = await makeBooking({
+			holdExpiresAt: minutes(-90),
+			slotStartsAt: minutes(48 * 60),
+		})
+		// Still "pending" at the provider, but started 25 hours ago.
+		await db.insert(payments).values({
+			bookingId,
+			channelCode: "seven-eleven",
+			providerCode: "fake",
+			amountCentavos: 10000,
+			status: "pending",
+			createdAt: minutes(-25 * 60),
+			updatedAt: minutes(-5),
+		})
+
+		await jobs[0].expireDue(NOW)
+
+		expect((await bookingRow(bookingId)).cancelReason).toBe("hold_expired")
 	})
 
 	itDb("cancels once and frees one place when two runs overlap", async () => {

@@ -30,6 +30,7 @@ import {
 } from "@/features/bookings/components/booking-fee-lines"
 import { RescheduleItemDialog } from "@/features/bookings/components/reschedule-item-dialog"
 import { PaymentCheckout } from "@/features/payments/components/payment-checkout"
+import { applicationFormDownloadUrl } from "@/features/processing/api/printouts.hooks"
 import { dateLabel, manilaDateKey, manilaTime } from "@/features/schedules/lib/calendar"
 
 function newIdempotencyKey(): string {
@@ -126,6 +127,9 @@ export function UnpaidBookingDetails({
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
 	const [reschedulingItemId, setReschedulingItemId] = useState<number | null>(null)
 	const busy = paying || choosingOnsite || cancelling
+	// CRT-4: the client downloads their own Physical Examination application form.
+	// Items carry no category, so match the seeded Service name; the API refuses anything else.
+	const physicalExamItems = booking.items.filter(item => /physical exam/i.test(item.serviceName))
 
 	const reschedulingItem =
 		booking.items.find(item => item.id === reschedulingItemId) ?? null
@@ -137,7 +141,7 @@ export function UnpaidBookingDetails({
 					<CardTitle>Booking awaiting payment</CardTitle>
 					<div className="flex items-center gap-2">
 						<Badge variant="secondary">Pending payment</Badge>
-						<Button size="sm" variant="ghost" render={<Link href={`/book/${booking.id}`} />}>
+						<Button size="sm" variant="ghost" render={<Link href={`/transactions/${booking.id}`} />}>
 							View details
 						</Button>
 					</div>
@@ -192,6 +196,23 @@ export function UnpaidBookingDetails({
 						if (!open) setReschedulingItemId(null)
 					}}
 				/>
+
+				{physicalExamItems.length > 0 ? (
+					<div className="flex flex-col gap-1">
+						<p className="text-muted-foreground text-sm">Application form</p>
+						{physicalExamItems.map(item => (
+							<a
+								key={item.id}
+								href={applicationFormDownloadUrl(item.id)}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-primary text-sm underline underline-offset-4"
+							>
+								Download the application form for {item.serviceName}
+							</a>
+						))}
+					</div>
+				) : null}
 
 				{booking.payOnsite ? (
 					<p className="text-sm">

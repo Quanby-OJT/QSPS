@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common"
 
-import { paymentEvents, payments, receipts } from "@repo/db/schema"
+import { paymentEvents, payments, receipts, refundRequests } from "@repo/db/schema"
 
 import type { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -65,7 +65,12 @@ function fakeDatabase(options: { selects?: unknown[][]; inserts?: unknown[][] })
 			innerJoin: () => chain,
 			leftJoin: () => chain,
 			where: () => chain,
-			orderBy: () => Promise.resolve(rows),
+			// Awaited directly, or followed by limit().
+			orderBy: () => ({
+				then: (resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) =>
+					Promise.resolve(rows).then(resolve, reject),
+				limit: () => Promise.resolve(rows),
+			}),
 			limit: () => Promise.resolve(rows),
 			for: (mode: string) => {
 				locks.push(mode)
@@ -573,7 +578,8 @@ describe("PaymentService", () => {
 		})
 
 		it("records late money on a cancelled booking and flags it for review", async () => {
-			const database = fakeDatabase({ selects: [[savedPayment], receiptNames, receiptLines] })
+			// [] = no other succeeded payment: a late payment, not a duplicate.
+			const database = fakeDatabase({ selects: [[savedPayment], [], receiptNames, receiptLines] })
 			bookingService.markPaid.mockResolvedValue(false)
 
 			const result = await makeService().confirm(90, { actorId: null }, NOW)
@@ -806,6 +812,248 @@ describe("PaymentService", () => {
 			await expect(
 				makeCashierService().collectOnsite(collect, "cashier-1", NOW)
 			).rejects.toMatchObject({ code: "NOT_FOUND" })
+		})
+	})
+
+	describe("duplicate payments (PAY-6)", () => {
+		it("records a second success on a paid booking as a duplicate, with no second receipt", async () => {
+			// [{ id: 88 }] = the booking was already paid by payment 88.
+			const database = fakeDatabase({ selects: [[savedPayment], [{ id: 88 }]] })
+			bookingService.markPaid.mockResolvedValue(false)
+
+			const result = await makeService().confirm(90, { actorId: null }, NOW)
+
+			expect(result).toEqual({ alreadyConfirmed: false, needsReview: true })
+			expect(database.updated).toEqual([
+				{ table: payments, values: { status: "succeeded", needsReview: true, updatedAt: NOW } },
+			])
+			expect(database.inserted).toEqual([])
+			expect(audit.record).not.toHaveBeenCalledWith(
+				expect.objectContaining({ action: "receipt.issue" }),
+				expect.anything()
+			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "payment.succeeded",
+					newValue: expect.objectContaining({ needsReview: true, reviewReason: "duplicate" }),
+				}),
+				expect.anything()
+			)
+			// The client is told BOQ will contact them; no receipt is attached.
+			expect(NotificationService.enqueue).toHaveBeenCalledWith(
+				expect.anything(),
+				31,
+				"payment_duplicate_review",
+				"payment:90:succeeded",
+				{ paymentId: 90 }
+			)
+			expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ reason: "duplicate_payment" }))
+		})
+	})
+
+	describe("reconcilePending (PAY-6)", () => {
+		const due = [{ id: 90, providerCode: "fake", providerReference: "fake_90_abc", amountCentavos: 150000 }]
+
+		it("confirms a payment the provider says was paid, through confirm", async () => {
+			const database = fakeDatabase({
+				selects: [due, [savedPayment], receiptNames, receiptLines],
+				inserts: [[{ id: 7, receiptNumber: "QSPS-R-261117-000090" }]],
+			})
+			;(provider.queryStatus as jest.Mock).mockResolvedValue({ status: "succeeded", amountCentavos: 150000 })
+
+			const result = await makeService().reconcilePending(NOW)
+
+			expect(provider.queryStatus).toHaveBeenCalledWith("fake_90_abc")
+			expect(result).toMatchObject({ checked: 1, confirmed: 1, failed: 0 })
+			expect(bookingService.markPaid).toHaveBeenCalledWith(expect.anything(), 31, null, NOW)
+			expect(database.updated).toContainEqual({
+				table: payments,
+				values: { status: "succeeded", needsReview: false, updatedAt: NOW },
+			})
+		})
+
+		it("marks a payment expired when the provider says so", async () => {
+			const database = fakeDatabase({ selects: [due, [{ status: "pending" }]] })
+			;(provider.queryStatus as jest.Mock).mockResolvedValue({ status: "expired", amountCentavos: null })
+
+			const result = await makeService().reconcilePending(NOW)
+
+			expect(result).toMatchObject({ checked: 1, closed: 1 })
+			expect(database.updated).toEqual([{ table: payments, values: { status: "expired", updatedAt: NOW } }])
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({ action: "payment.expired", actorId: null }),
+				expect.anything()
+			)
+		})
+
+		it("marks a payment failed when the provider says so", async () => {
+			const database = fakeDatabase({ selects: [due, [{ status: "pending" }]] })
+			;(provider.queryStatus as jest.Mock).mockResolvedValue({ status: "failed", amountCentavos: null })
+
+			await makeService().reconcilePending(NOW)
+
+			expect(database.updated).toEqual([{ table: payments, values: { status: "failed", updatedAt: NOW } }])
+		})
+
+		it("touches a payment the provider still reports pending, so it is asked again later", async () => {
+			const database = fakeDatabase({ selects: [due] })
+			;(provider.queryStatus as jest.Mock).mockResolvedValue({ status: "pending", amountCentavos: null })
+
+			const result = await makeService().reconcilePending(NOW)
+
+			expect(result).toMatchObject({ checked: 1, stillPending: 1 })
+			expect(database.updated).toEqual([{ table: payments, values: { updatedAt: NOW } }])
+			expect(bookingService.markPaid).not.toHaveBeenCalled()
+		})
+
+		it("changes nothing for a success with a different amount, and alerts", async () => {
+			const database = fakeDatabase({ selects: [due] })
+			;(provider.queryStatus as jest.Mock).mockResolvedValue({ status: "succeeded", amountCentavos: 100 })
+
+			const result = await makeService().reconcilePending(NOW)
+
+			expect(result).toMatchObject({ amountMismatch: 1, confirmed: 0 })
+			expect(bookingService.markPaid).not.toHaveBeenCalled()
+			expect(database.updated).toEqual([{ table: payments, values: { updatedAt: NOW } }])
+			expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ reason: "amount_mismatch", source: "requery" }))
+		})
+
+		it("keeps going when one provider cannot be reached", async () => {
+			const second = { ...due[0], id: 91, providerReference: "fake_91_def" }
+			fakeDatabase({ selects: [[...due, second]] })
+			;(provider.queryStatus as jest.Mock)
+				.mockRejectedValueOnce(new Error("gateway timeout"))
+				.mockResolvedValueOnce({ status: "pending", amountCentavos: null })
+
+			const result = await makeService().reconcilePending(NOW)
+
+			expect(result).toMatchObject({ failed: 1, stillPending: 1 })
+			expect(provider.queryStatus).toHaveBeenCalledTimes(2)
+		})
+
+		it("does nothing when no payment is due", async () => {
+			fakeDatabase({ selects: [[]] })
+
+			await expect(makeService().reconcilePending(NOW)).resolves.toEqual({
+				checked: 0,
+				confirmed: 0,
+				closed: 0,
+				stillPending: 0,
+				amountMismatch: 0,
+				failed: 0,
+			})
+		})
+	})
+
+	describe("resolveReview (PAY-6)", () => {
+		const flagged = {
+			id: 92,
+			bookingId: 31,
+			status: "succeeded",
+			needsReview: true,
+			reviewResolution: null,
+		}
+
+		it("opens a Refund Request and records the resolution, audited without the note", async () => {
+			const database = fakeDatabase({ selects: [[flagged]], inserts: [[{ id: 5 }]] })
+
+			const result = await makeService().resolveReview(
+				{ paymentId: 92, resolution: "refund_requested", note: "Paid twice; return payment 92" },
+				"staff-1",
+				NOW
+			)
+
+			expect(result).toEqual({ paymentId: 92, resolution: "refund_requested", refundRequestId: 5 })
+			expect(database.inserted[0]).toEqual({
+				table: refundRequests,
+				values: expect.objectContaining({
+					bookingId: 31,
+					paymentId: 92,
+					kind: "refund",
+					status: "requested",
+					reason: "Paid twice; return payment 92",
+					requestedBy: "staff-1",
+				}),
+			})
+			expect(database.updated).toEqual([
+				{
+					table: payments,
+					values: {
+						reviewResolution: "refund_requested",
+						reviewNote: "Paid twice; return payment 92",
+						rebookedBookingId: null,
+						reviewedBy: "staff-1",
+						reviewedAt: NOW,
+						updatedAt: NOW,
+					},
+				},
+			])
+			const [entry] = audit.record.mock.calls.at(-1) as [Record<string, unknown>]
+			expect(entry).toMatchObject({
+				action: "payment.review.resolve",
+				actorId: "staff-1",
+				newValue: { reviewResolution: "refund_requested", bookingId: 31, refundRequestId: 5 },
+			})
+			expect(JSON.stringify(entry)).not.toContain("Paid twice")
+		})
+
+		it("records a rebooking against the new booking of the same client", async () => {
+			const database = fakeDatabase({
+				selects: [[flagged], [{ clientId: "client-1" }], [{ id: 40, clientId: "client-1" }]],
+			})
+
+			await makeService().resolveReview(
+				{
+					paymentId: 92,
+					resolution: "rebooked",
+					note: "Gave a new slot on Dec 2",
+					rebookedReferenceNumber: "QSPS-261124-ZZ99YY",
+				},
+				"staff-1",
+				NOW
+			)
+
+			expect(database.inserted).toEqual([])
+			expect(database.updated[0]?.values).toMatchObject({ reviewResolution: "rebooked", rebookedBookingId: 40 })
+		})
+
+		it("refuses a rebooking that names another client's booking", async () => {
+			const database = fakeDatabase({
+				selects: [[flagged], [{ clientId: "client-1" }], [{ id: 40, clientId: "client-2" }]],
+			})
+
+			await expect(
+				makeService().resolveReview(
+					{ paymentId: 92, resolution: "rebooked", note: "New slot", rebookedReferenceNumber: "QSPS-261124-ZZ99YY" },
+					"staff-1",
+					NOW
+				)
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(database.updated).toEqual([])
+		})
+
+		it("refuses to resolve the same payment twice", async () => {
+			fakeDatabase({ selects: [[{ ...flagged, reviewResolution: "rebooked" }]] })
+
+			await expect(
+				makeService().resolveReview(
+					{ paymentId: 92, resolution: "refund_requested", note: "Again" },
+					"staff-1",
+					NOW
+				)
+			).rejects.toMatchObject({ code: "CONFLICT" })
+		})
+
+		it("refuses a payment that does not need review", async () => {
+			fakeDatabase({ selects: [[{ ...flagged, needsReview: false }]] })
+
+			await expect(
+				makeService().resolveReview(
+					{ paymentId: 92, resolution: "refund_requested", note: "Nothing to do" },
+					"staff-1",
+					NOW
+				)
+			).rejects.toMatchObject({ code: "CONFLICT" })
 		})
 	})
 })

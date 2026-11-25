@@ -117,6 +117,11 @@ describe("navItems", () => {
 					requiredPermission: "processing.queue:read",
 				}),
 				expect.objectContaining({
+					label: "Walk-in",
+					href: "/processing/walk-in",
+					requiredPermission: "bookings.walk-in:create",
+				}),
+				expect.objectContaining({
 					label: "Approvals",
 					href: "/processing/approvals",
 					requiredPermission: "processing.assessments:approve",
@@ -125,6 +130,11 @@ describe("navItems", () => {
 					label: "Cashier",
 					href: "/cashier",
 					requiredPermission: "payments.onsite:collect",
+				}),
+				expect.objectContaining({
+					label: "Payment exceptions",
+					href: "/payment-exceptions",
+					requiredPermission: "payments.transactions:read",
 				}),
 				expect.objectContaining({
 					label: "User Management",
@@ -200,10 +210,24 @@ describe("navItems", () => {
 		).toContain("Services")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:read"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "My transactions"])
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["processing.queue:read"] }).map(
 				item => item.label
 			)
 		).toEqual(["Dashboard", "Processing"])
+
+		// PRC-2: the Processing Officer encodes walk-ins.
+		expect(
+			getAccessibleNavItems({
+				roles: [],
+				permissions: ["processing.queue:read", "bookings.walk-in:create"],
+			}).map(item => item.label)
+		).toEqual(["Dashboard", "Processing", "Walk-in"])
 
 		// PRC-3: Approvals needs processing.assessments:approve (Module Admin), not the officer keys.
 		expect(
@@ -251,7 +275,7 @@ describe("navItems", () => {
 					"reports.dashboard:read",
 				],
 			}).map(item => item.label)
-		).toEqual(["Dashboard", "Cashier"])
+		).toEqual(["Dashboard", "Cashier", "Payment exceptions"])
 
 		// ADM-3: the Audit log link needs audit.logs:read.
 		expect(
@@ -263,10 +287,13 @@ describe("navItems", () => {
 		).toEqual([
 			"Dashboard",
 			"Book an appointment",
+			"My transactions",
 			"My documents",
 			"Processing",
+			"Walk-in",
 			"Approvals",
 			"Cashier",
+			"Payment exceptions",
 			"User Management",
 			"Locations",
 			"Services",
@@ -295,10 +322,14 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
+		expect(getDashboardRouteTitle("/transactions")).toBe("My transactions")
+		expect(getDashboardRouteTitle("/transactions/42")).toBe("My transactions")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
+		expect(getDashboardRouteTitle("/processing/walk-in")).toBe("Walk-in")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
+		expect(getDashboardRouteTitle("/payment-exceptions")).toBe("Payment exceptions")
 	})
 
 	it("marks only the most specific link active (PRC-3)", () => {

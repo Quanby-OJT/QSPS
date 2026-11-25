@@ -58,7 +58,13 @@ describe("shouldPersistQuery", () => {
 	})
 
 	it("lists the sensitive roots: the two the audit called out, plus payments (PAY-1)", () => {
-		expect([...NON_PERSISTED_QUERY_ROOTS]).toEqual(["session", "rbac", "payments", "certificates"])
+		expect([...NON_PERSISTED_QUERY_ROOTS]).toEqual([
+			"session",
+			"rbac",
+			"payments",
+			"certificates",
+			"walk-in",
+		])
 	})
 })
 

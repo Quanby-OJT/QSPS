@@ -1,23 +1,33 @@
 import { Inject, Injectable, Optional } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm"
 
 import type {
 	Booking,
+	BookingDetail,
+	BookingIssuedDocument,
+	BookingItem,
 	BookingItemStatus,
+	BookingPaymentDetail,
+	BookingReceiptDetail,
 	BookingStatus,
+	BookingSummary,
 	CreateBookingInput,
 	FormSubmission,
+	MyBookingsResponse,
 	RescheduleBookingItemInput,
 	UpdateBookingItemFormInput,
 } from "@repo/contracts"
 import {
 	bookingItems,
 	bookings,
+	documents,
 	formSubmissions,
 	locations,
+	paymentChannels,
 	payments,
 	policyAcceptances,
+	receipts,
 	scheduleSlots,
 	services,
 	users,
@@ -37,11 +47,12 @@ import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
 import {
 	IN_FLIGHT_PAYMENT_STATUSES,
+	PAYMENT_DEFERRAL_MAX_HOURS,
 	PAYMENT_IN_FLIGHT_MINUTES,
 	type BookingCancelReason,
 } from "./booking-expiry"
 import { canOverrideItem, canTransitionItem, isTerminalItem } from "./booking-item-state"
-import { canTransition, initialStatus } from "./booking-state"
+import { canTransition, initialStatus, toClientBookingStatus } from "./booking-state"
 import { generateReferenceNumber } from "./reference-number"
 
 const AUDIT_DOMAIN_BOOKINGS = "bookings"
@@ -60,6 +71,8 @@ export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 /** The database, or a transaction: anything that can run a select. */
 type Reader = typeof db | Transaction
 
+type BookingItemsById = Map<number, BookingItem[]>
+
 /** One Service in a checkout, with the rows it was checked against (BKG-3). */
 interface CheckoutLine {
 	slot: typeof scheduleSlots.$inferSelect
@@ -69,6 +82,17 @@ interface CheckoutLine {
 
 /** A saved Booking Item and the checkout line it came from. */
 type SavedItem = typeof bookingItems.$inferSelect & { line: CheckoutLine }
+
+/**
+ * PRC-2: a checkout a Processing Officer makes for a walk-in client. The
+ * Booking belongs to `clientId`, is recorded as created by the officer, and
+ * every slot must be at the officer's Location. A slot already in progress
+ * may be chosen, since the client is at the counter.
+ */
+export interface WalkInCheckout {
+	clientId: string
+	locationId: number
+}
 
 /** What happened when staff tried to check a Booking in (PRC-1). */
 export type CheckInResult =
@@ -81,7 +105,7 @@ export type CheckInResult =
  * `booking_items.status` (PRC-1, CRT-1) and `schedule_slots.booked_count`
  * (DOMAIN-MODEL.md section 6). BKG-2 adds cancelling: by the client, and by
  * the expiry job in `common/maintenance/`. BKG-3 books several Services in
- * one checkout. BKG-5 adds client rescheduling of a booked item.
+ * one checkout. BKG-4 adds My Transactions and Booking details. BKG-5 adds client rescheduling of a booked item.
  */
 @Injectable()
 export class BookingService {
@@ -92,6 +116,76 @@ export class BookingService {
 		// BookingsModule always provides it through FormsModule.
 		@Optional() @Inject(FORM_SUBMISSIONS) private readonly formSubmissions?: FormSubmissionPreparer
 	) {}
+
+	/**
+	 * BKG-4: list all bookings owned by the signed-in client, newest first.
+	 * Enforces `clientId = actorId` at the database layer.
+	 */
+	async listOwn(actorId: string | null): Promise<MyBookingsResponse> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your transactions" })
+		}
+
+		const rows = await db
+			.select()
+			.from(bookings)
+			.where(eq(bookings.clientId, actorId))
+			.orderBy(desc(bookings.createdAt), desc(bookings.id))
+
+		if (rows.length === 0) return { bookings: [] }
+
+		const itemsByBooking = await this.loadItemsForBookings(
+			db,
+			rows.map(row => row.id)
+		)
+
+		const summaries: BookingSummary[] = rows.map(row => ({
+			id: row.id,
+			referenceNumber: row.referenceNumber,
+			status: row.status,
+			clientStatus: toClientBookingStatus(row.status),
+			totalCentavos: row.totalCentavos,
+			payOnsite: row.payOnsite,
+			holdExpiresAt: row.holdExpiresAt,
+			createdAt: row.createdAt,
+			items: itemsByBooking.get(row.id) ?? [],
+		}))
+
+		return { bookings: summaries }
+	}
+
+	/**
+	 * BKG-4: read one booking owned by the signed-in client, including each
+	 * item's processing status, payment details, e-Receipt, and issued
+	 * Documents. Someone else's Booking answers like a missing one (`404
+	 * NOT_FOUND`) and the attempt is audited as denied.
+	 */
+	async getOwn(bookingId: number, actorId: string | null): Promise<BookingDetail> {
+		if (!actorId) {
+			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view your booking" })
+		}
+
+		const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1)
+
+		if (!row || row.clientId !== actorId) {
+			await this.recordDenial(actorId, "booking.read", bookingId, row ? "not_owner" : "not_found")
+			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
+		}
+
+		const booking = await this.loadBooking(db, row.id)
+		const payment = await this.loadLatestPayment(db, booking.id)
+		const receipt = payment ? await this.loadReceiptForPayment(db, payment.id) : null
+		const issuedDocuments = await this.loadDocumentsForItems(db, booking.items)
+
+		return {
+			...booking,
+			clientStatus: toClientBookingStatus(booking.status),
+			// payments has no paid-at column: the e-Receipt is issued when the payment succeeds.
+			payment: payment && receipt ? { ...payment, paidAt: receipt.issuedAt } : payment,
+			receipt,
+			documents: issuedDocuments,
+		}
+	}
 
 	/**
 	 * Book one or more Services in one checkout (Flow B, steps 1 to 3; BKG-1,
@@ -116,11 +210,15 @@ export class BookingService {
 	async create(
 		input: CreateBookingInput,
 		actorId: string | null,
-		now: Date = new Date()
+		now: Date = new Date(),
+		walkIn?: WalkInCheckout
 	): Promise<Booking> {
 		if (!actorId) {
 			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to book" })
 		}
+		// PRC-2: a walk-in Booking is the client's; the officer only creates it.
+		const clientId = walkIn?.clientId ?? actorId
+		const kind = walkIn ? "walk-in" : "regular"
 
 		// ADM-6: the hold comes from the `booking.hold_minutes` Policy.
 		const holdMinutes = await this.policyService.get("booking.hold_minutes")
@@ -128,16 +226,18 @@ export class BookingService {
 		return db.transaction(async tx => {
 			// Locks the client's own row so two requests from the same client are
 			// handled one after the other, and the unpaid-booking check below holds.
-			await tx.select({ id: users.id }).from(users).where(eq(users.id, actorId)).for("update")
+			await tx.select({ id: users.id }).from(users).where(eq(users.id, clientId)).for("update")
 
 			const [unpaid] = await tx
 				.select({ referenceNumber: bookings.referenceNumber })
 				.from(bookings)
-				.where(and(eq(bookings.clientId, actorId), eq(bookings.status, "pending_payment")))
+				.where(and(eq(bookings.clientId, clientId), eq(bookings.status, "pending_payment")))
 				.limit(1)
 			if (unpaid) {
 				throw new ORPCError("CONFLICT", {
-					message: `You already have a booking awaiting payment (${unpaid.referenceNumber}). Pay or cancel it before booking again.`,
+					message: walkIn
+						? `This client already has a booking awaiting payment (${unpaid.referenceNumber}). Collect its payment at the cashier, or cancel it, before booking again.`
+						: `You already have a booking awaiting payment (${unpaid.referenceNumber}). Pay or cancel it before booking again.`,
 				})
 			}
 
@@ -204,9 +304,16 @@ export class BookingService {
 						`The slot you chose for ${service.name} is no longer available. Choose a new slot for it.`
 					)
 				}
-				if (slot.startsAt.getTime() <= now.getTime()) {
+				// PRC-2: a walk-in may join a slot already in progress, until it ends.
+				const walkInMayJoin = walkIn !== undefined && slot.endsAt.getTime() > now.getTime()
+				if (slot.startsAt.getTime() <= now.getTime() && !walkInMayJoin) {
 					throw refuse(
 						`The slot you chose for ${service.name} has already started. Choose a new slot for it.`
+					)
+				}
+				if (walkIn && slot.locationId !== walkIn.locationId) {
+					throw refuse(
+						`The slot you chose for ${service.name} is not at your location. Choose one of today's slots here.`
 					)
 				}
 				if (slot.bookedCount >= slot.capacity) {
@@ -257,12 +364,15 @@ export class BookingService {
 				.insert(bookings)
 				.values({
 					referenceNumber,
-					clientId: actorId,
-					status: initialStatus("regular"),
-					kind: "regular",
+					clientId,
+					status: initialStatus(kind),
+					kind,
 					totalCentavos,
 					holdExpiresAt,
+					// PRC-2: the officer for a walk-in; the client for their own booking.
 					createdBy: actorId,
+					// Set here, in UTC, rather than by the database clock (DOMAIN-MODEL.md: timestamps are UTC).
+					createdAt: now,
 				})
 				.returning()
 			if (!booking) {
@@ -297,7 +407,7 @@ export class BookingService {
 					acceptedPolicies.map(policy => ({
 						bookingId: booking.id,
 						policyDocumentId: policy.id,
-						clientId: actorId,
+						clientId,
 						acceptedAt: now,
 					}))
 				)
@@ -338,6 +448,7 @@ export class BookingService {
 						id: booking.id,
 						referenceNumber: booking.referenceNumber,
 						clientId: booking.clientId,
+						createdBy: booking.createdBy,
 						status: booking.status,
 						kind: booking.kind,
 						totalCentavos: booking.totalCentavos,
@@ -880,34 +991,6 @@ export class BookingService {
 		return unpaid ? this.loadBooking(db, unpaid.id) : null
 	}
 
-	/**
-	 * BKG-5: returns one Booking belonging to the caller (used on Booking detail
-	 * for both `pending_payment` and `paid` bookings). Someone else's Booking
-	 * answers like a missing one and is audited as denied.
-	 */
-	async getOwn(bookingId: number, actorId: string | null): Promise<Booking> {
-		if (!actorId) {
-			throw new ORPCError("UNAUTHORIZED", { message: "Sign in to view this booking" })
-		}
-
-		const [owned] = await db
-			.select({ clientId: bookings.clientId })
-			.from(bookings)
-			.where(eq(bookings.id, bookingId))
-			.limit(1)
-
-		if (!owned || owned.clientId !== actorId) {
-			await this.recordDenial(
-				actorId,
-				"booking.read",
-				bookingId,
-				owned ? "not_owner" : "not_found"
-			)
-			throw new ORPCError("NOT_FOUND", { message: "Booking not found" })
-		}
-
-		return this.loadBooking(db, bookingId)
-	}
 
 	/**
 	 * The client cancels their own unpaid Booking (BKG-2, `bookings.own:cancel`).
@@ -1296,11 +1379,13 @@ export class BookingService {
 
 	/**
 	 * Whether the Booking has a Payment that may still succeed: `initiated` or
-	 * `pending` and younger than the payment timeout. While it does, the
-	 * Booking is neither expired nor cancelled by the client (BKG-2).
+	 * `pending`, heard from within the payment timeout, and not older than the
+	 * deferral limit (PAY-6). While it does, the Booking is neither expired nor
+	 * cancelled by the client (BKG-2). Same rule as the expiry job.
 	 */
 	async hasPaymentInFlight(reader: Reader, bookingId: number, now: Date): Promise<boolean> {
 		const since = new Date(now.getTime() - PAYMENT_IN_FLIGHT_MINUTES * MS_PER_MINUTE)
+		const startedAfter = new Date(now.getTime() - PAYMENT_DEFERRAL_MAX_HOURS * 60 * MS_PER_MINUTE)
 		const [inFlight] = await reader
 			.select({ id: payments.id })
 			.from(payments)
@@ -1308,11 +1393,163 @@ export class BookingService {
 				and(
 					eq(payments.bookingId, bookingId),
 					inArray(payments.status, [...IN_FLIGHT_PAYMENT_STATUSES]),
-					gt(payments.createdAt, since)
+					gt(payments.updatedAt, since),
+					gt(payments.createdAt, startedAfter)
 				)
 			)
 			.limit(1)
 		return Boolean(inFlight)
+	}
+
+	private async loadItemsForBookings(
+		reader: Reader,
+		bookingIds: number[]
+	): Promise<BookingItemsById> {
+		const rows = await reader
+			.select({
+				id: bookingItems.id,
+				bookingId: bookingItems.bookingId,
+				serviceId: bookingItems.serviceId,
+				serviceName: services.name,
+				locationId: bookingItems.locationId,
+				locationName: locations.name,
+				scheduleSlotId: bookingItems.scheduleSlotId,
+				startsAt: scheduleSlots.startsAt,
+				endsAt: scheduleSlots.endsAt,
+				feeCentavos: bookingItems.feeCentavos,
+				status: bookingItems.status,
+			})
+			.from(bookingItems)
+			.innerJoin(services, eq(services.id, bookingItems.serviceId))
+			.innerJoin(locations, eq(locations.id, bookingItems.locationId))
+			.innerJoin(scheduleSlots, eq(scheduleSlots.id, bookingItems.scheduleSlotId))
+			.where(inArray(bookingItems.bookingId, bookingIds))
+			.orderBy(asc(bookingItems.id))
+
+		const map: BookingItemsById = new Map()
+		for (const item of rows) {
+			const list = map.get(item.bookingId) ?? []
+			list.push({
+				id: item.id,
+				serviceId: item.serviceId,
+				serviceName: item.serviceName,
+				locationId: item.locationId,
+				locationName: item.locationName,
+				scheduleSlotId: item.scheduleSlotId,
+				startsAt: item.startsAt,
+				endsAt: item.endsAt,
+				feeCentavos: item.feeCentavos,
+				status: item.status,
+			})
+			map.set(item.bookingId, list)
+		}
+		return map
+	}
+
+	private async loadLatestPayment(
+		reader: Reader,
+		bookingId: number
+	): Promise<BookingPaymentDetail | null> {
+		// The succeeded payment when there is one, otherwise the latest attempt.
+		const [row] = await reader
+			.select({
+				id: payments.id,
+				amountCentavos: payments.amountCentavos,
+				convenienceFeeCentavos: payments.convenienceFeeCentavos,
+				providerCode: payments.providerCode,
+				channelCode: payments.channelCode,
+				channelName: paymentChannels.name,
+				status: payments.status,
+				createdAt: payments.createdAt,
+			})
+			.from(payments)
+			.leftJoin(paymentChannels, eq(paymentChannels.code, payments.channelCode))
+			.where(eq(payments.bookingId, bookingId))
+			.orderBy(
+				sql`(${payments.status} = 'succeeded') desc`,
+				desc(payments.createdAt),
+				desc(payments.id)
+			)
+			.limit(1)
+
+		if (!row) return null
+		return {
+			id: row.id,
+			amountCentavos: row.amountCentavos,
+			convenienceFeeCentavos: row.convenienceFeeCentavos,
+			providerCode: row.providerCode,
+			channelCode: row.channelCode,
+			channelName:
+				row.providerCode === "onsite" ? "BOQ cashier" : (row.channelName ?? row.channelCode),
+			status: row.status,
+			paidAt: null,
+			createdAt: row.createdAt,
+		}
+	}
+
+	private async loadReceiptForPayment(
+		reader: Reader,
+		paymentId: number
+	): Promise<BookingReceiptDetail | null> {
+		const [row] = await reader
+			.select({
+				id: receipts.id,
+				paymentId: receipts.paymentId,
+				receiptNumber: receipts.receiptNumber,
+				verificationToken: receipts.verificationToken,
+				issuedAt: receipts.issuedAt,
+			})
+			.from(receipts)
+			.where(eq(receipts.paymentId, paymentId))
+			.limit(1)
+
+		if (!row) return null
+		return {
+			id: row.id,
+			paymentId: row.paymentId,
+			receiptNumber: row.receiptNumber,
+			verificationToken: row.verificationToken,
+			issuedAt: row.issuedAt,
+		}
+	}
+
+	private async loadDocumentsForItems(
+		reader: Reader,
+		items: readonly BookingItem[]
+	): Promise<BookingIssuedDocument[]> {
+		if (items.length === 0) return []
+		const serviceByItemId = new Map(items.map(item => [item.id, item.serviceName]))
+		const itemIds = items.map(item => item.id)
+
+		const rows = await reader
+			.select({
+				id: documents.id,
+				bookingItemId: documents.bookingItemId,
+				documentType: documents.documentType,
+				documentNumber: documents.documentNumber,
+				status: documents.status,
+				issuedAt: documents.issuedAt,
+				validUntil: documents.validUntil,
+			})
+			.from(documents)
+			.where(inArray(documents.bookingItemId, itemIds))
+			.orderBy(desc(documents.issuedAt), desc(documents.id))
+
+		return rows.flatMap(row => {
+			if (row.bookingItemId === null) return []
+			return [
+				{
+					id: row.id,
+					bookingItemId: row.bookingItemId,
+					serviceName: serviceByItemId.get(row.bookingItemId) ?? "Service",
+					documentType: row.documentType as BookingIssuedDocument["documentType"],
+					documentNumber: row.documentNumber,
+					status: row.status,
+					issuedAt: row.issuedAt,
+					validUntil: row.validUntil,
+				},
+			]
+		})
 	}
 
 	/** One Booking with its items, as the API returns it. */

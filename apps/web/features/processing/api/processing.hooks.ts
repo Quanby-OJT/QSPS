@@ -9,7 +9,9 @@ import type {
 	AssessmentOutcome,
 	CheckInResponse,
 	DocumentSummary,
+	FormAnswers,
 	IcvIssueDetails,
+	ItemStep,
 	MedicalExemptionDetails,
 	ProcessingItem,
 	ProcessingQueue,
@@ -52,12 +54,23 @@ type QueueJson = Omit<ProcessingQueue, "items"> & {
 	})[]
 }
 
-type ItemJson = Omit<ProcessingItem, "startsAt" | "endsAt" | "assessments"> & {
+type StepResultJson = Omit<NonNullable<ItemStep["result"]>, "recordedAt"> & { recordedAt: string }
+
+type ItemJson = Omit<ProcessingItem, "startsAt" | "endsAt" | "assessments" | "steps"> & {
 	startsAt: string
 	endsAt: string
 	assessments: (Omit<ProcessingItem["assessments"][number], "createdAt"> & {
 		createdAt: string
 	})[]
+	/** PRC-4. Missing from an item cached before steps existed. */
+	steps?: (Omit<ItemStep, "result" | "history"> & {
+		result: StepResultJson | null
+		history: StepResultJson[]
+	})[]
+}
+
+function toStepResult(result: StepResultJson): NonNullable<ItemStep["result"]> {
+	return { ...result, recordedAt: new Date(result.recordedAt) }
 }
 
 function toQueue(queue: QueueJson): ProcessingQueue {
@@ -79,6 +92,11 @@ function toItem(item: ItemJson): ProcessingItem {
 		assessments: item.assessments.map(assessment => ({
 			...assessment,
 			createdAt: new Date(assessment.createdAt),
+		})),
+		steps: (item.steps ?? []).map(step => ({
+			...step,
+			result: step.result ? toStepResult(step.result) : null,
+			history: step.history.map(toStepResult),
 		})),
 	}
 }
@@ -351,4 +369,85 @@ export function usePrintDocumentMutation(bookingItemId: number) {
 /** FRM-2c: a client's uploaded answer file, for staff. Opened by the browser with the staff session cookie. */
 export function answerFileUrl(bookingItemId: number, fieldId: number): string {
 	return `${API_BASE}/processing/items/${bookingItemId}/answers/${fieldId}/file`
+}
+
+export interface RecordStepResultRequest {
+	stepId: number
+	/** The result form version the answers are for. */
+	formTemplateId: number
+	answers: FormAnswers
+	/** One per save, so a double click records one result, not two. */
+	idempotencyKey: string
+}
+
+/**
+ * PRC-4: record a step's result, or correct it. A correction is stored as the
+ * next version; the earlier one is kept.
+ */
+export function useRecordStepResultMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({ stepId, idempotencyKey, ...body }: RecordStepResultRequest) =>
+			toItem(
+				await apiFetch<ItemJson>(`/processing/items/${bookingItemId}/steps/${stepId}/results`, {
+					method: "POST",
+					headers: { "Idempotency-Key": idempotencyKey },
+					body: JSON.stringify(body),
+				})
+			),
+		onSuccess: item => {
+			queryClient.setQueryData(processingKeys.item(bookingItemId), item)
+		},
+	})
+}
+
+/**
+ * PRC-4: a printable copy of a step's result (the current one, or `version`).
+ * Opened by the browser with the staff session cookie, like answer files.
+ */
+export function stepResultPdfUrl(bookingItemId: number, stepId: number, version?: number): string {
+	const query = version === undefined ? "" : `?version=${version}`
+	return `${API_BASE}/processing/items/${bookingItemId}/steps/${stepId}/result.pdf${query}`
+}
+
+/** CRT-8: everything that shows the item's document changes after a revoke or reissue. */
+function invalidateDocument(queryClient: ReturnType<typeof useQueryClient>, bookingItemId: number) {
+	void queryClient.invalidateQueries({ queryKey: processingKeys.item(bookingItemId) })
+	void queryClient.invalidateQueries({ queryKey: ["processing", "queue"] })
+	void queryClient.invalidateQueries({ queryKey: ["certificates"] })
+}
+
+/** CRT-8: withdraw a document. The reason is required and kept in the audit. */
+export function useRevokeDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ documentId, reason }: { documentId: number; reason: string }) =>
+			apiFetch<DocumentSummary>(`/certificates/documents/${documentId}/revoke`, {
+				method: "POST",
+				body: JSON.stringify({ reason }),
+			}),
+		onSuccess: () => invalidateDocument(queryClient, bookingItemId),
+	})
+}
+
+export interface ReissueDocumentRequest {
+	documentId: number
+	reason: string
+	/** The corrected vaccination record, or null for a Medical Exemption Certificate. */
+	details: IcvIssueDetails | null
+	/** The corrected exemption, or null for a vaccination record. */
+	exemption: MedicalExemptionDetails | null
+}
+
+/** CRT-8: replace a document with a corrected one. Answers with the new document. */
+export function useReissueDocumentMutation(bookingItemId: number) {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ documentId, ...body }: ReissueDocumentRequest) =>
+			apiFetch<DocumentSummary>(`/certificates/documents/${documentId}/reissue`, {
+				method: "POST",
+				body: JSON.stringify(body),
+			}),
+		onSuccess: () => invalidateDocument(queryClient, bookingItemId),
+	})
 }

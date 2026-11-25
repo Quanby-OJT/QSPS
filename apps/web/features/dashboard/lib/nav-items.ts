@@ -1,12 +1,14 @@
 import {
 	AccountSetting01Icon,
 	Add01Icon,
+	Alert02Icon,
 	CheckmarkCircle02Icon,
 	DashboardSquare01Icon,
 	File01Icon,
 	SecurityCheckIcon,
 	ShieldKeyIcon,
 	Ticket01Icon,
+	UserGroupIcon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
@@ -39,6 +41,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "bookings.own:create",
 	},
 	{
+		label: "My transactions",
+		href: "/transactions",
+		icon: File01Icon,
+		requiredPermission: "bookings.own:read",
+	},
+	{
 		label: "My documents",
 		href: "/documents",
 		icon: File01Icon,
@@ -49,6 +57,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/processing",
 		icon: CheckmarkCircle02Icon,
 		requiredPermission: "processing.queue:read",
+	},
+	{
+		// PRC-2: encode a walk-in client and book them into today's schedule.
+		label: "Walk-in",
+		href: "/processing/walk-in",
+		icon: UserGroupIcon,
+		requiredPermission: "bookings.walk-in:create",
 	},
 	{
 		// PRC-3: head approval and overrides. Processing Officers do not hold this key.
@@ -63,6 +78,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/cashier",
 		icon: Ticket01Icon,
 		requiredPermission: "payments.onsite:collect",
+	},
+	{
+		// PAY-6: late and duplicate payments staff must resolve.
+		label: "Payment exceptions",
+		href: "/payment-exceptions",
+		icon: Alert02Icon,
+		requiredPermission: "payments.transactions:read",
 	},
 	{
 		label: "User Management",

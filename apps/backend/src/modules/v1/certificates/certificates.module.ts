@@ -7,13 +7,15 @@ import { BookingsModule } from "../bookings/bookings.module"
 import { CertificatesController } from "./certificates.controller"
 import { DocumentPdfController } from "./document-pdf.controller"
 import { DocumentService } from "./documents.service"
+import { PrintoutsController } from "./printouts/printouts.controller"
+import { PrintoutService } from "./printouts/printouts.service"
 
 @Module({
 	// Item and Booking status changes go through BookingService (DOMAIN-MODEL.md section 6).
 	// ScopeModule: staff print only documents in their Scope (CRT-3).
 	imports: [BookingsModule, PdfModule, ScopeModule],
-	controllers: [CertificatesController, DocumentPdfController],
-	providers: [DocumentService],
+	controllers: [CertificatesController, DocumentPdfController, PrintoutsController],
+	providers: [DocumentService, PrintoutService],
 	// Exported so processing can auto-issue inside the clearing transaction.
 	exports: [DocumentService],
 })
