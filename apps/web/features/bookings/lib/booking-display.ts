@@ -108,6 +108,10 @@ export function documentTypeLabel(type: DocumentType): string {
 			return "Biological Substance Certification"
 		case "biological-permit":
 			return "Biological Substance Permit"
+		case "food-export-certificate":
+			return "Food Export Certificate"
+		case "water-analysis-certificate":
+			return "Water Analysis Certificate"
 	}
 }
 

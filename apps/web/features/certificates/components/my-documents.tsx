@@ -29,6 +29,8 @@ const DOCUMENT_TITLES: Record<DocumentSummary["documentType"], string> = {
 	"human-remains": "Human Remains Certificate",
 	"biological-certification": "Biological Substance Certification",
 	"biological-permit": "Biological Substance Permit",
+	"food-export-certificate": "Food Export Certificate",
+	"water-analysis-certificate": "Water Analysis Certificate",
 }
 
 const STATUS_LABELS: Record<DocumentSummary["status"], string> = {
@@ -42,6 +44,8 @@ const NEVER_EXPIRES: ReadonlySet<DocumentSummary["documentType"]> = new Set([
 	"food-safety-training",
 	"human-remains",
 	"biological-certification",
+	"food-export-certificate",
+	"water-analysis-certificate",
 ])
 
 /** "2036-11-29" → "Nov 29, 2036"; null means the document does not expire. */
@@ -105,7 +109,7 @@ export function MyDocuments() {
 										{STATUS_LABELS[document.status]}
 									</Badge>
 								</div>
-								<span className="font-mono text-sm break-all">{document.documentNumber}</span>
+								<span className="break-all font-mono text-sm">{document.documentNumber}</span>
 								<span className="text-muted-foreground text-xs">
 									{document.serviceName} · {document.locationName} · Issued{" "}
 									{issuedFormatter.format(document.issuedAt)} · Valid until{" "}

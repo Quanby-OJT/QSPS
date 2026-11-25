@@ -207,6 +207,89 @@ describe("DocumentService", () => {
 	})
 
 	describe("issue", () => {
+		it("copies the saved Food Export questionnaire into the issued certificate", async () => {
+			const { tx, inserted } = fakeTransaction(
+				[
+					[clearedItem],
+					[],
+					[{ ...context, serviceCode: "FOOD-EXPORT", documentType: "food-export-certificate" }],
+					[
+						{
+							templateId: 21,
+							answers: {
+								11: "Test exporter",
+								12: "Test product",
+								13: "24 cartons",
+								14: "Test destination",
+								15: "2026-12-01",
+							},
+						},
+					],
+					[{ id: 11 }],
+					[{ id: 12 }],
+					[{ id: 13 }],
+					[{ id: 14 }],
+					[{ id: 15 }],
+					[{ id: 9, nextNumber: 1 }],
+				],
+				[[{ id: 5 }]]
+			)
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				now: NOW,
+			})
+
+			expect(result.document.documentNumber).toBe("FEX-MNL-2026-000001")
+			expect(inserted.find(entry => entry.table === documents)?.values).toMatchObject({
+				bookingItemId: 44,
+				payload: {
+					exporter: "Test exporter",
+					product: "Test product",
+					quantity: "24 cartons",
+					destination: "Test destination",
+					shipmentDate: "2026-12-01",
+				},
+			})
+		})
+
+		it("issues a valid Water Analysis Certificate for a failed laboratory result", async () => {
+			const { tx, inserted } = fakeTransaction(
+				[
+					[clearedItem],
+					[],
+					[
+						{
+							...context,
+							serviceCode: "WATER-TESTING",
+							documentType: "water-analysis-certificate",
+						},
+					],
+					[{ id: 20 }],
+					[{ templateId: 21, answers: { 12: "Sample A | 4 units | Fail" } }],
+					[{ id: 12 }],
+					[{ id: 9, nextNumber: 1 }],
+				],
+				[[{ id: 5 }]]
+			)
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				now: NOW,
+			})
+
+			expect(result.document).toMatchObject({
+				documentNumber: "WAC-MNL-2026-000001",
+				status: "valid",
+			})
+			expect(inserted.find(entry => entry.table === documents)?.values).toMatchObject({
+				payload: {
+					analysisOutcome: "fail",
+					parameters: [{ name: "Sample A", result: "4 units", outcome: "fail" }],
+				},
+			})
+		})
+
 		it("numbers, saves and issues the document, then moves the item and booking, in one transaction", async () => {
 			const { tx, locks, inserted, updated } = fakeTransaction(
 				[[clearedItem], [], [context], [{ id: 9, nextNumber: 1 }]],
@@ -793,6 +876,33 @@ describe("DocumentService", () => {
 	})
 
 	describe("issueOnClearance", () => {
+		it("audits and refuses CRT-10 auto-issuance without the certificate permission", async () => {
+			const recordPermissionDenial = jest.fn()
+			const restricted = new DocumentService(
+				audit as unknown as AuditService,
+				bookingService as unknown as BookingService,
+				pdf as unknown as PdfService,
+				{
+					getMissingPermissions: jest.fn().mockResolvedValue(["certificates.documents:issue"]),
+					recordPermissionDenial,
+				}
+			)
+			const { tx, inserted } = fakeTransaction([
+				[{ code: "WATER-TESTING", autoIssue: true, documentType: "water-analysis-certificate" }],
+			])
+
+			await expect(
+				restricted.issueOnClearance(tx as never, { bookingItemId: 44, actorId: "staff-1" })
+			).rejects.toMatchObject({ code: "FORBIDDEN" })
+			expect(recordPermissionDenial).toHaveBeenCalledWith(
+				expect.objectContaining({
+					actorId: "staff-1",
+					missingPermissions: ["certificates.documents:issue"],
+				})
+			)
+			expect(inserted).toEqual([])
+		})
+
 		it("does nothing when the service does not auto-issue", async () => {
 			const { tx } = fakeTransaction([[{ autoIssue: false, documentType: "icv-record" }]])
 			await expect(
@@ -908,6 +1018,41 @@ describe("DocumentService", () => {
 			select.mockReset()
 			for (const rows of rowSets) select.mockReturnValueOnce(query(rows) as never)
 		}
+
+		it("checks both category and location before manually issuing a stored-data certificate", async () => {
+			dbSelects([{ id: 44, locationId: 2, serviceCategoryId: 3, serviceCode: "FOOD-EXPORT" }])
+			const assert = jest.fn().mockRejectedValue({ code: "NOT_FOUND" })
+			const restricted = new DocumentService(
+				audit as unknown as AuditService,
+				bookingService as unknown as BookingService,
+				pdf as unknown as PdfService,
+				undefined,
+				{ assert }
+			)
+
+			await expect(
+				restricted.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details: null,
+						exemption: null,
+						sanitaryPermit: null,
+						shipSanitation: null,
+						haccp: null,
+						humanRemains: null,
+						biologicalCertification: null,
+						biologicalPermit: null,
+					},
+					"staff-1"
+				)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+			expect(assert).toHaveBeenCalledWith(
+				"staff-1",
+				expect.objectContaining({ serviceCategoryId: 3, locationId: 2 }),
+				expect.objectContaining({ type: "booking_item", id: 44 })
+			)
+			expect(db.transaction).not.toHaveBeenCalled()
+		})
 
 		it("answers 404 for an item at another Location and audits the denial", async () => {
 			dbSelects([{ id: 44, locationId: 2 }], [{ locationId: 9 }])

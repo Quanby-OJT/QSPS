@@ -55,6 +55,8 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 	"human-remains": "Human Remains Certificate",
 	"biological-certification": "Biological Substance Certification",
 	"biological-permit": "Biological Substance Permit",
+	"food-export-certificate": "Food Export Certificate",
+	"water-analysis-certificate": "Water Analysis Certificate",
 }
 
 function isDocumentType(value: string | null): value is DocumentType {

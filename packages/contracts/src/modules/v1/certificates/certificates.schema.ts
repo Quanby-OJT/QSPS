@@ -24,6 +24,8 @@ export const DOCUMENT_TYPES = [
 	"human-remains",
 	"biological-certification",
 	"biological-permit",
+	"food-export-certificate",
+	"water-analysis-certificate",
 ] as const
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
 
@@ -44,6 +46,8 @@ export const SERVICE_DOCUMENT_TYPES = [
 	"human-remains",
 	"biological-certification",
 	"biological-permit",
+	"food-export-certificate",
+	"water-analysis-certificate",
 ] as const
 
 /** The document types that exempt a client from a vaccine (CRT-3). */
@@ -193,7 +197,7 @@ export const BiologicalPermitDetailsSchema = z
 
 /**
  * Staff issue a document for a cleared Booking Item (services with auto-issue
- * off, or after head approval). Give exactly one of: `details` for the
+ * off, or after head approval). Give at most one of: `details` for the
  * vaccination record, `exemption` for a Medical Exemption Certificate (CRT-3),
  * `sanitaryPermit` for a Sanitary Permit or `shipSanitation` for a Ship
  * Sanitation Certificate (CRT-5), or `haccp` for a HACCP Certificate (CRT-6).
@@ -201,6 +205,7 @@ export const BiologicalPermitDetailsSchema = z
  * whole seminar session from its roster. CRT-7 adds `humanRemains` and
  * `biologicalCertification` (an empty object: everything comes from the client's
  * answers) and `biologicalPermit` (its validity).
+ * Food Export and Water Analysis Certificates (CRT-10) use saved booking data.
  */
 export const IssueDocumentSchema = z
 	.object({
@@ -327,6 +332,7 @@ export const DocumentVerificationSchema = z.object({
 	validUntil: z.string().nullable(),
 	/** When it was revoked or superseded; null otherwise, expired included. */
 	statusChangedAt: dateField.nullable(),
+	analysisOutcome: z.enum(["pass", "fail"]).optional(),
 })
 
 // ============================================================================

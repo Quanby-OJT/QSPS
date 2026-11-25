@@ -24,6 +24,12 @@ import { manilaDateOf } from "../../schedules/manila-time"
 import { ProcessingService } from "../processing.service"
 import { fieldsByTemplate, publishedStepForms, readableStepAnswers } from "./item-steps"
 import { decryptPeAnswers, encryptPeAnswers, PE_SERVICE_CODE } from "./pe-results"
+import {
+	parseWaterAnalysis,
+	WATER_LAB_STEP,
+	WATER_RESULT_FIELD,
+	WATER_TESTING_SERVICE_CODE,
+} from "./water-analysis"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
 
@@ -92,7 +98,11 @@ export class StepResultsService {
 		await db.transaction(async tx => {
 			// Locked so two officers recording the same step get versions one after the other.
 			const [item] = await tx
-				.select({ status: bookingItems.status, serviceId: bookingItems.serviceId, serviceCode: services.code })
+				.select({
+					status: bookingItems.status,
+					serviceId: bookingItems.serviceId,
+					serviceCode: services.code,
+				})
 				.from(bookingItems)
 				.innerJoin(services, eq(services.id, bookingItems.serviceId))
 				.where(eq(bookingItems.id, input.bookingItemId))
@@ -134,6 +144,28 @@ export class StepResultsService {
 					message: `Some answers for ${step.name} need fixing.`,
 					data: { fieldErrors: check.fieldErrors },
 				})
+			}
+
+			if (item.serviceCode === WATER_TESTING_SERVICE_CODE && step.name === WATER_LAB_STEP) {
+				const matchingFields = (fields ?? []).filter(
+					field => field.label === WATER_RESULT_FIELD && field.type === "text"
+				)
+				const field = matchingFields[0]
+
+				if (matchingFields.length !== 1 || !field) {
+					throw new ORPCError("CONFLICT", {
+						message: "The Water Testing Laboratory result form is not configured correctly.",
+					})
+				}
+
+				const fieldId = String(field.id)
+				const parsed = parseWaterAnalysis(check.answers[fieldId])
+				if (!parsed.ok) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Correct the Water Testing Laboratory result.",
+						data: { fieldErrors: { [fieldId]: parsed.message } },
+					})
+				}
 			}
 
 			// The first result recorded at a station starts the assessment, through
@@ -297,14 +329,15 @@ export class StepResultsService {
 			.where(eq(formTemplates.id, result.formTemplateId))
 			.limit(1)
 		const fields = (await fieldsByTemplate(db, [result.formTemplateId])).get(result.formTemplateId)
-		const values = item.serviceCode === PE_SERVICE_CODE
-			? decryptPeAnswers(result.answers, {
-					bookingItemId,
-					serviceStepId: step.id,
-					formTemplateId: result.formTemplateId,
-					version: result.version,
-				})
-			: result.answers
+		const values =
+			item.serviceCode === PE_SERVICE_CODE
+				? decryptPeAnswers(result.answers, {
+						bookingItemId,
+						serviceStepId: step.id,
+						formTemplateId: result.formTemplateId,
+						version: result.version,
+					})
+				: result.answers
 		const answers = readableStepAnswers(fields ?? [], values)
 
 		const pdf = await this.pdfService.render(

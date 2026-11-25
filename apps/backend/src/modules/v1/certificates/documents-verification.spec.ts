@@ -91,6 +91,28 @@ describe("DocumentService public verification (CRT-2)", () => {
 		})
 	})
 
+	it("shows the water outcome through both verification routes without exposing parameters", async () => {
+		const documentNumber = "WAC-MNL-2026-000001"
+		selectReturns([
+			makeRow({
+				documentNumber,
+				documentType: "water-analysis-certificate",
+				payload: {
+					holder: { name: "Test Three" },
+					analysisOutcome: "fail",
+					parameters: [{ name: "Sample A", result: "4 units", outcome: "fail" }],
+				},
+			}),
+		])
+
+		const byToken = await service.verify(TOKEN)
+		const byNumber = await service.verifyByNumber({ documentNumber, code: CODE })
+		expect(byToken).toMatchObject({ documentNumber, status: "valid", analysisOutcome: "fail" })
+		expect(byNumber).toEqual(byToken)
+		expect(byToken).not.toHaveProperty("parameters")
+		expect(byToken).not.toHaveProperty("payload")
+	})
+
 	it("never returns the payload, the birth date or the passport/ID number", async () => {
 		selectReturns([makeRow()])
 

@@ -1,6 +1,7 @@
 import { biologicalCertification } from "./biological-certification"
 import { biologicalPermit } from "./biological-permit"
 import type { RenderableDocumentType } from "./document-type"
+import { foodExportCertificate, waterAnalysisCertificate } from "./food-export-water"
 import { foodSafetyTraining } from "./food-safety-training"
 import { haccp } from "./haccp"
 import { humanRemains } from "./human-remains"
@@ -30,6 +31,8 @@ const REGISTRY: Record<string, RenderableDocumentType> = {
 	[humanRemains.type]: humanRemains,
 	[biologicalCertification.type]: biologicalCertification,
 	[biologicalPermit.type]: biologicalPermit,
+	[foodExportCertificate.type]: foodExportCertificate,
+	[waterAnalysisCertificate.type]: waterAnalysisCertificate,
 }
 
 /**
@@ -47,6 +50,8 @@ const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
 	[humanRemains.type]: humanRemains,
 	[biologicalCertification.type]: biologicalCertification,
 	[biologicalPermit.type]: biologicalPermit,
+	[foodExportCertificate.type]: foodExportCertificate,
+	[waterAnalysisCertificate.type]: waterAnalysisCertificate,
 }
 
 /**

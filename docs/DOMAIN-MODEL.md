@@ -237,3 +237,21 @@ New terms and tables:
 * **Report Definition** (`report_definitions`): a saved custom report: category, columns, filters, grouping, and the role it is shared with. Owner: reports.
 
 New document types: `pe-medical-certificate`, `food-export-certificate`, `water-analysis-certificate`.
+
+CRT-10 uses the `food-export-water` Service Category. The `FOOD-EXPORT`
+Service issues `food-export-certificate`, using the questionnaire submission
+stored for the Booking Item and its original Form Template version. The
+`WATER-TESTING` Service issues `water-analysis-certificate`, using the latest
+recorded result of its required Laboratory analysis Step. Certificate numbers
+use the prefixes `FEX` and `WAC`.
+
+Water parameter outcomes are entered by the analyst. At least one parameter
+is required. The overall outcome is `fail` if any parameter failed and
+`pass` otherwise. The Document can be issued in either case. The outcome is
+stored as `analysisOutcome` in `documents.payload` and is distinct from
+`documents.status`, which tracks whether the Document is valid, revoked, or
+superseded. Public verification may show `analysisOutcome` for Water Analysis
+Certificates while keeping the parameter results and questionnaires private.
+
+Both Services are seeded inactive with zero fees. BOQ configures the fee,
+activates the Service, and opens appointment slots before it is offered.
