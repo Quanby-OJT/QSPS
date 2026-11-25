@@ -4,9 +4,12 @@ import { ORPCError } from "@orpc/server"
 import { and, desc, eq, sql, type SQL } from "drizzle-orm"
 
 import type {
+	BiologicalCertificationDetails,
+	BiologicalPermitDetails,
 	DocumentSummary,
 	DocumentVerification,
 	HaccpDetails,
+	HumanRemainsDetails,
 	IcvIssueDetails,
 	IssueDocumentInput,
 	ManualVerificationInput,
@@ -33,23 +36,31 @@ import { db } from "@/common/database/database.client"
 import { NotificationService } from "@/common/notifications/notification.service"
 import { PdfService } from "@/common/pdf/pdf.service"
 import type { RbacService } from "@/common/rbac/rbac.service"
-import type { ScopeService } from "@/common/scope/scope.service"
 import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import type { ScopeService } from "@/common/scope/scope.service"
 import { env } from "@/config/env.config"
 import { readableAnswers } from "@/modules/v1/forms/form-answers-display"
 
 import { BookingService, type Transaction } from "../bookings/bookings.service"
 import { newVerificationToken } from "../payments/receipt-number"
-import { isPeItem, peEvaluation, PE_DOCUMENT_TYPE, PE_SERVICE_CODE } from "../processing/steps/pe-results"
+import {
+	isPeItem,
+	PE_DOCUMENT_TYPE,
+	PE_SERVICE_CODE,
+	peEvaluation,
+} from "../processing/steps/pe-results"
 import { hasExpired } from "./document-expiry"
 import { formatDocumentNumber } from "./document-number"
 import type { PdfExtras, RenderableDocumentType } from "./document-types/document-type"
 import { peMedicalCertificate } from "./document-types/pe-medical-certificate"
 import { MissingAnswerError } from "./document-types/questionnaire-answers"
 import {
+	biologicalCertification,
+	biologicalPermit,
 	documentTypeFor,
 	foodSafetyTraining,
 	haccp,
+	humanRemains,
 	icvRecord,
 	isVaccinationType,
 	medicalExemption,
@@ -58,6 +69,7 @@ import {
 	shipSanitation,
 } from "./document-types/registry"
 import { holderNameOf, maskName } from "./mask-name"
+import { openPayload, parsePayloadKey, payloadAad, sealPayload } from "./payload-cipher"
 import { PE_RBAC, PE_SCOPE } from "./pe-access.tokens"
 
 const AUDIT_DOMAIN_CERTIFICATES = "certificates"
@@ -110,6 +122,12 @@ function missingDetailsMessage(serviceType: RenderableDocumentType): string {
 	if (serviceType.type === haccp.type) {
 		return "Enter the dates the HACCP Certificate is valid from and until."
 	}
+	if (serviceType.type === biologicalPermit.type) {
+		return "Enter the dates the Biological Substance Permit is valid from and until."
+	}
+	if (serviceType.type === humanRemains.type || serviceType.type === biologicalCertification.type) {
+		return `Issue the ${serviceType.title} from the item; its details come from the client's application form.`
+	}
 	return "Enter the vaccine batch number and the vaccinator, or record the medical exemption."
 }
 
@@ -127,6 +145,40 @@ function fromAnswers<T>(build: () => T): T {
 		}
 		throw error
 	}
+}
+
+/** The key that encrypts sensitive payloads (CRT-7). Read only when one is needed, so other types never need it. */
+function payloadKey(): Buffer {
+	return parsePayloadKey(env.DOCUMENT_PAYLOAD_KEY)
+}
+
+/**
+ * The payload as it is saved (CRT-7): encrypted for a sensitive type, bound to the
+ * document's own type and number, and unchanged for every other type.
+ */
+function storedPayload(
+	type: RenderableDocumentType,
+	documentNumber: string,
+	payload: Record<string, unknown>
+): Record<string, unknown> {
+	return type.sensitive
+		? sealPayload(payload, payloadKey(), payloadAad(type.type, documentNumber))
+		: payload
+}
+
+/**
+ * The payload of a saved document, ready to print or read (CRT-7): decrypted when it was
+ * saved encrypted. A payload that is not encrypted (every other type, and anything
+ * saved before CRT-7) is returned as it is and needs no key. Called only after the
+ * permission and Scope checks, so a caller who may not see a document never causes
+ * it to be decrypted.
+ */
+function readablePayload(row: {
+	documentType: string
+	documentNumber: string
+	payload: Record<string, unknown>
+}): Record<string, unknown> {
+	return openPayload(row.payload, payloadKey, payloadAad(row.documentType, row.documentNumber))
 }
 
 /** The public page a document's QR code points to (built in CRT-2, Flow D step 5). */
@@ -151,6 +203,12 @@ export interface IssueRequest {
 	shipSanitation?: ShipSanitationDetails | null
 	/** CRT-6: the validity of a HACCP Certificate. The establishment comes from the questionnaire. */
 	haccp?: HaccpDetails | null
+	/** CRT-7: a Human Remains Certificate. Staff type nothing; an empty object asks for it. */
+	humanRemains?: HumanRemainsDetails | null
+	/** CRT-7: a Biological Substance Certification. Staff type nothing; an empty object asks for it. */
+	biologicalCertification?: BiologicalCertificationDetails | null
+	/** CRT-7: the validity of a Biological Substance Permit. The substance comes from the questionnaire. */
+	biologicalPermit?: BiologicalPermitDetails | null
 	now?: Date
 }
 
@@ -299,7 +357,13 @@ export class DocumentService {
 					message: "The Physical Examination Service and document type do not match",
 				})
 			}
-			if (request.details || request.exemption || request.sanitaryPermit || request.shipSanitation || request.haccp) {
+			if (
+				request.details ||
+				request.exemption ||
+				request.sanitaryPermit ||
+				request.shipSanitation ||
+				request.haccp
+			) {
 				throw new ORPCError("BAD_REQUEST", {
 					message: "The Physical Examination certificate uses the recorded evaluation",
 				})
@@ -355,6 +419,36 @@ export class DocumentService {
 			type = haccp
 			payload = fromAnswers(() => haccp.buildPayload({ ...issueContext, answers }, haccpDetails))
 			validUntil = haccp.validUntil(haccpDetails)
+		} else if (request.humanRemains) {
+			// CRT-7: the deceased, the consignee and the transport come from the client's answers.
+			requireServiceType(serviceType, humanRemains, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const remainsDetails = request.humanRemains
+			type = humanRemains
+			payload = fromAnswers(() =>
+				humanRemains.buildPayload({ ...issueContext, answers }, remainsDetails)
+			)
+			validUntil = humanRemains.validUntil(remainsDetails)
+		} else if (request.biologicalCertification) {
+			// CRT-7: the substance, quantity, origin and destination come from the client's answers.
+			requireServiceType(serviceType, biologicalCertification, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const certificationDetails = request.biologicalCertification
+			type = biologicalCertification
+			payload = fromAnswers(() =>
+				biologicalCertification.buildPayload({ ...issueContext, answers }, certificationDetails)
+			)
+			validUntil = biologicalCertification.validUntil(certificationDetails)
+		} else if (request.biologicalPermit) {
+			// CRT-7: the substance comes from the client's answers, the validity from staff.
+			requireServiceType(serviceType, biologicalPermit, context.serviceName)
+			const answers = await readableAnswers(tx, item.id)
+			const permitDetails = request.biologicalPermit
+			type = biologicalPermit
+			payload = fromAnswers(() =>
+				biologicalPermit.buildPayload({ ...issueContext, answers }, permitDetails)
+			)
+			validUntil = biologicalPermit.validUntil(permitDetails)
 		} else if (serviceType.type === foodSafetyTraining.type) {
 			// CRT-6: staff type nothing. The participant, the seminar and the session
 			// come from the booking, so a whole roster can be issued in one go.
@@ -386,7 +480,7 @@ export class DocumentService {
 				validUntil,
 				status: "valid",
 				source: "qsps",
-				payload,
+				payload: storedPayload(type, documentNumber, payload),
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -455,7 +549,11 @@ export class DocumentService {
 	 */
 	async issueOnClearance(tx: Transaction, request: IssueRequest): Promise<IssueResult | null> {
 		const [service] = await tx
-			.select({ autoIssue: services.autoIssue, documentType: services.documentType, code: services.code })
+			.select({
+				autoIssue: services.autoIssue,
+				documentType: services.documentType,
+				code: services.code,
+			})
 			.from(bookingItems)
 			.innerJoin(services, eq(services.id, bookingItems.serviceId))
 			.where(eq(bookingItems.id, request.bookingItemId))
@@ -554,6 +652,9 @@ export class DocumentService {
 				sanitaryPermit: input.sanitaryPermit,
 				shipSanitation: input.shipSanitation,
 				haccp: input.haccp,
+				humanRemains: input.humanRemains,
+				biologicalCertification: input.biologicalCertification,
+				biologicalPermit: input.biologicalPermit,
 			})
 		)
 		return result.document
@@ -634,10 +735,11 @@ export class DocumentService {
 
 		const verifyUrl = documentVerifyUrl(row.verificationToken)
 		const qrPng = await this.pdfService.qrPng(verifyUrl)
+		const payload = readablePayload(row)
 		const pdf = await this.pdfService.render(
 			{ title: `${type.title} ${row.documentNumber}` },
 			doc =>
-				type.draw(doc, row.payload, {
+				type.draw(doc, payload, {
 					documentNumber: row.documentNumber,
 					status: row.status,
 					verifyUrl,
@@ -717,17 +819,18 @@ export class DocumentService {
 			verifyUrl,
 			qrPng: await this.pdfService.qrPng(verifyUrl),
 		}
+		const payload = readablePayload(row)
 		const card = type.card
 		const title = `${type.title} ${row.documentNumber}`
 		// Rendered before counting, so a failed render is never counted as a print.
 		const pdf = card
 			? await this.pdfService.render({ title, size: card.size, margin: 0 }, doc =>
-					card.draw(doc, row.payload, extras, {
+					card.draw(doc, payload, extras, {
 						xMm: row.cardOffsetXMm,
 						yMm: row.cardOffsetYMm,
 					})
 				)
-			: await this.pdfService.render({ title }, doc => type.draw(doc, row.payload, extras))
+			: await this.pdfService.render({ title }, doc => type.draw(doc, payload, extras))
 
 		const printCount = await db.transaction(async tx => {
 			// One atomic increment, so two prints at once both count. The status
@@ -839,7 +942,7 @@ export class DocumentService {
 			documentType: type.type as DocumentVerification["documentType"],
 			documentTitle: type.title,
 			documentNumber: row.documentNumber,
-			holderName: maskName(holderNameOf(row.payload)),
+			holderName: maskName(holderNameOf(readablePayload(row))),
 			issuingLocation: row.issuingLocation,
 			issuedAt: row.issuedAt,
 			// Revoked and superseded stay as they are; only a valid document can expire (CRT-5).
@@ -1030,7 +1133,7 @@ export class DocumentService {
 					validUntil,
 					status: "valid",
 					source: "qsps",
-					payload,
+					payload: storedPayload(type, documentNumber, payload),
 					createdAt: now,
 					updatedAt: now,
 				})

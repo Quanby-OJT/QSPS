@@ -77,6 +77,10 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 	// CRT-6
 	"food-safety-training": "Food Safety Training Certificate",
 	"haccp": "HACCP Certificate",
+	// CRT-7
+	"human-remains": "Human Remains Certificate",
+	"biological-certification": "Biological Substance Certification",
+	"biological-permit": "Biological Substance Permit",
 }
 
 export function documentTypeLabel(type: string): string {
@@ -116,15 +120,33 @@ export function sanitationDocumentType(
 }
 
 /**
- * CRT-6: the documents an officer issues by hand with a validity period: the
- * two sanitation documents and the HACCP Certificate.
+ * CRT-6, CRT-7: the documents an officer issues by hand with a validity period: the
+ * two sanitation documents, the HACCP Certificate and the Biological Substance Permit.
  */
-export type ValidityDocumentType = SanitationDocumentType | "haccp"
+export type ValidityDocumentType = SanitationDocumentType | "haccp" | "biological-permit"
 
 export function validityDocumentType(
 	serviceDocumentType: string | null
 ): ValidityDocumentType | null {
-	return serviceDocumentType === "haccp" ? "haccp" : sanitationDocumentType(serviceDocumentType)
+	return serviceDocumentType === "haccp" || serviceDocumentType === "biological-permit"
+		? serviceDocumentType
+		: sanitationDocumentType(serviceDocumentType)
+}
+
+/**
+ * CRT-7: the documents an officer issues from the item with nothing to enter,
+ * because everything printed comes from the client's application form: the Human
+ * Remains Certificate and the Biological Substance Certification.
+ */
+export type ConfirmationDocumentType = "human-remains" | "biological-certification"
+
+export function confirmationDocumentType(
+	serviceDocumentType: string | null
+): ConfirmationDocumentType | null {
+	return serviceDocumentType === "human-remains" ||
+		serviceDocumentType === "biological-certification"
+		? serviceDocumentType
+		: null
 }
 
 /**

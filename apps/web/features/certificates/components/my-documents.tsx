@@ -25,6 +25,10 @@ const DOCUMENT_TITLES: Record<DocumentSummary["documentType"], string> = {
 	// CRT-6
 	"food-safety-training": "Food Safety Training Certificate",
 	"haccp": "HACCP Certificate",
+	// CRT-7
+	"human-remains": "Human Remains Certificate",
+	"biological-certification": "Biological Substance Certification",
+	"biological-permit": "Biological Substance Permit",
 }
 
 const STATUS_LABELS: Record<DocumentSummary["status"], string> = {
@@ -33,14 +37,19 @@ const STATUS_LABELS: Record<DocumentSummary["status"], string> = {
 	superseded: "Replaced",
 }
 
+/** CRT-6, CRT-7: these documents have no end date, and none is tied to a person's life. */
+const NEVER_EXPIRES: ReadonlySet<DocumentSummary["documentType"]> = new Set([
+	"food-safety-training",
+	"human-remains",
+	"biological-certification",
+])
+
 /** "2036-11-29" → "Nov 29, 2036"; null means the document does not expire. */
 function validUntilLabel(
 	date: string | null,
 	documentType: DocumentSummary["documentType"]
 ): string {
-	// CRT-6: a training certificate does not expire, but it is not tied to a person's life.
-	if (!date)
-		return documentType === "food-safety-training" ? "Does not expire" : "Life of the person"
+	if (!date) return NEVER_EXPIRES.has(documentType) ? "Does not expire" : "Life of the person"
 	const [year, month, day] = date.split("-").map(Number)
 	return new Intl.DateTimeFormat("en-PH", { timeZone: "UTC", dateStyle: "medium" }).format(
 		new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1))

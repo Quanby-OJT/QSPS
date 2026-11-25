@@ -71,6 +71,12 @@ export interface RenderableDocumentType {
 	draw(doc: PdfDocument, payload: Record<string, unknown>, extras: PdfExtras): void
 	/** Present when staff print this type onto a pre-printed card (CRT-3). */
 	card?: CardLayout
+	/**
+	 * CRT-7: the payload holds sensitive personal information, so DocumentService
+	 * stores it encrypted in documents.payload and decrypts it only to draw the
+	 * PDF or to read the holder's name for the masked public lookup.
+	 */
+	sensitive?: boolean
 }
 
 /**

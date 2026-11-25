@@ -125,6 +125,19 @@ export const env = createEnv({
 		S3_SECRET_ACCESS_KEY: z.string().optional(),
 		S3_FORCE_PATH_STYLE: booleanFromEnv.optional().default(false),
 
+		// Documents (CRT-7). The key that encrypts the payload of human remains and
+		// biological substance documents at rest (AES-256-GCM): 32 random bytes in
+		// base64, from `openssl rand -base64 32`. Optional so the app boots without it;
+		// those three document types then cannot be issued or read, and every other
+		// document is unaffected.
+		DOCUMENT_PAYLOAD_KEY: z
+			.string()
+			.regex(
+				/^[A-Za-z0-9+/]{43}=$/,
+				"DOCUMENT_PAYLOAD_KEY must be 32 random bytes in base64 (openssl rand -base64 32)"
+			)
+			.optional(),
+
 		// Database
 		DATABASE_URL: z.string(),
 
