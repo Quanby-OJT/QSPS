@@ -1,6 +1,9 @@
 import type { PdfDocument } from "@/common/pdf/pdf.service"
+import { manilaDateOf } from "@/modules/v1/schedules/manila-time"
 
 import type { WaterOutcome, WaterParameter } from "../../processing/steps/water-analysis"
+import { formatCalendarDate } from "./calendar-date"
+import { drawDocumentLayout, type LayoutField } from "./document-layout"
 import type { DocumentTypeDefinition, IssueContext, PdfExtras } from "./document-type"
 
 export const FOOD_EXPORT_DOCUMENT_TYPE = "food-export-certificate"
@@ -27,74 +30,109 @@ function basePayload(context: IssueContext) {
 	}
 }
 
-function heading(
+/** Who asked, when and where it was issued: the last block of both certificates. */
+function certificationFields(payload: Record<string, unknown>): LayoutField[] {
+	const holder = payload.holder as { name?: string } | undefined
+	const issuedAt = typeof payload.issuedAt === "string" ? new Date(payload.issuedAt) : null
+	return [
+		{ label: "Requested by", value: holder?.name ?? "-" },
+		{ label: "Date issued", value: issuedAt ? formatCalendarDate(manilaDateOf(issuedAt)) : "-" },
+		{ label: "Issuing station", value: String(payload.issuingLocation ?? "-") },
+	]
+}
+
+function text(value: unknown): string {
+	return typeof value === "string" && value.trim() ? value : "-"
+}
+
+export function drawFoodExport(
 	doc: PdfDocument,
-	title: string,
 	payload: Record<string, unknown>,
 	extras: PdfExtras
 ) {
-	doc.font("Helvetica-Bold").fontSize(18).text(title)
-	doc.moveDown(0.5).font("Helvetica").fontSize(11)
-	doc.text(`Document number: ${extras.documentNumber}`)
-	doc.text(`Issuing Location: ${String(payload.issuingLocation ?? "")}`)
-	doc.text(`Document status: ${extras.status.toUpperCase()}`)
+	const shipmentDate = typeof payload.shipmentDate === "string" ? payload.shipmentDate : null
+	drawDocumentLayout(
+		doc,
+		{
+			title: "Food Export Certificate",
+			subtitle: "Food Export - Bureau of Quarantine, Republic of the Philippines",
+			sections: [
+				{
+					heading: "SHIPMENT",
+					fields: [
+						{ label: "Exporter", value: text(payload.exporter) },
+						{ label: "Product", value: text(payload.product) },
+						{ label: "Quantity", value: text(payload.quantity) },
+						{ label: "Destination", value: text(payload.destination) },
+						{
+							label: "Shipment date",
+							value: shipmentDate ? formatCalendarDate(shipmentDate) : "-",
+						},
+					],
+				},
+				{ heading: "CERTIFICATION", fields: certificationFields(payload) },
+			],
+			note: "This certifies that the Bureau of Quarantine cleared the shipment described above for export.",
+		},
+		extras
+	)
+}
 
-	const holder = payload.holder as { name?: string } | undefined
-	if (holder?.name) doc.text(`Holder: ${holder.name}`)
-	if (typeof payload.issuedAt === "string") {
-		const issued = new Intl.DateTimeFormat("en-PH", {
-			dateStyle: "medium",
-			timeZone: "Asia/Manila",
-		}).format(new Date(payload.issuedAt))
-		doc.text(`Date issued: ${issued}`)
+export function drawWaterAnalysis(
+	doc: PdfDocument,
+	payload: Record<string, unknown>,
+	extras: PdfExtras
+) {
+	const outcome = payload.analysisOutcome
+	if (outcome !== "pass" && outcome !== "fail") {
+		throw new Error("Water Analysis Certificate is missing its recorded outcome")
 	}
-	doc.moveDown()
-}
-
-function field(doc: PdfDocument, label: string, value: unknown) {
-	doc.font("Helvetica-Bold").text(label)
-	doc
-		.font("Helvetica")
-		.text(String(value ?? ""))
-		.moveDown(0.45)
-}
-
-function verification(doc: PdfDocument, extras: PdfExtras) {
-	if (doc.y + 120 > doc.page.height - doc.page.margins.bottom) doc.addPage()
-	const qrY = doc.y
-	doc.image(extras.qrPng, doc.page.margins.left, qrY, { width: 80 })
-	doc.y = qrY + 88
-	doc.font("Helvetica").fontSize(9).text(extras.verifyUrl)
-	doc.text(`Verification code: ${extras.verifyUrl.slice(-8)}`)
+	const failed = outcome === "fail"
+	const parameters = (payload.parameters ?? []) as WaterParameter[]
+	drawDocumentLayout(
+		doc,
+		{
+			title: failed ? "Water Analysis Certificate - FAILED" : "Water Analysis Certificate",
+			subtitle: "Water Testing - Bureau of Quarantine, Republic of the Philippines",
+			sections: [
+				{
+					heading: "ANALYSIS",
+					fields: [
+						{ label: "Overall outcome", value: failed ? "FAILED" : "PASSED" },
+						...parameters.map(parameter => ({
+							label: parameter.name,
+							value: `${parameter.result} - ${parameter.outcome.toUpperCase()}`,
+						})),
+					],
+				},
+				{ heading: "CERTIFICATION", fields: certificationFields(payload) },
+			],
+			note: failed
+				? "The sample described above FAILED the analysis."
+				: "The sample described above passed the analysis.",
+		},
+		extras
+	)
 }
 
 export const foodExportCertificate: DocumentTypeDefinition<FoodExportDetails> = {
 	type: FOOD_EXPORT_DOCUMENT_TYPE,
 	title: "Food Export Certificate",
+	// Assumed prefix until BOQ signs off the numbering (PRD open item 6).
 	numberPrefix: "FEX",
 	validUntil: () => null,
-
 	buildPayload(context, details) {
 		return { ...basePayload(context), ...details }
 	},
-
-	draw(doc, payload, extras) {
-		heading(doc, "Food Export Certificate", payload, extras)
-		field(doc, "Exporter", payload.exporter)
-		field(doc, "Product", payload.product)
-		field(doc, "Quantity", payload.quantity)
-		field(doc, "Destination", payload.destination)
-		field(doc, "Shipment date", payload.shipmentDate)
-		verification(doc, extras)
-	},
+	draw: drawFoodExport,
 }
 
 export const waterAnalysisCertificate: DocumentTypeDefinition<WaterAnalysisDetails> = {
 	type: WATER_ANALYSIS_DOCUMENT_TYPE,
 	title: "Water Analysis Certificate",
+	// Assumed prefix until BOQ signs off the numbering (PRD open item 6).
 	numberPrefix: "WAC",
 	validUntil: () => null,
-
 	buildPayload(context, details) {
 		return {
 			...basePayload(context),
@@ -102,26 +140,5 @@ export const waterAnalysisCertificate: DocumentTypeDefinition<WaterAnalysisDetai
 			parameters: details.parameters,
 		}
 	},
-
-	draw(doc, payload, extras) {
-		heading(doc, "Water Analysis Certificate", payload, extras)
-
-		const outcome = payload.analysisOutcome
-		if (outcome !== "pass" && outcome !== "fail") {
-			throw new Error("Water Analysis Certificate is missing its recorded outcome")
-		}
-
-		doc
-			.fillColor(outcome === "fail" ? "#9b1c1c" : "#155e3b")
-			.font("Helvetica-Bold")
-			.fontSize(15)
-			.text(`Overall analysis outcome: ${outcome === "fail" ? "FAILED" : "PASSED"}`)
-			.moveDown()
-
-		doc.fillColor("#111111").fontSize(11)
-		for (const parameter of payload.parameters as WaterParameter[]) {
-			field(doc, parameter.name, `${parameter.result} — ${parameter.outcome.toUpperCase()}`)
-		}
-		verification(doc, extras)
-	},
+	draw: drawWaterAnalysis,
 }
