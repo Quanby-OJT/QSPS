@@ -991,7 +991,6 @@ export class BookingService {
 		return unpaid ? this.loadBooking(db, unpaid.id) : null
 	}
 
-
 	/**
 	 * The client cancels their own unpaid Booking (BKG-2, `bookings.own:cancel`).
 	 *
@@ -1149,12 +1148,7 @@ export class BookingService {
 			const [item] = await tx
 				.select()
 				.from(bookingItems)
-				.where(
-					and(
-						eq(bookingItems.id, input.bookingItemId),
-						eq(bookingItems.bookingId, owned.id)
-					)
-				)
+				.where(and(eq(bookingItems.id, input.bookingItemId), eq(bookingItems.bookingId, owned.id)))
 				.for("update")
 
 			if (!item) {
@@ -1417,6 +1411,7 @@ export class BookingService {
 				startsAt: scheduleSlots.startsAt,
 				endsAt: scheduleSlots.endsAt,
 				feeCentavos: bookingItems.feeCentavos,
+				rescheduleCount: bookingItems.rescheduleCount,
 				status: bookingItems.status,
 			})
 			.from(bookingItems)
@@ -1439,6 +1434,7 @@ export class BookingService {
 				startsAt: item.startsAt,
 				endsAt: item.endsAt,
 				feeCentavos: item.feeCentavos,
+				rescheduleCount: item.rescheduleCount,
 				status: item.status,
 			})
 			map.set(item.bookingId, list)

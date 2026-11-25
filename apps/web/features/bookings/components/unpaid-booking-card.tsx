@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import type { Booking } from "@repo/contracts"
 
 import { Badge } from "@/core/components/ui/badge"
-import { Button } from "@/core/components/ui/button"
+import { Button, buttonVariants } from "@/core/components/ui/button"
 import {
 	Card,
 	CardContent,
@@ -131,8 +131,7 @@ export function UnpaidBookingDetails({
 	// Items carry no category, so match the seeded Service name; the API refuses anything else.
 	const physicalExamItems = booking.items.filter(item => /physical exam/i.test(item.serviceName))
 
-	const reschedulingItem =
-		booking.items.find(item => item.id === reschedulingItemId) ?? null
+	const reschedulingItem = booking.items.find(item => item.id === reschedulingItemId) ?? null
 
 	return (
 		<Card className="border-t-gold border-t-4">
@@ -141,9 +140,12 @@ export function UnpaidBookingDetails({
 					<CardTitle>Booking awaiting payment</CardTitle>
 					<div className="flex items-center gap-2">
 						<Badge variant="secondary">Pending payment</Badge>
-						<Button size="sm" variant="ghost" render={<Link href={`/transactions/${booking.id}`} />}>
+						<Link
+							href={`/transactions/${booking.id}`}
+							className={buttonVariants({ size: "sm", variant: "ghost" })}
+						>
 							View details
-						</Button>
+						</Link>
 					</div>
 				</div>
 				<CardDescription>
