@@ -1,5 +1,5 @@
-import { defineRelations, sql } from "drizzle-orm"
-import { index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
+import { defineRelations, sql, type SQL } from "drizzle-orm"
+import { check as pgCheck, index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -524,6 +524,10 @@ export const bookingItems = createTable(
 			.integer("schedule_slot_id")
 			.notNull()
 			.references(() => scheduleSlots.id, { onDelete: "restrict" }),
+		rescheduleCount: t
+			.integer("reschedule_count")
+			.notNull()
+			.default(0),	
 		locationId: t
 			.integer("location_id")
 			.notNull()
@@ -551,6 +555,9 @@ export const bookingItems = createTable(
 	t => [
 		index("booking_items_booking_idx").on(t.bookingId),
 		index("booking_items_slot_idx").on(t.scheduleSlotId),
+		index("booking_items_status_idx").on(t.status),
+		check("booking_items_fee_nonnegative_chk").on(sql`${t.feeCentavos} >= 0`),
+		check("booking_items_reschedule_count_nonnegative_chk").on(sql`${t.rescheduleCount} >= 0`),
 	]
 )
 
@@ -639,6 +646,14 @@ export const documents = createTable(
 		payload: t.jsonb("payload").notNull().$type<Record<string, unknown>>(),
 		/** How many times staff printed it (CRT-3); above 1 means it was reprinted. */
 		printCount: t.integer("print_count").notNull().default(0),
+		/** CRT-8: the document that replaced this one when it was reissued. No foreign key: a self-reference written only by DocumentService. */
+		supersededBy: t.integer("superseded_by"),
+		/** CRT-8: why it was revoked or reissued. */
+		statusReason: t.text("status_reason"),
+		/** CRT-8: who revoked or reissued it. */
+		statusChangedBy: t
+			.text("status_changed_by")
+			.references(() => users.id, { onDelete: "restrict" }),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
@@ -734,11 +749,26 @@ export const payments = createTable(
 		collectedBy: t.text("collected_by").references(() => users.id, { onDelete: "restrict" }),
 		/** PAY-4: how an onsite payment was tendered at the cashier; null for online payments. */
 		tenderType: t.text("tender_type").$type<"cash" | "card" | "check">(),
+		/**
+		 * PAY-6: how staff resolved a `needs_review` Payment. Null while it is
+		 * still in the exceptions list. Set once, by `PaymentService.resolveReview`.
+		 */
+		reviewResolution: t.text("review_resolution").$type<"rebooked" | "refund_requested">(),
+		/** PAY-6: what staff wrote when resolving it. */
+		reviewNote: t.text("review_note"),
+		/** PAY-6: the new Booking made for the client, when resolved by rebooking. */
+		rebookedBookingId: t
+			.integer("rebooked_booking_id")
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		reviewedBy: t.text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+		reviewedAt: t.timestamp("reviewed_at"),
 		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 	}),
 	t => [
 		index("payments_booking_idx").on(t.bookingId),
+		// PAY-6: the re-query job reads pending payments oldest-checked first.
+		index("payments_status_updated_idx").on(t.status, t.updatedAt),
 		// A provider reference identifies one payment. Nulls (not yet sent to
 		// checkout) do not collide in Postgres.
 		uniqueIndex("payments_provider_reference_uq").on(t.providerCode, t.providerReference),
@@ -773,6 +803,46 @@ export const paymentEvents = createTable(
 	]
 )
 
+/**
+ * A request to return or forfeit a Booking's money (DOMAIN-MODEL.md
+ * `refund_requests`). Created by PAY-6 when staff resolve a payment exception
+ * by opening a refund; deciding and settling it is PAY-7.
+ */
+export const refundRequests = createTable(
+	"refund_requests",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		bookingId: t
+			.integer("booking_id")
+			.notNull()
+			.references(() => bookings.id, { onDelete: "restrict" }),
+		/** The Payment the money came from, when the request is about one Payment (PAY-6). */
+		paymentId: t.integer("payment_id").references(() => payments.id, { onDelete: "restrict" }),
+		kind: t.text("kind").notNull().$type<"refund" | "forfeiture">(),
+		status: t
+			.text("status")
+			.notNull()
+			.default("requested")
+			.$type<"requested" | "approved" | "settled" | "rejected">(),
+		reason: t.text("reason").notNull(),
+		requestedBy: t
+			.text("requested_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "restrict" }),
+		decidedBy: t.text("decided_by").references(() => users.id, { onDelete: "restrict" }),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+	}),
+	t => [
+		index("refund_requests_booking_idx").on(t.bookingId),
+		// One open request per Payment: resolving the same exception twice cannot
+		// ask for the same money back twice.
+		uniqueIndex("refund_requests_payment_open_uq")
+			.on(t.paymentId)
+			.where(sql`${t.status} in ('requested', 'approved')`),
+	]
+)
+
 /** One printed line of an e-Receipt, as it was at payment time (PAY-2a). */
 export interface ReceiptServiceLine {
 	serviceName: string
@@ -783,25 +853,29 @@ export interface ReceiptServiceLine {
  * transaction that marks the Payment `succeeded`; never updated. The PDF is
  * rendered on demand from this row and its Payment, never stored as a file.
  */
-export const receipts = createTable("receipts", t => ({
-	id: t.serial("id").primaryKey(),
-	paymentId: t
-		.integer("payment_id")
-		.notNull()
-		.unique()
-		.references(() => payments.id, { onDelete: "restrict" }),
-	/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
-	receiptNumber: t.text("receipt_number").notNull().unique(),
-	/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
-	verificationToken: t.text("verification_token").notNull().unique(),
-	/** PAY-2a: the client's name at payment time. */
-	clientName: t.text("client_name").notNull(),
-	/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
-	channelName: t.text("channel_name").notNull(),
-	/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
-	serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
-	issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
-}), t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)])
+export const receipts = createTable(
+	"receipts",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		paymentId: t
+			.integer("payment_id")
+			.notNull()
+			.unique()
+			.references(() => payments.id, { onDelete: "restrict" }),
+		/** Shown on the receipt: QSPS-R-YYMMDD-NNNNNN (Manila date, payment id). */
+		receiptNumber: t.text("receipt_number").notNull().unique(),
+		/** 128 random bits, base64url. Encoded in the QR code; the public lookup key. */
+		verificationToken: t.text("verification_token").notNull().unique(),
+		/** PAY-2a: the client's name at payment time. */
+		clientName: t.text("client_name").notNull(),
+		/** PAY-2a: the channel's name at payment time; its code when the channel had no row. */
+		channelName: t.text("channel_name").notNull(),
+		/** PAY-2a: each Service's name and fee at payment time, in booking item order. */
+		serviceLines: t.jsonb("service_lines").$type<ReceiptServiceLine[]>().notNull(),
+		issuedAt: t.timestamp("issued_at").notNull().defaultNow(),
+	}),
+	t => [index("receipts_issued_at_payment_idx").on(t.issuedAt, t.paymentId)]
+)
 
 // ============================================================================
 // POLICIES
@@ -1154,6 +1228,7 @@ export const relations = defineRelations(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,
@@ -1398,6 +1473,7 @@ export const schema = Object.assign(
 		paymentChannels,
 		payments,
 		paymentEvents,
+		refundRequests,
 		assessments,
 		receipts,
 		userScopes,
@@ -1417,3 +1493,9 @@ export const schema = Object.assign(
 	},
 	relations
 )
+function check(arg0: string) {
+	return {
+		on: (expression: SQL) => pgCheck(arg0, expression),
+	}
+}
+

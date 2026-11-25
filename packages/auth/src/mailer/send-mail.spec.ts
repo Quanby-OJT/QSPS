@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { sendMail } from "./send-mail.js"
+import { isUndeliverableAddress, sendMail } from "./send-mail.js"
 import { buildResetPasswordEmail } from "./templates/reset-password-email.js"
 import { buildVerificationEmail } from "./templates/verification-email.js"
 import { createTransport } from "./transport-factory.js"
@@ -125,5 +125,43 @@ describe("sendMail on the dev transport", () => {
 				text: "x",
 			})
 		).rejects.toThrow(/ECONNREFUSED/)
+	})
+})
+
+// PRC-2b: mobile-only walk-in accounts hold `<userId>@no-email.invalid`.
+describe("sendMail to a .invalid address", () => {
+	let logged: string[]
+
+	beforeEach(() => {
+		logged = captureStdout()
+	})
+
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it("recognises the reserved .invalid domain only", () => {
+		expect(isUndeliverableAddress("user-1@no-email.invalid")).toBe(true)
+		expect(isUndeliverableAddress("USER@NO-EMAIL.INVALID ")).toBe(true)
+		expect(isUndeliverableAddress("x@invalid")).toBe(true)
+		expect(isUndeliverableAddress("juan@example.com")).toBe(false)
+		expect(isUndeliverableAddress("juan@invalid.example.com")).toBe(false)
+	})
+
+	it("skips and logs the message, never handing it to the transport", async () => {
+		const send = vi.fn().mockResolvedValue({ messageId: "<abc@example.com>" })
+		const transporter = { sendMail: send } as unknown as Parameters<typeof sendMail>[0]
+
+		await sendMail(transporter, "noreply@example.com", {
+			to: "user-1@no-email.invalid",
+			subject: "Reset your password",
+			html: `<a href="${RESET_URL}">reset</a>`,
+			text: RESET_URL,
+		})
+
+		expect(send).not.toHaveBeenCalled()
+		const output = logged.join("\n")
+		expect(output).toContain("skipped undeliverable address to=user-1@no-email.invalid")
+		expect(output).not.toContain(RESET_TOKEN)
 	})
 })

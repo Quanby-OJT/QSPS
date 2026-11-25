@@ -16,6 +16,7 @@ jest.mock("@/config/api-versions.config", () => ({
 		walkIn: {
 			lookupClients: {},
 			createClient: {},
+			addClientEmail: {},
 			slots: {},
 			policies: {},
 			form: {},
@@ -37,6 +38,7 @@ jest.mock("../forms/form-uploads.service", () => ({ FormUploadService: jest.fn()
 const ROUTES = [
 	"lookupClients",
 	"createClient",
+	"addClientEmail",
 	"slots",
 	"policies",
 	"form",

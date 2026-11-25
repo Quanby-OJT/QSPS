@@ -32,6 +32,7 @@ import {
 	IssueDocumentPanel,
 	useDocumentDetailsForm,
 } from "@/features/processing/components/document-panels"
+import { PrintoutsPanel } from "@/features/processing/components/printouts-panel"
 import { StepsPanel } from "@/features/processing/components/steps-panel"
 import {
 	allowsExemption,
@@ -45,6 +46,7 @@ import {
 	outcomeLabel,
 	pendingRequiredSteps,
 } from "@/features/processing/lib/labels"
+import { printoutsFor } from "@/features/processing/lib/printouts"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
 
 const OUTCOMES: { value: AssessmentOutcome; label: string; hint: string }[] = [
@@ -107,6 +109,7 @@ export function AssessmentView({
 	canApprove = false,
 	canIssue = false,
 	canPrint = false,
+	canRevoke = false,
 }: {
 	bookingItemId: number
 	/** PRC-3: the caller holds processing.assessments:approve. */
@@ -115,6 +118,8 @@ export function AssessmentView({
 	canIssue?: boolean
 	/** CRT-3: the caller holds certificates.documents:print. */
 	canPrint?: boolean
+	/** CRT-8: the caller holds certificates.documents:revoke. */
+	canRevoke?: boolean
 }) {
 	const item = useProcessingItemQuery(bookingItemId)
 	// Hydration-safe: loading on the server and on the client's first render,
@@ -148,6 +153,7 @@ export function AssessmentView({
 					canApprove={canApprove}
 					canIssue={canIssue}
 					canPrint={canPrint}
+					canRevoke={canRevoke}
 				/>
 			) : null}
 		</section>
@@ -159,11 +165,13 @@ function AssessmentBody({
 	canApprove,
 	canIssue,
 	canPrint,
+	canRevoke,
 }: {
 	item: ProcessingItem
 	canApprove: boolean
 	canIssue: boolean
 	canPrint: boolean
+	canRevoke: boolean
 }) {
 	const openItem = useOpenItemMutation(item.bookingItemId)
 	const formAnswers = Object.entries(item.formAnswers)
@@ -212,7 +220,7 @@ function AssessmentBody({
 					<h2 className="font-semibold">Client profile</h2>
 					<dl className="grid grid-cols-2 gap-3">
 						<Detail label="Name" value={item.client.name} />
-						<Detail label="Email" value={item.client.email} />
+						<Detail label="Email" value={item.client.email ?? "No email"} />
 						<Detail label="Mobile" value={item.client.mobile} />
 						<Detail label="Birth date" value={item.client.birthDate} />
 						<Detail label="Gender" value={item.client.gender} />
@@ -293,13 +301,24 @@ function AssessmentBody({
 				) : null}
 
 				{item.document ? (
-					<IssuedDocumentPanel item={{ ...item, document: item.document }} canPrint={canPrint} />
+					<IssuedDocumentPanel
+						item={{ ...item, document: item.document }}
+						canPrint={canPrint}
+						canRevoke={canRevoke}
+					/>
 				) : needsIssuing(item) && canIssue ? (
 					<IssueDocumentPanel
 						item={item}
 						allowExemption={allowsExemption(item.service.documentType)}
 					/>
 				) : null}
+
+				{/* CRT-4: the application form and the Request for Payment, for Physical Examination. */}
+				<PrintoutsPanel
+					bookingId={item.booking.id}
+					bookingItemId={item.bookingItemId}
+					{...printoutsFor(item, canPrint)}
+				/>
 
 				<div className="bg-card flex flex-col gap-4 rounded-xl border p-4">
 					<h2 className="font-semibold">Assessment history</h2>

@@ -19,5 +19,5 @@ export { setAuthEventListener, type AuthEvent, type AuthEventListener } from "./
 export { setLockoutStore, type LockoutStore } from "./lockout-store.js"
 export { setAuthPolicyReader, type AuthPolicies, type AuthPolicyReader } from "./auth-policies.js"
 export { CAPTCHA_HEADER } from "./captcha.js"
-export { sendMail, type MailMessage } from "./mailer/send-mail.js"
+export { isUndeliverableAddress, sendMail, type MailMessage } from "./mailer/send-mail.js"
 export { createTransport } from "./mailer/transport-factory.js"

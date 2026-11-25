@@ -174,6 +174,14 @@ export function ProcessingQueue() {
 									</TableCell>
 									<TableCell>{itemStatusLabel(item.status)}</TableCell>
 									<TableCell className="text-right">
+										{item.status === "booked" && item.paymentStatus !== "paid" && (
+											<Link
+												href={`/processing/${item.bookingItemId}` as Route}
+												className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mr-2")}
+											>
+												Open
+											</Link>
+										)}
 										{item.status === "booked" ? (
 											<Button
 												type="button"

@@ -1,6 +1,7 @@
 import { oc } from "@orpc/contract"
 
 import {
+	AcceptPrivacyNoticeSchema,
 	ClientProfileSchema,
 	MePermissionsSchema,
 	RequestSmsCodeSchema,
@@ -42,6 +43,18 @@ export const meContract = {
 			tags: ["Me"],
 		})
 		.input(UpdateClientProfileSchema)
+		.output(ClientProfileSchema),
+
+	acceptPrivacyNotice: oc
+		.route({
+			method: "POST",
+			path: "/me/privacy-notice",
+			summary: "Accept the current Privacy Notice",
+			description:
+				"Records that the signed-in user accepted the Privacy Notice version now shown, and when. Asked at sign-in when there is no consent on record or the notice is newer than the one accepted (PRC-2b). Needs only a session.",
+			tags: ["Me"],
+		})
+		.input(AcceptPrivacyNoticeSchema)
 		.output(ClientProfileSchema),
 
 	smsSettings: oc

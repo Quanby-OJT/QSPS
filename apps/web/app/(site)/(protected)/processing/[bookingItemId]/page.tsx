@@ -26,6 +26,8 @@ export default async function AssessmentPage({
 	// CRT-3: show Issue document and Print only to staff who hold the keys.
 	const canIssue = canAccess(holder, { requiredPermission: "certificates.documents:issue" })
 	const canPrint = canAccess(holder, { requiredPermission: "certificates.documents:print" })
+	// CRT-8: show Revoke and Reissue only to staff who hold the key.
+	const canRevoke = canAccess(holder, { requiredPermission: "certificates.documents:revoke" })
 
 	return (
 		<AssessmentView
@@ -33,6 +35,7 @@ export default async function AssessmentPage({
 			canApprove={canApprove}
 			canIssue={canIssue}
 			canPrint={canPrint}
+			canRevoke={canRevoke}
 		/>
 	)
 }

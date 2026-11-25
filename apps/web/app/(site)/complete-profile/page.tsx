@@ -2,9 +2,13 @@ import { redirect } from "next/navigation"
 
 import { getSession } from "@/services/better-auth/auth-server"
 import { CompleteProfileForm } from "@/features/auth/complete-profile/components/complete-profile-form"
+import { privacyNoticeRedirect } from "@/features/auth/privacy-notice/lib/privacy-notice"
 
 /** QSPS fields the session carries (see `user.additionalFields` in @repo/auth). */
-type QspsSessionUser = { profileCompletedAt?: string | Date | null }
+type QspsSessionUser = {
+	profileCompletedAt?: string | Date | null
+	privacyNoticeVersion?: string | null
+}
 
 /**
  * First-sign-in profile (AUTH-1). Lives outside `(protected)` because that
@@ -15,8 +19,18 @@ export default async function CompleteProfilePage() {
 	if (!session) {
 		redirect("/login")
 	}
-	if ((session.user as QspsSessionUser).profileCompletedAt) {
+	const user = session.user as QspsSessionUser
+	if (user.profileCompletedAt) {
 		redirect("/dashboard")
+	}
+	// PRC-2b: the Privacy Notice comes before the profile. Only clients reach
+	// this page without a completed profile.
+	const privacyNotice = privacyNoticeRedirect({
+		isClient: true,
+		privacyNoticeVersion: user.privacyNoticeVersion,
+	})
+	if (privacyNotice) {
+		redirect(privacyNotice)
 	}
 
 	return (

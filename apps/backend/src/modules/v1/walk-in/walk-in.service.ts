@@ -5,6 +5,7 @@ import { and, asc, eq, gt, gte, inArray, isNull, lt, or, sql } from "drizzle-orm
 
 import { authEnv, getAuth } from "@repo/auth"
 import type {
+	AddWalkInClientEmailInput,
 	Booking,
 	CreateWalkInBookingInput,
 	CreateWalkInClientInput,
@@ -24,6 +25,11 @@ import {
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { inScope, NATIONWIDE_SCOPE, type ResolvedScope } from "@/common/scope/scope-match"
+import {
+	displayEmail,
+	isPlaceholderEmail,
+	placeholderEmail,
+} from "@/common/users/placeholder-email"
 
 import { BookingService } from "../bookings/bookings.service"
 import { manilaDateOf, manilaDateTimeToUtc } from "../schedules/manila-time"
@@ -58,7 +64,8 @@ function toClient(row: UserRow): WalkInClient {
 	return {
 		id: row.id,
 		name: row.name,
-		email: row.email,
+		// A mobile-only client's placeholder is never shown as an email (PRC-2b).
+		email: displayEmail(row.email),
 		mobile: row.mobile ?? null,
 		birthDate: row.birthDate ?? null,
 		nationality: row.nationality ?? null,
@@ -88,6 +95,11 @@ function slotNotHere() {
  * invitation, the same Better Auth link staff accounts get (ADM-1), so staff
  * never set credentials. The Booking itself goes through
  * `BookingService.create`, which owns every booking rule.
+ *
+ * PRC-2b: a client may have only a mobile number. The account then stores a
+ * placeholder email (`<id>@no-email.invalid`) and is sent no invitation until
+ * an officer adds a real email (`addClientEmail`). The officer also records
+ * that the client accepted the Privacy Notice at the counter.
  */
 @Injectable()
 export class WalkInService {
@@ -102,6 +114,8 @@ export class WalkInService {
 		const byEmail = text.includes("@")
 		const key = byEmail ? null : mobileKey(text)
 		if (!byEmail && !key) return []
+		// The placeholder is not an address anyone has: it finds no one.
+		if (byEmail && isPlaceholderEmail(text)) return []
 
 		const rows = await db
 			.select()
@@ -123,6 +137,10 @@ export class WalkInService {
 	 * Create a client account for a walk-in and send the invitation. Refused
 	 * with 409 when an account already has this email or mobile, so no
 	 * duplicate is created; the error data names it so staff can select it.
+	 *
+	 * Without an email (PRC-2b) the account gets the placeholder and no
+	 * invitation is sent. The Privacy Notice consent is saved on the account
+	 * in the same transaction, and its version is audited.
 	 */
 	async createClient(
 		input: CreateWalkInClientInput,
@@ -130,17 +148,27 @@ export class WalkInService {
 		now: Date = new Date()
 	): Promise<WalkInClient> {
 		const staffId = requireActor(actorId)
-		const email = input.email.trim().toLowerCase()
+		const email = input.email ? input.email.trim().toLowerCase() : null
 		const key = input.mobile ? mobileKey(input.mobile) : null
+		if (!email && !key) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Enter the client's email address or mobile number",
+			})
+		}
 
 		const created = await db.transaction(async tx => {
 			const [existing] = await tx
 				.select({ id: users.id, email: users.email, accountType: users.accountType })
 				.from(users)
-				.where(or(emailIs(email), ...(key ? [sql`${storedMobileKey()} = ${key}`] : [])))
+				.where(
+					or(
+						...(email ? [emailIs(email)] : []),
+						...(key ? [sql`${storedMobileKey()} = ${key}`] : [])
+					)
+				)
 				.limit(1)
 			if (existing) {
-				const sameEmail = existing.email.toLowerCase() === email
+				const sameEmail = email !== null && existing.email.toLowerCase() === email
 				throw new ORPCError("CONFLICT", {
 					message:
 						existing.accountType === "client"
@@ -162,14 +190,17 @@ export class WalkInService {
 				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "The Client role is missing" })
 			}
 
+			const id = randomUUID()
 			const [inserted] = await tx
 				.insert(users)
 				.values({
-					id: randomUUID(),
+					id,
 					name: input.name.trim(),
-					email,
-					// The set-password link goes to this address, so using it proves the client owns it.
-					emailVerified: true,
+					// Better Auth needs an email; a mobile-only client gets the placeholder.
+					email: email ?? placeholderEmail(id),
+					// The set-password link goes to this address, so using it proves the client
+					// owns it. The placeholder is not an address, so it is never verified.
+					emailVerified: email !== null,
 					accountType: "client",
 					mustResetPassword: true,
 					mobile: input.mobile ?? null,
@@ -179,6 +210,9 @@ export class WalkInService {
 					// The officer entered the whole profile (AUTH-1 fields), so the client is
 					// not asked again at first sign-in. Without a mobile it is not complete yet.
 					profileCompletedAt: input.mobile ? now : null,
+					// The client accepted the Privacy Notice at the counter (PRC-2b).
+					privacyNoticeVersion: input.privacyNoticeVersion,
+					privacyAcceptedAt: now,
 					createdAt: now,
 					updatedAt: now,
 				})
@@ -204,6 +238,8 @@ export class WalkInService {
 						mustResetPassword: true,
 						roles: [CLIENT_ROLE],
 						hasMobile: inserted.mobile !== null,
+						hasEmail: email !== null,
+						privacyNoticeVersion: input.privacyNoticeVersion,
 					},
 				},
 				tx
@@ -211,8 +247,88 @@ export class WalkInService {
 			return inserted
 		})
 
-		await this.sendInvitation(created.email)
+		// No invitation without a real address; SMS invitations are NTF-2.
+		if (email) await this.sendInvitation(created.email)
 		return toClient(created)
+	}
+
+	/**
+	 * Give a mobile-only client (PRC-2b) a real email address: it replaces the
+	 * placeholder, and the invitation is sent when the client has not set a
+	 * password yet. A client who already has an email is refused (409): the
+	 * counter adds a missing address, it does not change one.
+	 */
+	async addClientEmail(
+		input: AddWalkInClientEmailInput,
+		actorId: string | null,
+		now: Date = new Date()
+	): Promise<WalkInClient> {
+		const staffId = requireActor(actorId)
+		const email = input.email.trim().toLowerCase()
+		if (isPlaceholderEmail(email)) {
+			throw new ORPCError("BAD_REQUEST", { message: "Enter the client's real email address" })
+		}
+
+		const updated = await db.transaction(async tx => {
+			const [client] = await tx
+				.select({ id: users.id, email: users.email })
+				.from(users)
+				.where(
+					and(
+						eq(users.id, input.clientId),
+						eq(users.accountType, "client"),
+						isNull(users.deletedAt),
+						isNull(users.disabledAt)
+					)
+				)
+				.for("update")
+			if (!client) throw new ORPCError("NOT_FOUND", { message: "Client not found" })
+			if (!isPlaceholderEmail(client.email)) {
+				throw new ORPCError("CONFLICT", { message: "This client already has an email address." })
+			}
+
+			const [existing] = await tx
+				.select({ id: users.id, accountType: users.accountType })
+				.from(users)
+				.where(emailIs(email))
+				.limit(1)
+			if (existing) {
+				throw new ORPCError("CONFLICT", {
+					message:
+						existing.accountType === "client"
+							? "Another client account already has this email address. Find the client by it and select them instead."
+							: "This email address belongs to a staff account. Use another one for the client.",
+					data:
+						existing.accountType === "client" ? { clientId: existing.id, matchedBy: "email" } : {},
+				})
+			}
+
+			const [row] = await tx
+				.update(users)
+				// Verified for the same reason as a new account's: the invitation goes there.
+				.set({ email, emailVerified: true, updatedAt: now })
+				.where(eq(users.id, client.id))
+				.returning()
+			if (!row) throw new ORPCError("NOT_FOUND", { message: "Client not found" })
+
+			// No personal data in audit values: only that an address now exists.
+			await this.auditService.record(
+				{
+					domain: AUDIT_DOMAIN_BOOKINGS,
+					action: "walk_in.client.email_add",
+					actorId: staffId,
+					targetType: "user",
+					targetId: row.id,
+					oldValue: { hasEmail: false },
+					newValue: { hasEmail: true, invitationSent: row.mustResetPassword },
+				},
+				tx
+			)
+			return row
+		})
+
+		if (updated.mustResetPassword) await this.sendInvitation(updated.email)
+		return toClient(updated)
 	}
 
 	/** Today's slots for a Service at the officer's Location that have not ended. */

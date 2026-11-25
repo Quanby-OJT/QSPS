@@ -2,22 +2,71 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import type { Booking, BookingForm, CreateBookingInput, FormUpload } from "@repo/contracts"
+import type {
+	Booking,
+	BookingDetail,
+	BookingForm,
+	BookingSummary,
+	CreateBookingInput,
+	FormUpload,
+	MyBookingsResponse,
+	RescheduleBookingItemInput,
+} from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
 
 const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
 
+type BookingItemJson = Omit<Booking["items"][number], "startsAt" | "endsAt"> & {
+	startsAt: string
+	endsAt: string
+}
+
 /** JSON turns dates into text; this is a Booking as it arrives. */
 export type BookingJson = Omit<Booking, "holdExpiresAt" | "cancelledAt" | "createdAt" | "items"> & {
 	holdExpiresAt: string | null
 	cancelledAt: string | null
 	createdAt: string
-	items: (Omit<Booking["items"][number], "startsAt" | "endsAt"> & {
-		startsAt: string
-		endsAt: string
+	items: BookingItemJson[]
+}
+
+type BookingSummaryJson = Omit<BookingSummary, "holdExpiresAt" | "createdAt" | "items"> & {
+	holdExpiresAt: string | null
+	createdAt: string
+	items: BookingItemJson[]
+}
+
+type BookingDetailJson = Omit<
+	BookingDetail,
+	"holdExpiresAt" | "cancelledAt" | "createdAt" | "items" | "payment" | "receipt" | "documents"
+> & {
+	holdExpiresAt: string | null
+	cancelledAt: string | null
+	createdAt: string
+	items: BookingItemJson[]
+	payment:
+		| (Omit<NonNullable<BookingDetail["payment"]>, "paidAt" | "createdAt"> & {
+				paidAt: string | null
+				createdAt: string
+		  })
+		| null
+	receipt:
+		| (Omit<NonNullable<BookingDetail["receipt"]>, "issuedAt"> & {
+				issuedAt: string
+		  })
+		| null
+	documents: (Omit<BookingDetail["documents"][number], "issuedAt"> & {
+		issuedAt: string
 	})[]
+}
+
+function toBookingItems(items: BookingItemJson[]): Booking["items"] {
+	return items.map(item => ({
+		...item,
+		startsAt: new Date(item.startsAt),
+		endsAt: new Date(item.endsAt),
+	}))
 }
 
 export function toBooking(booking: BookingJson): Booking {
@@ -26,10 +75,42 @@ export function toBooking(booking: BookingJson): Booking {
 		holdExpiresAt: booking.holdExpiresAt ? new Date(booking.holdExpiresAt) : null,
 		cancelledAt: booking.cancelledAt ? new Date(booking.cancelledAt) : null,
 		createdAt: new Date(booking.createdAt),
-		items: booking.items.map(item => ({
-			...item,
-			startsAt: new Date(item.startsAt),
-			endsAt: new Date(item.endsAt),
+		items: toBookingItems(booking.items),
+	}
+}
+
+function toBookingSummary(booking: BookingSummaryJson): BookingSummary {
+	return {
+		...booking,
+		holdExpiresAt: booking.holdExpiresAt ? new Date(booking.holdExpiresAt) : null,
+		createdAt: new Date(booking.createdAt),
+		items: toBookingItems(booking.items),
+	}
+}
+
+function toBookingDetail(booking: BookingDetailJson): BookingDetail {
+	return {
+		...booking,
+		holdExpiresAt: booking.holdExpiresAt ? new Date(booking.holdExpiresAt) : null,
+		cancelledAt: booking.cancelledAt ? new Date(booking.cancelledAt) : null,
+		createdAt: new Date(booking.createdAt),
+		items: toBookingItems(booking.items),
+		payment: booking.payment
+			? {
+					...booking.payment,
+					paidAt: booking.payment.paidAt ? new Date(booking.payment.paidAt) : null,
+					createdAt: new Date(booking.payment.createdAt),
+				}
+			: null,
+		receipt: booking.receipt
+			? {
+					...booking.receipt,
+					issuedAt: new Date(booking.receipt.issuedAt),
+				}
+			: null,
+		documents: booking.documents.map(doc => ({
+			...doc,
+			issuedAt: new Date(doc.issuedAt),
 		})),
 	}
 }
@@ -121,6 +202,13 @@ export async function readError(response: Response): Promise<ApiError> {
 /** The client's one booking awaiting payment (BKG-2). */
 export const UNPAID_BOOKING_QUERY_KEY = ["bookings", "unpaid"] as const
 
+/** All bookings owned by the signed-in client (BKG-4). */
+export const MY_BOOKINGS_QUERY_KEY = ["bookings", "own"] as const
+
+export function bookingDetailQueryKey(bookingId: number) {
+	return ["bookings", "own", bookingId] as const
+}
+
 export const bookingFormKeys = {
 	all: ["bookings", "form"] as const,
 	forService: (serviceId: number) => ["bookings", "form", serviceId] as const,
@@ -130,10 +218,6 @@ export const bookingFormKeys = {
  * Confirm a booking of one or more Services (BKG-3). A refusal that names a
  * slot arrives as a `BookingCheckoutError`; one about answers as a
  * `BookingFormError` (FRM-2).
- *
- * `idempotencyKey` identifies one attempt: sending the same key again (a
- * double click, or a retry after a dropped connection) returns the first
- * booking instead of taking a second place.
  */
 export function useCreateBookingMutation() {
 	const queryClient = useQueryClient()
@@ -154,18 +238,16 @@ export function useCreateBookingMutation() {
 			if (!response.ok) throw await readError(response)
 			return toBooking((await response.json()) as BookingJson)
 		},
-		// A place was taken, so availability shown anywhere is now out of date,
-		// and the client now has a booking awaiting payment.
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
 			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: MY_BOOKINGS_QUERY_KEY })
 		},
 	})
 }
 
 /** What the wizard needs from the questionnaires of every Service in a checkout. */
 export interface CheckoutForms {
-	/** Service id to its active questionnaire, or null; undefined until every Service has answered. */
 	data: ReadonlyMap<number, BookingForm | null> | undefined
 	isPending: boolean
 	isError: boolean
@@ -235,9 +317,7 @@ export function useUploadFormFileMutation(path: string = BOOKING_FORM_UPLOAD_PAT
 }
 
 /**
- * The client's booking awaiting payment, or null (BKG-2). Only asked for
- * when the caller may read their own bookings, so a refused request never
- * reaches the audit log.
+ * The client's booking awaiting payment, or null (BKG-2).
  */
 export function useUnpaidBookingQuery(enabled: boolean) {
 	return useQuery({
@@ -248,6 +328,59 @@ export function useUnpaidBookingQuery(enabled: boolean) {
 			if (!response.ok) throw await readError(response)
 			const body = (await response.json()) as BookingJson | null
 			return body ? toBooking(body) : null
+		},
+	})
+}
+
+/**
+ * BKG-4 (AC 1 & AC 3): all bookings owned by the signed-in client, newest first.
+ * Refetches on mount so status updates made by payment, assessment, issuance,
+ * or expiry appear cleanly after a reload.
+ */
+export function useMyBookingsQuery(enabled = true) {
+	return useQuery({
+		queryKey: MY_BOOKINGS_QUERY_KEY,
+		enabled,
+		refetchOnMount: "always",
+		queryFn: async (): Promise<MyBookingsResponse> => {
+			const response = await fetch(`${API_BASE}/bookings`, { credentials: "include" })
+			if (!response.ok) throw await readError(response)
+			const body = (await response.json()) as { bookings: BookingSummaryJson[] }
+			return {
+				bookings: body.bookings.map(toBookingSummary),
+			}
+		},
+	})
+}
+
+/**
+ * BKG-4 (AC 2, AC 3 & AC 4): full details for one booking owned by the
+ * signed-in client, including item statuses, payment, e-Receipt, and issued
+ * documents. Throws `ApiError(404)` when missing or owned by someone else.
+ */
+export function useBookingDetailQuery(bookingId: number | null) {
+	return useQuery({
+		queryKey: bookingDetailQueryKey(bookingId ?? 0),
+		enabled: bookingId !== null,
+		refetchOnMount: "always",
+		retry: (failureCount, error) => {
+			if (
+				error instanceof ApiError &&
+				(error.status === 404 || error.status === 401 || error.status === 403)
+			) {
+				return false
+			}
+			return failureCount < 2
+		},
+		queryFn: async (): Promise<BookingDetail> => {
+			if (!bookingId || !Number.isInteger(bookingId) || bookingId <= 0) {
+				throw new ApiError(404, "Booking not found")
+			}
+			const response = await fetch(`${API_BASE}/bookings/${bookingId}/details`, {
+				credentials: "include",
+			})
+			if (!response.ok) throw await readError(response)
+			return toBookingDetail((await response.json()) as BookingDetailJson)
 		},
 	})
 }
@@ -271,9 +404,10 @@ function useBookingAction(action: "cancel" | "pay-onsite") {
 			if (!response.ok) throw await readError(response)
 			return toBooking((await response.json()) as BookingJson)
 		},
-		onSuccess: () => {
+		onSuccess: (_data, { bookingId }) => {
 			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
-			// A cancelled booking gives its place back.
+			void queryClient.invalidateQueries({ queryKey: MY_BOOKINGS_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: bookingDetailQueryKey(bookingId) })
 			if (action === "cancel") void queryClient.invalidateQueries({ queryKey: ["schedules"] })
 		},
 	})
@@ -287,4 +421,41 @@ export function useCancelBookingMutation() {
 /** Pay at the BOQ cashier instead of online (BKG-2). */
 export function usePayOnsiteMutation() {
 	return useBookingAction("pay-onsite")
+}
+
+/**
+ * BKG-5: move one booked item in a pending_payment or paid booking to another
+ * open schedule slot for the same service and location.
+ */
+export function useRescheduleBookingItemMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: async ({
+			idempotencyKey,
+			bookingId,
+			bookingItemId,
+			scheduleSlotId,
+		}: RescheduleBookingItemInput & { idempotencyKey: string }): Promise<Booking> => {
+			const response = await fetch(
+				`${API_BASE}/bookings/${bookingId}/items/${bookingItemId}/reschedule`,
+				{
+					method: "POST",
+					credentials: "include",
+					headers: {
+						"Content-Type": "application/json",
+						"Idempotency-Key": idempotencyKey,
+					},
+					body: JSON.stringify({ scheduleSlotId }),
+				}
+			)
+			if (!response.ok) throw await readError(response)
+			return toBooking((await response.json()) as BookingJson)
+		},
+		onSuccess: updated => {
+			void queryClient.invalidateQueries({ queryKey: ["schedules"] })
+			void queryClient.invalidateQueries({ queryKey: UNPAID_BOOKING_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: MY_BOOKINGS_QUERY_KEY })
+			void queryClient.invalidateQueries({ queryKey: bookingDetailQueryKey(updated.id) })
+		},
+	})
 }

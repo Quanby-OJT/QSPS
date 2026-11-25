@@ -57,6 +57,16 @@ export class WalkInController {
 		)
 	}
 
+	// Strict throttle: it can send an invitation email (PRC-2b).
+	@StrictThrottle()
+	@RequirePermissions("bookings.walk-in:create")
+	@Implement(v1.walkIn.addClientEmail)
+	async addClientEmail(@Session() session?: UserSession) {
+		return implement(v1.walkIn.addClientEmail).handler(({ input }) =>
+			this.walkInService.addClientEmail(input, actorId(session))
+		)
+	}
+
 	@RequirePermissions("bookings.walk-in:create")
 	@Implement(v1.walkIn.slots)
 	async slots(@Session() session?: UserSession) {

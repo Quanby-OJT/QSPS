@@ -13,6 +13,12 @@ const messages: Record<NotificationTemplate, [string, string]> = {
 		"Payment received",
 		"We have received your payment, but it could not be applied to your booking. BOQ staff will review it and contact you. Your electronic receipt is attached.",
 	],
+	// PAY-6: a second payment for a booking that was already paid. No second
+	// receipt is issued, so none is attached.
+	payment_duplicate_review: [
+		"Payment received",
+		"We have received a second payment for a booking that was already paid. BOQ staff will review it and contact you about a refund or a new booking.",
+	],
 	booking_cancelled: ["Booking cancelled", "Your booking has been cancelled."],
 	booking_rescheduled: [
 		"Booking rescheduled",
@@ -25,6 +31,15 @@ const messages: Record<NotificationTemplate, [string, string]> = {
 	assessment_returned: ["Assessment returned", "Your assessment requires your attention."],
 	assessment_rejected: ["Assessment rejected", "Sign in to view your assessment details."],
 	document_ready: ["Document ready", "Your document is ready. Sign in to view or download it."],
+	// CRT-8
+	document_revoked: [
+		"Document revoked",
+		"One of your documents has been revoked by BOQ and is no longer valid. Sign in to see your documents.",
+	],
+	document_reissued: [
+		"Document reissued",
+		"BOQ has reissued one of your documents with corrected details. The old one is no longer valid. Sign in to view or download the new one.",
+	],
 }
 
 function escapeHtml(value: string): string {

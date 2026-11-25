@@ -36,6 +36,24 @@ export class BookingsController {
 		)
 	}
 
+	// BKG-4: list all bookings owned by the signed-in client, newest first.
+	@RequirePermissions("bookings.own:read")
+	@Implement(v1.bookings.listOwn)
+	async listOwn(@Session() session?: UserSession) {
+		return implement(v1.bookings.listOwn).handler(() =>
+			this.bookingService.listOwn(actorId(session))
+		)
+	}
+
+	// BKG-4: read one booking owned by the signed-in client (404 when not owner).
+	@RequirePermissions("bookings.own:read")
+	@Implement(v1.bookings.getOwn)
+	async getOwn(@Session() session?: UserSession) {
+		return implement(v1.bookings.getOwn).handler(({ input }) =>
+			this.bookingService.getOwn(input.bookingId, actorId(session))
+		)
+	}
+
 	// FRM-2: the questionnaire the wizard shows for a Service, or null.
 	@RequirePermissions("bookings.own:create")
 	@Implement(v1.bookings.form)
@@ -76,6 +94,7 @@ export class BookingsController {
 		)
 	}
 
+
 	// BKG-2: the client cancels their own unpaid booking, freeing the place.
 	@StrictThrottle()
 	@RequirePermissions("bookings.own:cancel")
@@ -95,6 +114,18 @@ export class BookingsController {
 	async payOnsite(@Session() session?: UserSession) {
 		return implement(v1.bookings.payOnsite).handler(({ input }) =>
 			this.bookingService.choosePayOnsite(input.bookingId, actorId(session))
+		)
+	}
+
+	// BKG-5: move one booked item in a pending_payment or paid booking to another
+	// open slot for the same service and location.
+	@StrictThrottle()
+	@RequirePermissions("bookings.own:reschedule")
+	@UseInterceptors(IdempotencyInterceptor)
+	@Implement(v1.bookings.rescheduleItem)
+	async rescheduleItem(@Session() session?: UserSession) {
+		return implement(v1.bookings.rescheduleItem).handler(({ input }) =>
+			this.bookingService.rescheduleItem(input, actorId(session))
 		)
 	}
 

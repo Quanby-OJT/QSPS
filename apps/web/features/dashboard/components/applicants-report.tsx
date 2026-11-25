@@ -18,6 +18,7 @@ import {
 	ChartTooltipContent,
 	type ChartConfig,
 } from "@/core/components/ui/chart"
+import { useHydrated } from "@/core/hooks/use-hydrated"
 import { env } from "@/env"
 
 type Period = "day" | "week" | "month" | "year"
@@ -71,6 +72,8 @@ function money(centavos: number): string {
 }
 
 export function ApplicantsReport({ userKey }: { userKey: string }) {
+	// Cached report data exists only in the browser, so render the server's view until hydrated.
+	const hydrated = useHydrated()
 	const [period, setPeriod] = useState<Period>("day")
 	const [date, setDate] = useState(manilaToday)
 
@@ -133,7 +136,7 @@ export function ApplicantsReport({ userKey }: { userKey: string }) {
 					<Button
 						type="button"
 						variant="outline"
-						disabled={!date || report.isFetching}
+						disabled={!hydrated || !date || report.isFetching}
 						onClick={() => void report.refetch()}
 					>
 						Refresh
@@ -142,17 +145,17 @@ export function ApplicantsReport({ userKey }: { userKey: string }) {
 
 				{!date ? <p className="text-sm">Select a date to see the report.</p> : null}
 
-				{date && report.isLoading ? (
+				{date && (!hydrated || report.isLoading) ? (
 					<p className="text-muted-foreground text-sm">Loading report…</p>
 				) : null}
 
-				{report.isError ? (
+				{hydrated && report.isError ? (
 					<p className="text-destructive text-sm" role="alert">
 						{report.error.message}
 					</p>
 				) : null}
 
-				{report.data && !report.isError ? (
+				{hydrated && report.data && !report.isError ? (
 					<>
 						<div className="grid gap-3 sm:grid-cols-2">
 							<div className="rounded-lg border p-4">
@@ -204,8 +207,8 @@ export function ApplicantsReport({ userKey }: { userKey: string }) {
 						/>
 
 						<p className="text-muted-foreground text-xs">
-							A booking with services in multiple locations or categories appears in
-							each applicable row and once in the consolidated total.
+							A booking with services in multiple locations or categories appears in each applicable
+							row and once in the consolidated total.
 						</p>
 					</>
 				) : null}

@@ -1,11 +1,11 @@
 import type { Metadata } from "next"
 
-import { TransactionMonitor } from "@/features/reports/components/transaction-monitor"
+import { MyTransactionsView } from "@/features/bookings/components/my-transactions"
 
 export const metadata: Metadata = {
-	title: "Transaction monitor",
+	title: "My Transactions",
 }
 
 export default function TransactionsPage() {
-	return <TransactionMonitor />
+	return <MyTransactionsView />
 }

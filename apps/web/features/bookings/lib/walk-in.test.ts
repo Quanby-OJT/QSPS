@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest"
 
-import { canChooseWalkInSlot, draftFromLookup, placesLeftLabel, walkInLookupKind } from "./walk-in"
+import { PRIVACY_NOTICE_VERSION } from "@repo/contracts"
+
+import {
+	canChooseWalkInSlot,
+	checkWalkInClientDraft,
+	clientEmailLabel,
+	draftFromLookup,
+	EMPTY_WALK_IN_CLIENT,
+	placesLeftLabel,
+	walkInLookupKind,
+} from "./walk-in"
 
 describe("walk-in helpers (PRC-2)", () => {
 	it("searches only for a whole email address or mobile number", () => {
@@ -27,5 +37,49 @@ describe("walk-in helpers (PRC-2)", () => {
 			mobile: "",
 		})
 		expect(draftFromLookup("09171234567")).toMatchObject({ email: "", mobile: "09171234567" })
+	})
+})
+
+describe("walk-in new client (PRC-2b)", () => {
+	const draft = {
+		...EMPTY_WALK_IN_CLIENT,
+		name: "Maria Santos",
+		mobile: "0917 123 4567",
+		birthDate: "1990-02-01",
+		nationality: "Filipino",
+		gender: "Female",
+		privacyAccepted: true,
+	}
+
+	it("is refused without the Privacy Notice tick", () => {
+		const checked = checkWalkInClientDraft({ ...draft, privacyAccepted: false })
+		expect(checked.ok).toBe(false)
+		if (!checked.ok) {
+			expect(checked.errors.privacyAccepted).toMatch(/privacy notice/i)
+		}
+	})
+
+	it("sends the current notice version once ticked, and allows a mobile-only client", () => {
+		const checked = checkWalkInClientDraft(draft)
+		expect(checked).toEqual({
+			ok: true,
+			input: expect.objectContaining({
+				email: null,
+				mobile: "09171234567",
+				privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
+			}),
+		})
+		if (checked.ok) expect(checked.input).not.toHaveProperty("privacyAccepted")
+	})
+
+	it("needs an email or a mobile number", () => {
+		const checked = checkWalkInClientDraft({ ...draft, mobile: "" })
+		expect(checked.ok).toBe(false)
+		if (!checked.ok) expect(checked.errors.email).toMatch(/email address or mobile number/i)
+	})
+
+	it("shows No email for a client without one", () => {
+		expect(clientEmailLabel(null)).toBe("No email")
+		expect(clientEmailLabel("juan@example.com")).toBe("juan@example.com")
 	})
 })

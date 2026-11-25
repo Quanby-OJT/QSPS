@@ -132,6 +132,11 @@ describe("navItems", () => {
 					requiredPermission: "payments.onsite:collect",
 				}),
 				expect.objectContaining({
+					label: "Payment exceptions",
+					href: "/payment-exceptions",
+					requiredPermission: "payments.transactions:read",
+				}),
+				expect.objectContaining({
 					label: "User Management",
 					href: "/user-management",
 					section: "Administration",
@@ -205,6 +210,12 @@ describe("navItems", () => {
 		).toContain("Services")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["bookings.own:read"] }).map(
+				item => item.label
+			)
+		).toEqual(["Dashboard", "My transactions"])
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["processing.queue:read"] }).map(
 				item => item.label
 			)
@@ -264,7 +275,7 @@ describe("navItems", () => {
 					"reports.dashboard:read",
 				],
 			}).map(item => item.label)
-		).toEqual(["Dashboard", "Cashier"])
+		).toEqual(["Dashboard", "Cashier", "Payment exceptions"])
 
 		// ADM-3: the Audit log link needs audit.logs:read.
 		expect(
@@ -276,11 +287,13 @@ describe("navItems", () => {
 		).toEqual([
 			"Dashboard",
 			"Book an appointment",
+			"My transactions",
 			"My documents",
 			"Processing",
 			"Walk-in",
 			"Approvals",
 			"Cashier",
+			"Payment exceptions",
 			"User Management",
 			"Locations",
 			"Services",
@@ -288,7 +301,7 @@ describe("navItems", () => {
 			"Schedules",
 			"Payment Channels",
 			"Policies",
-			"Transactions",
+			"Transaction monitor",
 			"Audit log",
 		])
 
@@ -306,16 +319,19 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/services")).toBe("Services")
 		expect(getDashboardRouteTitle("/schedules")).toBe("Schedules")
 		expect(getDashboardRouteTitle("/payment-channels")).toBe("Payment Channels")
-		expect(getDashboardRouteTitle("/transactions")).toBe("Transactions")
+		expect(getDashboardRouteTitle("/transaction-monitor")).toBe("Transaction monitor")
 		expect(getDashboardRouteTitle("/audit-log")).toBe("Audit log")
 		expect(getDashboardRouteTitle("/policies")).toBe("Policies")
 		expect(getDashboardRouteTitle("/forms/7")).toBe("Forms")
 		expect(getDashboardRouteTitle("/book")).toBe("Book an appointment")
+		expect(getDashboardRouteTitle("/transactions")).toBe("My transactions")
+		expect(getDashboardRouteTitle("/transactions/42")).toBe("My transactions")
 		expect(getDashboardRouteTitle("/processing/44")).toBe("Processing")
 		expect(getDashboardRouteTitle("/processing/approvals")).toBe("Approvals")
 		expect(getDashboardRouteTitle("/processing/walk-in")).toBe("Walk-in")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 		expect(getDashboardRouteTitle("/cashier")).toBe("Cashier")
+		expect(getDashboardRouteTitle("/payment-exceptions")).toBe("Payment exceptions")
 	})
 
 	it("marks only the most specific link active (PRC-3)", () => {

@@ -24,29 +24,44 @@ export type {
 	UpdateServiceRequest,
 } from "./modules/v1/services/services.schema.js"
 
-// Booking contracts + schemas (BKG-1, BKG-3: several services in one checkout)
+// Booking contracts + schemas (BKG-1, BKG-3, BKG-4: several services in one checkout & My Transactions)
 export { bookingsContract } from "./modules/v1/bookings/bookings.contract.js"
 export {
 	BOOKING_STATUSES,
+	CLIENT_BOOKING_STATUSES,
 	BOOKING_KINDS,
 	BOOKING_ITEM_STATUSES,
 	MAX_BOOKING_ITEMS,
 	REFERENCE_NUMBER_PATTERN,
 	BookingStatusSchema,
+	ClientBookingStatusSchema,
 	BookingKindSchema,
 	BookingItemStatusSchema,
 	ReferenceNumberSchema,
 	BookingItemSchema,
 	BookingSchema,
+	BookingSummarySchema,
+	MyBookingsResponseSchema,
+	BookingPaymentDetailSchema,
+	BookingReceiptDetailSchema,
+	BookingIssuedDocumentSchema,
+	BookingDetailSchema,
 	CreateBookingItemSchema,
 	CreateBookingSchema,
 } from "./modules/v1/bookings/bookings.schema.js"
 export type {
 	BookingStatus,
+	ClientBookingStatus,
 	BookingKind,
 	BookingItemStatus,
 	BookingItem,
 	Booking,
+	BookingSummary,
+	MyBookingsResponse,
+	BookingPaymentDetail,
+	BookingReceiptDetail,
+	BookingIssuedDocument,
+	BookingDetail,
 	CreateBookingItemInput,
 	CreateBookingInput,
 } from "./modules/v1/bookings/bookings.schema.js"
@@ -86,7 +101,10 @@ export type {
 } from "./modules/v1/forms/forms.schema.js"
 
 // Payment contracts + schemas
-export { paymentChannelsContract, paymentsContract } from "./modules/v1/payments/payments.contract.js"
+export {
+	paymentChannelsContract,
+	paymentsContract,
+} from "./modules/v1/payments/payments.contract.js"
 export {
 	PAYMENT_STATUSES,
 	PaymentStatusSchema,
@@ -118,6 +136,27 @@ export type {
 	CheckoutChannel,
 	CheckoutChannels,
 } from "./modules/v1/payments/payments.schema.js"
+
+// Payment exceptions contracts + schemas (PAY-6)
+export { paymentExceptionsContract } from "./modules/v1/payments/payment-exceptions.contract.js"
+export {
+	PAYMENT_REVIEW_REASONS,
+	PaymentReviewReasonSchema,
+	PAYMENT_REVIEW_RESOLUTIONS,
+	PaymentReviewResolutionSchema,
+	PaymentExceptionSchema,
+	PaymentExceptionListSchema,
+	ResolvePaymentReviewSchema,
+	ResolvePaymentReviewResultSchema,
+} from "./modules/v1/payments/payment-exceptions.schema.js"
+export type {
+	PaymentReviewReason,
+	PaymentReviewResolution,
+	PaymentException,
+	PaymentExceptionList,
+	ResolvePaymentReviewInput,
+	ResolvePaymentReviewResult,
+} from "./modules/v1/payments/payment-exceptions.schema.js"
 
 // Cashier contracts + schemas (PAY-4)
 export { cashierContract } from "./modules/v1/payments/cashier.contract.js"
@@ -152,6 +191,7 @@ export {
 	WalkInClientLookupSchema,
 	WalkInClientSchema,
 	CreateWalkInClientSchema,
+	AddWalkInClientEmailSchema,
 	WalkInSlotsRequestSchema,
 	WalkInSlotSchema,
 	WalkInSlotsSchema,
@@ -161,6 +201,7 @@ export type {
 	WalkInClientLookup,
 	WalkInClient,
 	CreateWalkInClientInput,
+	AddWalkInClientEmailInput,
 	WalkInSlotsRequest,
 	WalkInSlot,
 	WalkInSlots,
@@ -261,6 +302,8 @@ export {
 	IcvIssueDetailsSchema,
 	MedicalExemptionDetailsSchema,
 	IssueDocumentSchema,
+	ReissueDocumentSchema,
+	RevokeDocumentSchema,
 	DocumentSummarySchema,
 	MyDocumentsSchema,
 	DocumentTokenSchema,
@@ -274,6 +317,8 @@ export type {
 	IcvIssueDetails,
 	MedicalExemptionDetails,
 	IssueDocumentInput,
+	ReissueDocumentInput,
+	RevokeDocumentInput,
 	DocumentSummary,
 	MyDocuments,
 	ManualVerificationInput,
@@ -456,6 +501,7 @@ export {
 	MePermissionsSchema,
 	ClientProfileSchema,
 	UpdateClientProfileSchema,
+	AcceptPrivacyNoticeSchema,
 	GENDER_OPTIONS,
 	SmsChannelSchema,
 	SmsSettingsSchema,
@@ -468,6 +514,7 @@ export type {
 	MePermissions,
 	ClientProfile,
 	UpdateClientProfileInput,
+	AcceptPrivacyNoticeInput,
 	SmsChannel,
 	SmsSettings,
 	RequestSmsCodeInput,
@@ -508,10 +555,12 @@ export {
 	FormSubmissionSchema,
 	FormUploadInputSchema,
 	FormUploadSchema,
+	RescheduleBookingItemSchema,
 	UpdateBookingItemFormSchema,
 	type BookingForm,
 	type BookingItemFormInput,
 	type FormSubmission,
 	type FormUpload,
+	type RescheduleBookingItemInput,
 	type UpdateBookingItemFormInput,
 } from "./modules/v1/bookings/bookings.schema.js"
