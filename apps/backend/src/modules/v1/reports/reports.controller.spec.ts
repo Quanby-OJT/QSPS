@@ -15,7 +15,14 @@ jest.mock("@thallesp/nestjs-better-auth", () => ({
 }))
 
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { reports: { dashboard: {} } },
+	v1: {
+		reports: {
+			dashboard: {},
+			listTransactions: {},
+			transactionDetail: {},
+			exportTransactions: {},
+		},
+	},
 }))
 
 jest.mock("@/common/scope/scope.service", () => ({
@@ -31,5 +38,32 @@ describe("ReportsController permissions", () => {
 		expect(
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, ReportsController.prototype.dashboard)
 		).toEqual(["reports.dashboard:read"])
+	})
+
+	it("requires reports.transactions:read for the transaction list", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				ReportsController.prototype.listTransactions
+			)
+		).toEqual(["reports.transactions:read"])
+	})
+
+	it("requires reports.transactions:read and bookings.all:read for transaction detail", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				ReportsController.prototype.transactionDetail
+			)
+		).toEqual(["reports.transactions:read", "bookings.all:read"])
+	})
+
+	it("requires reports.transactions:read for transaction export", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				ReportsController.prototype.exportTransactions
+			)
+		).toEqual(["reports.transactions:read"])
 	})
 })

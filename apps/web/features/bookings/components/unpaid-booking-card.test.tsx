@@ -8,6 +8,16 @@ import { feeInPesos } from "@/features/services/lib/fee"
 
 import { UnpaidBookingDetails } from "./unpaid-booking-card"
 
+vi.mock("@/features/bookings/components/reschedule-item-dialog", () => ({
+	RescheduleItemDialog: ({
+		open,
+		item,
+	}: {
+		open: boolean
+		item: { serviceName: string } | null
+	}) => (open && item ? <div role="dialog">Reschedule dialog for {item.serviceName}</div> : null),
+}))
+
 const booking: Booking = {
 	id: 31,
 	referenceNumber: "QSPS-261122-AB12CD",
@@ -30,6 +40,7 @@ const booking: Booking = {
 			startsAt: new Date("2026-12-02T00:00:00.000Z"),
 			endsAt: new Date("2026-12-02T04:00:00.000Z"),
 			feeCentavos: 150000,
+			rescheduleCount: 0,
 			status: "booked",
 		},
 	],
@@ -49,12 +60,22 @@ function renderDetails(overrides: Partial<Booking> = {}) {
 	return handlers
 }
 
-describe("UnpaidBookingDetails (BKG-2)", () => {
-	it("shows the Reference Number, the service and the pay-by time", () => {
+describe("UnpaidBookingDetails (BKG-2, BKG-5)", () => {
+	it("shows the Reference Number, the service, reschedule counter and the pay-by time", () => {
 		renderDetails()
 		expect(screen.getByText("QSPS-261122-AB12CD")).toBeInTheDocument()
-		expect(screen.getByText("Yellow fever vaccination")).toBeInTheDocument()
+		expect(screen.getAllByText("Yellow fever vaccination").length).toBeGreaterThan(0)
+		expect(screen.getByText(/Rescheduled 0 times/)).toBeInTheDocument()
 		expect(screen.getByText(/or the booking is cancelled/)).toBeInTheDocument()
+	})
+
+	it("opens the reschedule dialog when Reschedule is clicked on a booked item", async () => {
+		const user = userEvent.setup()
+		renderDetails()
+		await user.click(screen.getByRole("button", { name: "Reschedule" }))
+		expect(screen.getByRole("dialog")).toHaveTextContent(
+			"Reschedule dialog for Yellow fever vaccination"
+		)
 	})
 
 	it("pays online or switches to paying at the office", async () => {
@@ -104,12 +125,13 @@ describe("UnpaidBookingDetails (BKG-2)", () => {
 					startsAt: new Date("2026-12-03T01:00:00.000Z"),
 					endsAt: new Date("2026-12-03T03:00:00.000Z"),
 					feeCentavos: 50000,
+					rescheduleCount: 1,
 					status: "booked",
 				},
 			],
 		})
-		expect(screen.getByText("Yellow fever vaccination")).toBeInTheDocument()
-		expect(screen.getByText("Basic hygiene seminar")).toBeInTheDocument()
+		expect(screen.getAllByText("Yellow fever vaccination").length).toBeGreaterThan(0)
+		expect(screen.getAllByText("Basic hygiene seminar").length).toBeGreaterThan(0)
 		expect(screen.getByText(`₱${feeInPesos(150000)}`)).toBeInTheDocument()
 		expect(screen.getByText(`₱${feeInPesos(50000)}`)).toBeInTheDocument()
 		expect(screen.getByText(`₱${feeInPesos(200000)}`)).toBeInTheDocument()
@@ -127,6 +149,7 @@ describe("UnpaidBookingDetails application form (CRT-4)", () => {
 		startsAt: new Date("2026-12-02T00:00:00.000Z"),
 		endsAt: new Date("2026-12-02T04:00:00.000Z"),
 		feeCentavos: 50000,
+		rescheduleCount: 0,
 		status: "booked",
 	}
 
@@ -143,5 +166,20 @@ describe("UnpaidBookingDetails application form (CRT-4)", () => {
 	it("shows no application form link without a Physical Examination", () => {
 		renderDetails()
 		expect(screen.queryByRole("link", { name: /application form/ })).not.toBeInTheDocument()
+	})
+})
+
+describe("UnpaidBookingDetails reschedule limit (BKG-5)", () => {
+	it("offers Reschedule while the item has reschedules left", () => {
+		renderDetails({ rescheduleLimit: 1 })
+		expect(screen.getByRole("button", { name: "Reschedule" })).toBeInTheDocument()
+	})
+
+	it("hides Reschedule once the item has used every reschedule", () => {
+		renderDetails({
+			rescheduleLimit: 1,
+			items: booking.items.map(item => ({ ...item, rescheduleCount: 1 })),
+		})
+		expect(screen.queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument()
 	})
 })
