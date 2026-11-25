@@ -10,13 +10,16 @@ const dateField = z
  * Document types QSPS can issue (DOMAIN-MODEL.md section 4, "Document types").
  * CRT-1 adds the vaccination record; CRT-3 adds the Medical Exemption
  * Certificate; CRT-5 adds the Sanitary Permit and the Ship Sanitation
- * Certificate; CRT-6 to CRT-10 add the rest.
+ * Certificate; CRT-6 adds the Food Safety Training Certificate and the HACCP
+ * Certificate; CRT-7 to CRT-10 add the rest.
  */
 export const DOCUMENT_TYPES = [
 	"icv-record",
 	"medical-exemption",
 	"sanitary-permit",
 	"ship-sanitation",
+	"food-safety-training",
+	"haccp",
 ] as const
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
 
@@ -24,9 +27,16 @@ export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
  * The types a Service can be set to issue (CRT-3). A Medical Exemption is not
  * a Service of its own: staff issue it instead of the vaccination record of
  * a vaccination Service when the client is medically exempt. The two
- * sanitation types (CRT-5) are issued by sanitation Services.
+ * sanitation types (CRT-5) are issued by sanitation Services, the training and
+ * HACCP certificates (CRT-6) by food safety Services.
  */
-export const SERVICE_DOCUMENT_TYPES = ["icv-record", "sanitary-permit", "ship-sanitation"] as const
+export const SERVICE_DOCUMENT_TYPES = [
+	"icv-record",
+	"sanitary-permit",
+	"ship-sanitation",
+	"food-safety-training",
+	"haccp",
+] as const
 
 /** The document types that exempt a client from a vaccine (CRT-3). */
 export const VACCINATION_DOCUMENT_TYPES: readonly string[] = ["icv-record"]
@@ -130,11 +140,30 @@ export const ShipSanitationDetailsSchema = z
 	})
 
 /**
+ * What staff type when a HACCP Certificate is issued (CRT-6, TOR §VIII.3). The
+ * establishment's details are copied from the client's questionnaire answers,
+ * so staff only set the validity. An end date is required, as for a Sanitary
+ * Permit: the public verification page shows the certificate as expired the
+ * day after it. Assumed fields until BOQ gives its template (PRD open item 6).
+ */
+export const HaccpDetailsSchema = z
+	.object({
+		validFrom: BusinessDateSchema,
+		validUntil: BusinessDateSchema,
+	})
+	.refine(value => value.validUntil >= value.validFrom, {
+		message: "Valid until cannot be before valid from",
+		path: ["validUntil"],
+	})
+
+/**
  * Staff issue a document for a cleared Booking Item (services with auto-issue
  * off, or after head approval). Give exactly one of: `details` for the
  * vaccination record, `exemption` for a Medical Exemption Certificate (CRT-3),
  * `sanitaryPermit` for a Sanitary Permit or `shipSanitation` for a Ship
- * Sanitation Certificate (CRT-5).
+ * Sanitation Certificate (CRT-5), or `haccp` for a HACCP Certificate (CRT-6).
+ * A Food Safety Training Certificate takes no details: it is issued for a
+ * whole seminar session from its roster.
  */
 export const IssueDocumentSchema = z
 	.object({
@@ -143,12 +172,20 @@ export const IssueDocumentSchema = z
 		exemption: MedicalExemptionDetailsSchema.nullish().transform(value => value ?? null),
 		sanitaryPermit: SanitaryPermitDetailsSchema.nullish().transform(value => value ?? null),
 		shipSanitation: ShipSanitationDetailsSchema.nullish().transform(value => value ?? null),
+		haccp: HaccpDetailsSchema.nullish().transform(value => value ?? null),
 	})
 	.superRefine((value, context) => {
-		const given = [value.details, value.exemption, value.sanitaryPermit, value.shipSanitation]
+		const given = [
+			value.details,
+			value.exemption,
+			value.sanitaryPermit,
+			value.shipSanitation,
+			value.haccp,
+		]
 		if (given.filter(entry => entry !== null).length === 1) return
-		// Keep the CRT-3 wording when no sanitation details are involved.
-		const vaccinationOnly = value.sanitaryPermit === null && value.shipSanitation === null
+		// Keep the CRT-3 wording when no sanitation or food safety details are involved.
+		const vaccinationOnly =
+			value.sanitaryPermit === null && value.shipSanitation === null && value.haccp === null
 		context.addIssue({
 			code: "custom",
 			message: vaccinationOnly
@@ -281,6 +318,7 @@ export type IcvIssueDetails = z.infer<typeof IcvIssueDetailsSchema>
 export type MedicalExemptionDetails = z.infer<typeof MedicalExemptionDetailsSchema>
 export type SanitaryPermitDetails = z.infer<typeof SanitaryPermitDetailsSchema>
 export type ShipSanitationDetails = z.infer<typeof ShipSanitationDetailsSchema>
+export type HaccpDetails = z.infer<typeof HaccpDetailsSchema>
 export type IssueDocumentInput = z.infer<typeof IssueDocumentSchema>
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>
 export type MyDocuments = z.infer<typeof MyDocumentsSchema>

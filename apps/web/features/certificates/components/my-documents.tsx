@@ -21,6 +21,9 @@ const DOCUMENT_TITLES: Record<DocumentSummary["documentType"], string> = {
 	"medical-exemption": "Medical Exemption Certificate",
 	"sanitary-permit": "Sanitary Permit",
 	"ship-sanitation": "Ship Sanitation Certificate",
+	// CRT-6
+	"food-safety-training": "Food Safety Training Certificate",
+	"haccp": "HACCP Certificate",
 }
 
 const STATUS_LABELS: Record<DocumentSummary["status"], string> = {
@@ -30,8 +33,13 @@ const STATUS_LABELS: Record<DocumentSummary["status"], string> = {
 }
 
 /** "2036-11-29" → "Nov 29, 2036"; null means the document does not expire. */
-function validUntilLabel(date: string | null): string {
-	if (!date) return "Life of the person"
+function validUntilLabel(
+	date: string | null,
+	documentType: DocumentSummary["documentType"]
+): string {
+	// CRT-6: a training certificate does not expire, but it is not tied to a person's life.
+	if (!date)
+		return documentType === "food-safety-training" ? "Does not expire" : "Life of the person"
 	const [year, month, day] = date.split("-").map(Number)
 	return new Intl.DateTimeFormat("en-PH", { timeZone: "UTC", dateStyle: "medium" }).format(
 		new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1))
@@ -91,7 +99,7 @@ export function MyDocuments() {
 								<span className="text-muted-foreground text-xs">
 									{document.serviceName} · {document.locationName} · Issued{" "}
 									{issuedFormatter.format(document.issuedAt)} · Valid until{" "}
-									{validUntilLabel(document.validUntil)}
+									{validUntilLabel(document.validUntil, document.documentType)}
 								</span>
 								<span className="text-muted-foreground text-xs">
 									Booking <span className="font-mono">{document.referenceNumber}</span>

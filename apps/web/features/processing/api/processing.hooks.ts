@@ -10,6 +10,7 @@ import type {
 	CheckInResponse,
 	DocumentSummary,
 	FormAnswers,
+	HaccpDetails,
 	IcvIssueDetails,
 	ItemStep,
 	MedicalExemptionDetails,
@@ -297,6 +298,8 @@ export interface IssueDocumentRequest {
 	sanitaryPermit?: SanitaryPermitDetails | null
 	/** CRT-5: issue a Ship Sanitation Certificate. */
 	shipSanitation?: ShipSanitationDetails | null
+	/** CRT-6: issue a HACCP Certificate. */
+	haccp?: HaccpDetails | null
 	idempotencyKey: string
 }
 

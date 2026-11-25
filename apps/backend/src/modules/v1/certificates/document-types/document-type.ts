@@ -17,6 +17,11 @@ export interface IssueContext {
 	 * Only loaded for types built from the questionnaire, such as the Sanitary Permit.
 	 */
 	answers?: Record<string, string>
+	/**
+	 * The Schedule Slot the item is booked into (CRT-6): the seminar session a
+	 * Food Safety Training Certificate is for, or the day of a HACCP audit.
+	 */
+	session?: { startsAt: Date; endsAt: Date }
 }
 
 /** Printed around the payload on every document. */

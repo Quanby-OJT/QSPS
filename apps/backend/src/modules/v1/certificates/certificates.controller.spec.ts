@@ -1,8 +1,11 @@
+import { implement } from "@orpc/server"
+
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
 import { CertificatesController } from "./certificates.controller"
 import { DocumentPdfController } from "./document-pdf.controller"
 import type { DocumentService } from "./documents.service"
+import type { SeminarSessionService } from "./seminars/seminar-sessions.service"
 
 jest.mock("@orpc/nest", () => ({
 	Implement: () => () => undefined,
@@ -24,7 +27,18 @@ jest.mock("@thallesp/nestjs-better-auth", () => {
 	}
 })
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { certificates: { issue: {}, mine: {}, verify: {}, verifyByNumber: {} } },
+	v1: {
+		certificates: {
+			issue: {},
+			mine: {},
+			verify: {},
+			verifyByNumber: {},
+			seminarSessions: {},
+			seminarRoster: {},
+			seminarAttendance: {},
+			seminarIssue: {},
+		},
+	},
 }))
 jest.mock("@/shared/interceptors/idempotency.interceptor", () => ({
 	IdempotencyInterceptor: class IdempotencyInterceptor {},
@@ -32,6 +46,18 @@ jest.mock("@/shared/interceptors/idempotency.interceptor", () => ({
 jest.mock("./documents.service", () => ({
 	DocumentService: jest.fn(),
 }))
+jest.mock("./seminars/seminar-sessions.service", () => ({
+	SeminarSessionService: jest.fn(),
+}))
+
+/** The function the controller passed to `implement(...).handler(...)` last. */
+function lastHandler(): (args: { input: unknown }) => Promise<unknown> {
+	const results = jest.mocked(implement).mock.results
+	const last = results[results.length - 1]?.value as { handler: jest.Mock } | undefined
+	const handler = last?.handler.mock.calls[0]?.[0]
+	if (!handler) throw new Error("The controller did not register a handler")
+	return handler
+}
 
 describe("Certificates permissions", () => {
 	it("requires certificates.documents:issue to issue", () => {
@@ -39,6 +65,15 @@ describe("Certificates permissions", () => {
 			Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, CertificatesController.prototype.issue)
 		).toEqual(["certificates.documents:issue"])
 	})
+
+	it.each(["seminarSessions", "seminarRoster", "seminarAttendance", "seminarIssue"] as const)(
+		"requires certificates.documents:issue for the seminar route %s (CRT-6)",
+		route => {
+			expect(
+				Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, CertificatesController.prototype[route])
+			).toEqual(["certificates.documents:issue"])
+		}
+	)
 
 	it("requires certificates.own:read for My Documents and the PDF", () => {
 		expect(
@@ -122,5 +157,65 @@ describe("Certificates permissions", () => {
 			{ user: { id: "staff-1" } } as never
 		)
 		expect(printForStaff).toHaveBeenCalledWith(5, "staff-1", { nationwide: false, entries: [] })
+	})
+})
+
+describe("Seminar routes (CRT-6)", () => {
+	const session = { user: { id: "staff-1" } } as never
+	const scope = { nationwide: false, entries: [{ serviceCategoryId: 4, locationId: 2 }] }
+
+	function build(resolver?: { resolve: jest.Mock }) {
+		const seminar = {
+			sessions: jest.fn().mockResolvedValue({ date: "2026-11-25", sessions: [] }),
+			roster: jest.fn().mockResolvedValue({}),
+			markAttendance: jest.fn().mockResolvedValue({ results: [] }),
+			issue: jest.fn().mockResolvedValue({ results: [] }),
+		}
+		const controller = new CertificatesController(
+			{} as unknown as DocumentService,
+			seminar as unknown as SeminarSessionService,
+			resolver
+		)
+		return { controller, seminar }
+	}
+
+	beforeEach(() => {
+		jest.mocked(implement).mockClear()
+	})
+
+	it("lists sessions, reads a roster, marks attendance and issues in the caller's Scope", async () => {
+		const resolver = { resolve: jest.fn().mockResolvedValue(scope) }
+		const { controller, seminar } = build(resolver)
+
+		await controller.seminarSessions(session)
+		await lastHandler()({ input: { date: "2026-11-25" } })
+		expect(seminar.sessions).toHaveBeenCalledWith({ date: "2026-11-25" }, "staff-1", scope)
+
+		await controller.seminarRoster(session)
+		await lastHandler()({ input: { scheduleSlotId: 7 } })
+		expect(seminar.roster).toHaveBeenCalledWith({ scheduleSlotId: 7 }, "staff-1", scope)
+
+		const attendance = { scheduleSlotId: 7, present: [1], absent: [2] }
+		await controller.seminarAttendance(session)
+		await lastHandler()({ input: attendance })
+		expect(seminar.markAttendance).toHaveBeenCalledWith(attendance, "staff-1", scope)
+
+		const issue = { scheduleSlotId: 7 }
+		await controller.seminarIssue(session)
+		await lastHandler()({ input: issue })
+		expect(seminar.issue).toHaveBeenCalledWith(issue, "staff-1", scope)
+
+		expect(resolver.resolve).toHaveBeenCalledTimes(4)
+		expect(resolver.resolve).toHaveBeenCalledWith("staff-1")
+	})
+
+	it("uses no Scope when no resolver is wired in, so a wiring mistake fails closed", async () => {
+		const { controller, seminar } = build()
+		await controller.seminarIssue(session)
+		await lastHandler()({ input: { scheduleSlotId: 7 } })
+		expect(seminar.issue).toHaveBeenCalledWith({ scheduleSlotId: 7 }, "staff-1", {
+			nationwide: false,
+			entries: [],
+		})
 	})
 })

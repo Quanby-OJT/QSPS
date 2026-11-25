@@ -120,6 +120,35 @@ const shipContext = {
 	serviceName: "Ship Sanitation Certificate",
 }
 const permitDetails = { validFrom: "2026-12-01", validUntil: "2027-11-30" }
+// CRT-6: the seminar session (14:00 to 17:00 on 25 November 2026 in Manila) or audit slot of the item.
+const slot = {
+	sessionStartsAt: new Date("2026-11-25T06:00:00.000Z"),
+	sessionEndsAt: new Date("2026-11-25T09:00:00.000Z"),
+}
+const haccpContext = {
+	...context,
+	...slot,
+	documentType: "haccp",
+	serviceName: "GMP-HACCP Audit",
+}
+const trainingContext = {
+	...context,
+	...slot,
+	documentType: "food-safety-training",
+	serviceName: "Basic Hygiene and Sanitation Seminar",
+}
+const haccpDetails = { validFrom: "2026-12-01", validUntil: "2027-11-30" }
+const haccpAnswers = {
+	"Establishment name": "Mercado Fresh Foods",
+	"Products or processes to be audited": "Frozen seafood processing",
+	"Owner or operator": "Ana Reyes",
+	"Business address": "12 Rizal St, Bacolod",
+	"Contact number": "Not answered",
+}
+const trainingAnswers = {
+	"Establishment or employer": "Mercado Fresh Foods",
+	"Position or role": "Not answered",
+}
 const shipDetails = {
 	findings: "Galley, potable water and waste systems inspected; no infestation found.",
 	validFrom: "2026-12-01",
@@ -555,6 +584,214 @@ describe("DocumentService", () => {
 		})
 	})
 
+	describe("food safety documents (CRT-6)", () => {
+		it("issues a HACCP Certificate naming the establishment and its validity, with its own number series", async () => {
+			jest.mocked(readableAnswers).mockResolvedValue(haccpAnswers)
+			const { tx, inserted } = fakeTransaction(
+				[[clearedItem], [], [haccpContext], [{ id: 15, nextNumber: 1 }]],
+				[[{ id: 16 }]]
+			)
+
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				haccp: haccpDetails,
+				now: NOW,
+			})
+
+			expect(readableAnswers).toHaveBeenCalledWith(tx, 44)
+			expect(result.document).toMatchObject({
+				id: 16,
+				documentType: "haccp",
+				documentNumber: "HCP-MNL-2026-000001",
+				status: "valid",
+				validUntil: "2027-11-30",
+			})
+			expect(inserted[0]?.values).toMatchObject({ documentType: "haccp", locationId: 2 })
+			expect(inserted[1]?.values).toMatchObject({
+				documentType: "haccp",
+				validUntil: "2027-11-30",
+				issuedBy: "staff-1",
+				payload: expect.objectContaining({
+					holder: { name: "Mercado Fresh Foods" },
+					productsOrProcesses: "Frozen seafood processing",
+					auditDate: "2026-11-25",
+					validFrom: "2026-12-01",
+					validUntil: "2027-11-30",
+				}),
+			})
+			expect(bookingService.transitionItem).toHaveBeenCalledWith(
+				tx,
+				44,
+				"issued",
+				expect.anything()
+			)
+		})
+
+		it("asks for the validity dates when a HACCP Service gets no details", async () => {
+			const { tx, inserted } = fakeTransaction([[clearedItem], [], [haccpContext]])
+			await expect(
+				service.issue(tx as never, { bookingItemId: 44, actorId: "staff-1", now: NOW })
+			).rejects.toMatchObject({ code: "BAD_REQUEST" })
+			expect(inserted).toEqual([])
+		})
+
+		it("names the missing question when the establishment's answers are incomplete", async () => {
+			jest.mocked(readableAnswers).mockResolvedValue({
+				...haccpAnswers,
+				"Products or processes to be audited": "Not answered",
+			})
+			const { tx, inserted } = fakeTransaction([[clearedItem], [], [haccpContext]])
+			const outcome = service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				haccp: haccpDetails,
+				now: NOW,
+			})
+			await expect(outcome).rejects.toMatchObject({ code: "CONFLICT" })
+			await expect(outcome).rejects.toThrow("Products or processes to be audited")
+			expect(inserted).toEqual([])
+		})
+
+		it("refuses HACCP details for a Service that issues another document, and the reverse", async () => {
+			const forTraining = fakeTransaction([[clearedItem], [], [trainingContext]])
+			await expect(
+				service.issue(forTraining.tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					haccp: haccpDetails,
+					now: NOW,
+				})
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(forTraining.inserted).toEqual([])
+
+			const forHaccp = fakeTransaction([[clearedItem], [], [haccpContext]])
+			await expect(
+				service.issue(forHaccp.tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					sanitaryPermit: permitDetails,
+					now: NOW,
+				})
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(forHaccp.inserted).toEqual([])
+		})
+
+		it("issues a Food Safety Training Certificate with nothing typed by staff, built from the booking and the session", async () => {
+			jest.mocked(readableAnswers).mockResolvedValue(trainingAnswers)
+			const { tx, inserted } = fakeTransaction(
+				[[clearedItem], [], [trainingContext], [{ id: 17, nextNumber: 7 }]],
+				[[{ id: 18 }]]
+			)
+
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				now: NOW,
+			})
+
+			expect(result.created).toBe(true)
+			expect(result.document).toMatchObject({
+				id: 18,
+				documentType: "food-safety-training",
+				documentNumber: "FST-MNL-2026-000007",
+				status: "valid",
+				validUntil: null,
+			})
+			expect(inserted[0]?.values).toMatchObject({
+				documentType: "food-safety-training",
+				locationId: 2,
+			})
+			expect(inserted[1]?.values).toMatchObject({
+				documentType: "food-safety-training",
+				documentNumber: "FST-MNL-2026-000007",
+				verificationToken: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+				validUntil: null,
+				issuedBy: "staff-1",
+				payload: {
+					holder: { name: "Test Three" },
+					employer: "Mercado Fresh Foods",
+					position: null,
+					serviceName: "Basic Hygiene and Sanitation Seminar",
+					sessionDate: "2026-11-25",
+					sessionStart: "14:00",
+					sessionEnd: "17:00",
+					venue: "BOQ Manila",
+					dateIssued: "2026-11-19",
+					issuingStation: "BOQ Manila",
+				},
+			})
+			expect(bookingService.transitionItem).toHaveBeenCalledWith(
+				tx,
+				44,
+				"issued",
+				expect.anything()
+			)
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.issue",
+					newValue: expect.objectContaining({ documentType: "food-safety-training" }),
+				}),
+				tx
+			)
+		})
+
+		it("refuses a training certificate for an item that is not cleared, saving nothing", async () => {
+			const { tx, inserted } = fakeTransaction([[{ ...clearedItem, status: "checked_in" }], []])
+			await expect(
+				service.issue(tx as never, { bookingItemId: 44, actorId: "staff-1", now: NOW })
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(readableAnswers).not.toHaveBeenCalled()
+			expect(inserted).toEqual([])
+		})
+
+		it("returns the certificate an attendee already holds, so issuing a roster twice creates nothing new", async () => {
+			const existing = {
+				id: 18,
+				documentType: "food-safety-training",
+				documentNumber: "FST-MNL-2026-000007",
+				status: "valid",
+				issuedAt: NOW,
+				validUntil: null,
+				serviceName: "Basic Hygiene and Sanitation Seminar",
+				locationName: "BOQ Manila",
+				referenceNumber: "QSPS-261118-QZGKDE",
+			}
+			const { tx, inserted } = fakeTransaction([[{ ...clearedItem, status: "issued" }], [existing]])
+			const result = await service.issue(tx as never, {
+				bookingItemId: 44,
+				actorId: "staff-1",
+				now: NOW,
+			})
+			expect(result).toEqual({ document: existing, created: false })
+			expect(inserted).toEqual([])
+		})
+
+		it("never lets a training certificate be issued from vaccination details or an exemption", async () => {
+			const withDetails = fakeTransaction([[clearedItem], [], [trainingContext]])
+			await expect(
+				service.issue(withDetails.tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					details,
+					now: NOW,
+				})
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(withDetails.inserted).toEqual([])
+
+			const withExemption = fakeTransaction([[clearedItem], [], [trainingContext]])
+			await expect(
+				service.issue(withExemption.tx as never, {
+					bookingItemId: 44,
+					actorId: "staff-1",
+					exemption,
+					now: NOW,
+				})
+			).rejects.toMatchObject({ code: "CONFLICT" })
+			expect(withExemption.inserted).toEqual([])
+		})
+	})
+
 	describe("issueOnClearance", () => {
 		it("does nothing when the service does not auto-issue", async () => {
 			const { tx } = fakeTransaction([[{ autoIssue: false, documentType: "icv-record" }]])
@@ -628,6 +865,21 @@ describe("DocumentService", () => {
 			expect(inserted).toEqual([])
 		})
 
+		it.each(["haccp", "food-safety-training"])(
+			"never issues %s on clearance, even with auto-issue switched on (CRT-6)",
+			async documentType => {
+				const { tx, inserted } = fakeTransaction([[{ autoIssue: true, documentType }]])
+				await expect(
+					service.issueOnClearance(tx as never, {
+						bookingItemId: 44,
+						actorId: "staff-1",
+						now: NOW,
+					})
+				).resolves.toBeNull()
+				expect(inserted).toEqual([])
+			}
+		)
+
 		it("issues the document, recorded against the officer who cleared it", async () => {
 			const { tx, inserted } = fakeTransaction(
 				[
@@ -667,6 +919,7 @@ describe("DocumentService", () => {
 						exemption: null,
 						sanitaryPermit: null,
 						shipSanitation: null,
+						haccp: null,
 					},
 					"staff-1"
 				)
@@ -693,6 +946,7 @@ describe("DocumentService", () => {
 						exemption: null,
 						sanitaryPermit: null,
 						shipSanitation: null,
+						haccp: null,
 					},
 					"staff-1"
 				)
@@ -710,6 +964,33 @@ describe("DocumentService", () => {
 						exemption: null,
 						sanitaryPermit: permitDetails,
 						shipSanitation: null,
+						haccp: null,
+					},
+					"staff-1"
+				)
+			).rejects.toMatchObject({ code: "NOT_FOUND" })
+			expect(db.transaction).not.toHaveBeenCalled()
+			expect(audit.record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					action: "document.issue",
+					outcome: "denied",
+					targetId: "44",
+					reason: "outside_scope",
+				})
+			)
+		})
+
+		it("answers 404 for a HACCP item at another Location and audits the denial (CRT-6)", async () => {
+			dbSelects([{ id: 44, locationId: 2 }], [{ locationId: 9 }])
+			await expect(
+				service.issueAsStaff(
+					{
+						bookingItemId: 44,
+						details: null,
+						exemption: null,
+						sanitaryPermit: null,
+						shipSanitation: null,
+						haccp: haccpDetails,
 					},
 					"staff-1"
 				)
@@ -734,6 +1015,7 @@ describe("DocumentService", () => {
 						exemption: null,
 						sanitaryPermit: null,
 						shipSanitation: null,
+						haccp: null,
 					},
 					null
 				)

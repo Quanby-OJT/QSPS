@@ -96,6 +96,10 @@ export function documentTypeLabel(type: DocumentType): string {
 			return "Sanitary Permit"
 		case "ship-sanitation":
 			return "Ship Sanitation Certificate"
+		case "food-safety-training":
+			return "Food Safety Training Certificate"
+		case "haccp":
+			return "HACCP Certificate"
 	}
 }
 
