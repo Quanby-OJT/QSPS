@@ -1,7 +1,7 @@
 {
-  "id": "bfbeefbe-468c-485e-b2ae-2fe3147f592e",
+  "id": "d5b1777e-8931-4624-942a-20c01b347f34",
   "prevIds": [
-    "5349ff48-2cd7-4568-8dab-4afb53e509a0"
+    "f42611d0-bf5d-4cb2-a55a-9640596fac9a"
   ],
   "version": "8",
   "dialect": "postgres",
@@ -763,6 +763,19 @@
       "generated": null,
       "identity": null,
       "name": "schedule_slot_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "booking_items"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "reschedule_count",
       "entityType": "columns",
       "schema": "public",
       "table": "booking_items"
@@ -4635,6 +4648,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "booking_items_status_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "booking_items"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "client_id",
           "isExpression": false,
           "asc": true,
@@ -7133,6 +7167,20 @@
       "schema": "public",
       "table": "users",
       "entityType": "uniques"
+    },
+    {
+      "value": "\"fee_centavos\" >= 0",
+      "name": "booking_items_fee_nonnegative_chk",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "booking_items"
+    },
+    {
+      "value": "\"reschedule_count\" >= 0",
+      "name": "booking_items_reschedule_count_nonnegative_chk",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "booking_items"
     }
   ],
   "renames": []
