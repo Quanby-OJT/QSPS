@@ -243,12 +243,12 @@ export function ServicesView() {
 										<div className="font-medium">{service.name}</div>
 										<div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
 											<span className="font-mono">{service.code}</span>
-											<span aria-hidden>{"Â·"}</span>
+											<span aria-hidden>&middot;</span>
 											<span>{service.categoryName}</span>
 										</div>
 									</TableCell>
 									<TableCell className="whitespace-nowrap tabular-nums">
-										{"â‚±"}
+										&#8369;
 										{feeInPesos(service.feeCentavos)}
 										{service.requiresApproval ? (
 											<span className="text-muted-foreground block text-xs">Head approval</span>
