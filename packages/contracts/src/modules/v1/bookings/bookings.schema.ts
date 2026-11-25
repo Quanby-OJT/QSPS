@@ -97,6 +97,8 @@ export const BookingSchema = z.object({
 	cancelReason: BookingCancelReasonSchema.nullable(),
 	cancelledAt: dateField.nullable(),
 	createdAt: dateField,
+	/** BKG-5: booking.max_reschedules, so the client hides Reschedule once an item has used them all. */
+	rescheduleLimit: z.number().int().min(0).optional(),
 	items: z.array(BookingItemSchema).min(1),
 })
 

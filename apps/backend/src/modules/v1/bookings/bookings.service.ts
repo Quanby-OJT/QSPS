@@ -1549,6 +1549,15 @@ export class BookingService {
 	}
 
 	/** One Booking with its items, as the API returns it. */
+	/** BKG-5: the reschedule limit shown to the client; left out when the policy cannot be read. */
+	private async rescheduleLimit(): Promise<number | undefined> {
+		try {
+			return await this.policyService.get("booking.max_reschedules")
+		} catch {
+			return undefined
+		}
+	}
+
 	private async loadBooking(reader: Reader, bookingId: number): Promise<Booking> {
 		const [booking] = await reader
 			.select()
@@ -1591,6 +1600,7 @@ export class BookingService {
 			cancelReason: booking.cancelReason,
 			cancelledAt: booking.cancelledAt,
 			createdAt: booking.createdAt,
+			rescheduleLimit: await this.rescheduleLimit(),
 			items,
 		}
 	}

@@ -9,8 +9,13 @@ import { feeInPesos } from "@/features/services/lib/fee"
 import { UnpaidBookingDetails } from "./unpaid-booking-card"
 
 vi.mock("@/features/bookings/components/reschedule-item-dialog", () => ({
-	RescheduleItemDialog: ({ open, item }: { open: boolean; item: { serviceName: string } | null }) =>
-		open && item ? <div role="dialog">Reschedule dialog for {item.serviceName}</div> : null,
+	RescheduleItemDialog: ({
+		open,
+		item,
+	}: {
+		open: boolean
+		item: { serviceName: string } | null
+	}) => (open && item ? <div role="dialog">Reschedule dialog for {item.serviceName}</div> : null),
 }))
 
 const booking: Booking = {
@@ -161,5 +166,20 @@ describe("UnpaidBookingDetails application form (CRT-4)", () => {
 	it("shows no application form link without a Physical Examination", () => {
 		renderDetails()
 		expect(screen.queryByRole("link", { name: /application form/ })).not.toBeInTheDocument()
+	})
+})
+
+describe("UnpaidBookingDetails reschedule limit (BKG-5)", () => {
+	it("offers Reschedule while the item has reschedules left", () => {
+		renderDetails({ rescheduleLimit: 1 })
+		expect(screen.getByRole("button", { name: "Reschedule" })).toBeInTheDocument()
+	})
+
+	it("hides Reschedule once the item has used every reschedule", () => {
+		renderDetails({
+			rescheduleLimit: 1,
+			items: booking.items.map(item => ({ ...item, rescheduleCount: 1 })),
+		})
+		expect(screen.queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument()
 	})
 })

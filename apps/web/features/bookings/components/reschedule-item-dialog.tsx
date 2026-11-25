@@ -20,6 +20,7 @@ import { useSlotAvailabilityQuery } from "@/features/schedules/api/schedules.hoo
 import {
 	dateLabel,
 	groupSlotsByDate,
+	manilaDateKey,
 	manilaMonthOf,
 	monthLabel,
 	shiftMonth,
@@ -38,6 +39,8 @@ export interface RescheduleItemDialogProps {
 	open: boolean
 	onOpenChange: (open: boolean) => void
 	onRescheduled?: (updated: Booking) => void
+	/** booking.max_reschedules, when known. */
+	rescheduleLimit?: number
 }
 
 /**
@@ -50,6 +53,7 @@ export function RescheduleItemDialog({
 	open,
 	onOpenChange,
 	onRescheduled,
+	rescheduleLimit,
 }: RescheduleItemDialogProps) {
 	const currentMonth = manilaMonthOf(new Date())
 	const [month, setMonth] = useState(() =>
@@ -66,7 +70,12 @@ export function RescheduleItemDialog({
 		month,
 	})
 
-	const slotsByDate = useMemo(() => groupSlotsByDate(availability.data ?? []), [availability.data])
+	// Days before today (Manila) are never offered.
+	const today = manilaDateKey(new Date())
+	const slotsByDate = useMemo(
+		() => new Map([...groupSlotsByDate(availability.data ?? [])].filter(([date]) => date >= today)),
+		[availability.data, today]
+	)
 
 	function handleOpenChange(nextOpen: boolean) {
 		if (!nextOpen) {
@@ -115,7 +124,10 @@ export function RescheduleItemDialog({
 					<div className="flex flex-col gap-3">
 						<p className="text-muted-foreground text-xs">
 							Reschedules used on this item:{" "}
-							<span className="text-foreground font-medium">{item.rescheduleCount}</span>
+							<span className="text-foreground font-medium">
+								{item.rescheduleCount}
+								{rescheduleLimit === undefined ? "" : ` of ${rescheduleLimit}`}
+							</span>
 						</p>
 
 						<div className="flex items-center gap-2">
@@ -179,7 +191,7 @@ export function RescheduleItemDialog({
 														type="button"
 														disabled={disabled}
 														aria-pressed={slot.id === selectedSlot?.id}
-														className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
+														className="border-border hover:bg-muted/60 focus-visible:ring-ring/50 aria-pressed:border-primary aria-pressed:bg-primary/5 rounded-md border px-3 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
 														onClick={() => setSelectedSlot(slot)}
 													>
 														<span className="block font-medium">{slotTimeRange(slot)}</span>

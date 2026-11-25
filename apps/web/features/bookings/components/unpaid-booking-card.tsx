@@ -175,7 +175,9 @@ export function UnpaidBookingDetails({
 									{item.rescheduleCount === 1 ? "time" : "times"}
 								</p>
 							</div>
-							{item.status === "booked" ? (
+							{item.status === "booked" &&
+							(booking.rescheduleLimit === undefined ||
+								item.rescheduleCount < booking.rescheduleLimit) ? (
 								<Button
 									type="button"
 									size="sm"
@@ -192,6 +194,7 @@ export function UnpaidBookingDetails({
 
 				<RescheduleItemDialog
 					bookingId={booking.id}
+					rescheduleLimit={booking.rescheduleLimit}
 					item={reschedulingItem}
 					open={reschedulingItem !== null}
 					onOpenChange={open => {

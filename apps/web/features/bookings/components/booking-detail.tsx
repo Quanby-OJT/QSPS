@@ -33,6 +33,7 @@ import {
 	usePayOnsiteMutation,
 } from "@/features/bookings/api/bookings.hooks"
 import { slotDetail } from "@/features/bookings/components/booking-fee-lines"
+import { RescheduleItemDialog } from "@/features/bookings/components/reschedule-item-dialog"
 import {
 	cancelReasonLabel,
 	clientStatusBadgeVariant,
@@ -62,6 +63,8 @@ interface BookingDetailContentProps {
 	onRedirect?: () => void
 	onPayOnsite?: () => void
 	onCancel?: () => void
+	/** BKG-5: open the reschedule dialog for one item. */
+	onReschedule?: (bookingItemId: number) => void
 }
 
 /** Pure detail view (tested directly in Vitest). */
@@ -76,6 +79,7 @@ export function BookingDetailContent({
 	onRedirect,
 	onPayOnsite,
 	onCancel,
+	onReschedule,
 }: BookingDetailContentProps) {
 	const [confirmingCancel, setConfirmingCancel] = useState(false)
 	const busy = paying || choosingOnsite || cancelling
@@ -249,6 +253,20 @@ export function BookingDetailContent({
 									>
 										{booking.status === "cancelled" ? "Cancelled" : itemStatusLabel(item.status)}
 									</Badge>
+									{onReschedule &&
+									item.status === "booked" &&
+									(booking.rescheduleLimit === undefined ||
+										item.rescheduleCount < booking.rescheduleLimit) &&
+									(booking.status === "pending_payment" || booking.status === "paid") ? (
+										<Button
+											type="button"
+											size="sm"
+											variant="outline"
+											onClick={() => onReschedule(item.id)}
+										>
+											Reschedule
+										</Button>
+									) : null}
 								</div>
 								<p className="text-muted-foreground text-xs">
 									{slotDetail(item.locationName, item)}
@@ -323,7 +341,7 @@ export function BookingDetailContent({
 							{booking.receipt ? (
 								<div className="border-border bg-muted/40 flex flex-col gap-3 rounded-lg border-t p-4 sm:flex-row sm:items-center sm:justify-between">
 									<div className="space-y-1">
-										<p className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
+										<p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
 											Official e-Receipt
 										</p>
 										<p className="font-mono text-base font-semibold">
@@ -421,6 +439,7 @@ export function BookingDetailView({
 	const [cancelKey, setCancelKey] = useState(newIdempotencyKey)
 	const [redirecting, setRedirecting] = useState(false)
 	const [choosingChannel, setChoosingChannel] = useState(false)
+	const [reschedulingItemId, setReschedulingItemId] = useState<number | null>(null)
 
 	const loading = !hydrated || isQueryLoading(detail)
 	const isNotFound =
@@ -486,18 +505,30 @@ export function BookingDetailView({
 					</Button>
 				</div>
 			) : detail.data ? (
-				<BookingDetailContent
-					booking={detail.data}
-					backHref={backHref}
-					paying={redirecting}
-					choosingOnsite={payOnsite.isPending}
-					cancelling={cancel.isPending}
-					choosingChannel={choosingChannel}
-					onPayNow={() => setChoosingChannel(true)}
-					onRedirect={() => setRedirecting(true)}
-					onPayOnsite={() => void handlePayOnsite()}
-					onCancel={() => void handleCancel()}
-				/>
+				<>
+					<BookingDetailContent
+						booking={detail.data}
+						backHref={backHref}
+						paying={redirecting}
+						choosingOnsite={payOnsite.isPending}
+						cancelling={cancel.isPending}
+						choosingChannel={choosingChannel}
+						onPayNow={() => setChoosingChannel(true)}
+						onReschedule={setReschedulingItemId}
+						onRedirect={() => setRedirecting(true)}
+						onPayOnsite={() => void handlePayOnsite()}
+						onCancel={() => void handleCancel()}
+					/>
+					<RescheduleItemDialog
+						bookingId={detail.data.id}
+						rescheduleLimit={detail.data.rescheduleLimit}
+						item={detail.data.items.find(item => item.id === reschedulingItemId) ?? null}
+						open={reschedulingItemId !== null}
+						onOpenChange={open => {
+							if (!open) setReschedulingItemId(null)
+						}}
+					/>
+				</>
 			) : null}
 		</section>
 	)
