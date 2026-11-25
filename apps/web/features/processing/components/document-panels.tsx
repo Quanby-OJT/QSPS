@@ -32,6 +32,7 @@ import {
 	documentTypeLabel,
 	isSeminarService,
 	printCountLabel,
+	usesStoredCertificateData,
 	validityDocumentType,
 	type ConfirmationDocumentType,
 	type ValidityDocumentType,
@@ -547,23 +548,33 @@ export function IssueDocumentPanel({
 	const confirmation = confirmationDocumentType(item.service.documentType)
 	// One key per issue, so a double click issues one document, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
+	const usesStoredData = usesStoredCertificateData(item.service.documentType)
 	const usesPeResults = item.service.documentType === "pe-medical-certificate"
 	const exempt =
-		!usesPeResults && !sanitation && !confirmation && allowExemption && form.mode === "exempt"
-	const missing = usesPeResults
-		? false
-		: sanitation
-			? sanitationForm.missing(sanitation)
-			: confirmation
-				? false
-				: form.missing
+		!usesPeResults &&
+		!usesStoredData &&
+		!sanitation &&
+		!confirmation &&
+		allowExemption &&
+		form.mode === "exempt"
+	const missing =
+		usesPeResults || usesStoredData
+			? false
+			: sanitation
+				? sanitationForm.missing(sanitation)
+				: confirmation
+					? false
+					: form.missing
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
 		if (missing) return
 		try {
 			const document = await issue.mutateAsync({
-				details: usesPeResults || sanitation || confirmation || exempt ? null : form.details(),
+				details:
+					usesPeResults || usesStoredData || sanitation || confirmation || exempt
+						? null
+						: form.details(),
 				exemption: exempt ? form.exemptionDetails() : null,
 				sanitaryPermit: sanitation === "sanitary-permit" ? sanitationForm.sanitaryPermit() : null,
 				shipSanitation: sanitation === "ship-sanitation" ? sanitationForm.shipSanitation() : null,
@@ -607,9 +618,11 @@ export function IssueDocumentPanel({
 		>
 			{issue.isPending ? <BoqLoader label="Issuing the certificate" /> : null}
 			<h2 className="font-semibold">Issue document</h2>
-			{usesPeResults ? (
+			{usesPeResults || usesStoredData ? (
 				<p className="text-muted-foreground text-sm">
-					This certificate uses the recorded Physician evaluation.
+					{usesPeResults
+						? "This certificate uses the recorded Physician evaluation."
+						: "This certificate uses the information already recorded on the booking item."}
 				</p>
 			) : sanitation ? (
 				<SanitationFields form={sanitationForm} kind={sanitation} idPrefix="issue" />

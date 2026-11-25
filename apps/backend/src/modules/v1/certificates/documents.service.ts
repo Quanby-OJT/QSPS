@@ -49,9 +49,11 @@ import {
 	PE_SERVICE_CODE,
 	peEvaluation,
 } from "../processing/steps/pe-results"
+import { buildCrt10Document, isCrt10Service } from "./crt10-results"
 import { hasExpired } from "./document-expiry"
 import { formatDocumentNumber } from "./document-number"
 import type { PdfExtras, RenderableDocumentType } from "./document-types/document-type"
+import { WATER_ANALYSIS_DOCUMENT_TYPE } from "./document-types/food-export-water"
 import { peMedicalCertificate } from "./document-types/pe-medical-certificate"
 import { MissingAnswerError } from "./document-types/questionnaire-answers"
 import {
@@ -237,8 +239,10 @@ export class DocumentService {
 		private readonly auditService: AuditService,
 		private readonly bookingService: BookingService,
 		private readonly pdfService: PdfService,
-		@Optional() @Inject(PE_RBAC) private readonly peRbac?: RbacService,
-		@Optional() @Inject(PE_SCOPE) private readonly peScope?: ScopeService
+		@Optional()
+		@Inject(PE_RBAC)
+		private readonly peRbac?: Pick<RbacService, "getMissingPermissions" | "recordPermissionDenial">,
+		@Optional() @Inject(PE_SCOPE) private readonly peScope?: Pick<ScopeService, "assert">
 	) {}
 
 	async assertPeClearancePermission(bookingItemId: number, actorId: string): Promise<void> {
@@ -258,6 +262,25 @@ export class DocumentService {
 		})
 		throw new ORPCError("FORBIDDEN", {
 			message: "You do not have permission to issue a Physical Examination certificate",
+		})
+	}
+
+	private async assertCrt10ClearancePermission(actorId: string): Promise<void> {
+		const required = ["certificates.documents:issue"]
+		const missing = this.peRbac
+			? await this.peRbac.getMissingPermissions(actorId, required)
+			: required
+		if (missing.length === 0) return
+
+		await this.peRbac?.recordPermissionDenial({
+			actorId,
+			route: "DocumentService.assertCrt10ClearancePermission",
+			requiredPermissions: required,
+			missingPermissions: missing,
+		})
+
+		throw new ORPCError("FORBIDDEN", {
+			message: "You do not have permission to issue this certificate",
 		})
 	}
 
@@ -377,6 +400,30 @@ export class DocumentService {
 			type = peMedicalCertificate
 			payload = peMedicalCertificate.buildPayload(issueContext, undefined)
 			validUntil = peMedicalCertificate.validUntil(undefined)
+		} else if (isCrt10Service(context.serviceCode)) {
+			if (
+				request.details ||
+				request.exemption ||
+				request.sanitaryPermit ||
+				request.shipSanitation ||
+				request.haccp ||
+				request.humanRemains ||
+				request.biologicalCertification ||
+				request.biologicalPermit
+			) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "This certificate uses the information already recorded on the booking item",
+				})
+			}
+			const generated = await buildCrt10Document(
+				tx,
+				{ id: item.id, serviceId: item.serviceId },
+				{ code: context.serviceCode, documentType: context.documentType },
+				issueContext
+			)
+			type = generated.type
+			payload = generated.payload
+			validUntil = generated.validUntil
 		} else if (request.exemption) {
 			if (!isVaccinationType(serviceType.type)) {
 				throw new ORPCError("CONFLICT", {
@@ -566,7 +613,12 @@ export class DocumentService {
 			}
 			return this.issue(tx, request)
 		}
-		// Only the vaccination record is issued on clearance (CRT-5): the sanitation
+		if (service && isCrt10Service(service.code)) {
+			if (!service.autoIssue) return null
+			await this.assertCrt10ClearancePermission(request.actorId)
+			return this.issue(tx, request)
+		}
+		// Sanitation
 		// documents need validity dates (and findings) that clearing cannot carry,
 		// so staff issue them afterwards even if an admin switches auto-issue on.
 		if (
@@ -617,7 +669,7 @@ export class DocumentService {
 			throw new ORPCError("NOT_FOUND", { message: "Booking item not found at your location" })
 		}
 
-		if (item.serviceCode === PE_SERVICE_CODE) {
+		if (item.serviceCode === PE_SERVICE_CODE || isCrt10Service(item.serviceCode)) {
 			if (!this.peScope) {
 				throw new ORPCError("NOT_FOUND", { message: "Booking item not found" })
 			}
@@ -626,7 +678,9 @@ export class DocumentService {
 				id: item.id,
 				notFoundMessage: "Booking item not found",
 			})
-			await this.assertPeClearancePermission(item.id, actorId)
+			if (item.serviceCode === PE_SERVICE_CODE) {
+				await this.assertPeClearancePermission(item.id, actorId)
+			}
 		} else {
 			const locationId = await this.staffLocationId(actorId)
 			if (locationId !== item.locationId) {
@@ -938,6 +992,7 @@ export class DocumentService {
 		// A type QSPS cannot describe (legacy imports, MIG-4) is out of scope here.
 		if (!type) throw noRecord()
 		const validUntil = row.validUntil ?? null
+		const outcome = row.payload.analysisOutcome
 		return {
 			documentType: type.type as DocumentVerification["documentType"],
 			documentTitle: type.title,
@@ -950,6 +1005,10 @@ export class DocumentService {
 			validUntil,
 			// Revoking or superseding is the last change to a document row.
 			statusChangedAt: row.status === "valid" ? null : row.updatedAt,
+			...(row.documentType === WATER_ANALYSIS_DOCUMENT_TYPE &&
+			(outcome === "pass" || outcome === "fail")
+				? { analysisOutcome: outcome }
+				: {}),
 		}
 	}
 

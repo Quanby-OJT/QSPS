@@ -81,6 +81,12 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 	"human-remains": "Human Remains Certificate",
 	"biological-certification": "Biological Substance Certification",
 	"biological-permit": "Biological Substance Permit",
+	"food-export-certificate": "Food Export Certificate",
+	"water-analysis-certificate": "Water Analysis Certificate",
+}
+
+export function usesStoredCertificateData(type: string | null | undefined): boolean {
+	return type === "food-export-certificate" || type === "water-analysis-certificate"
 }
 
 export function documentTypeLabel(type: string): string {

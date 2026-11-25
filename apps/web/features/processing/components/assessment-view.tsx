@@ -45,6 +45,7 @@ import {
 	needsIssuing,
 	outcomeLabel,
 	pendingRequiredSteps,
+	usesStoredCertificateData,
 } from "@/features/processing/lib/labels"
 import { printoutsFor } from "@/features/processing/lib/printouts"
 import { manilaDateKey, slotTimeRange } from "@/features/schedules/lib/calendar"
@@ -380,7 +381,9 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 	const noteMissing = needsNote && notes.trim().length === 0
 	const issuesCertificate = outcome === "cleared" && issuesOnClear(item)
 	const needsCertificate =
-		issuesCertificate && item.service.documentType !== "pe-medical-certificate"
+		issuesCertificate &&
+		item.service.documentType !== "pe-medical-certificate" &&
+		!usesStoredCertificateData(item.service.documentType)
 	// CRT-3: an exempt client gets a Medical Exemption Certificate instead.
 	const allowExemption = allowsExemption(item.service.documentType)
 	const exempt = needsCertificate && allowExemption && documentForm.mode === "exempt"
@@ -417,7 +420,7 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 			className="bg-card flex flex-col gap-4 rounded-xl border p-4"
 		>
 			{record.isPending ? (
-				<BoqLoader label={needsCertificate ? "Issuing the certificate" : "Processing request"} />
+				<BoqLoader label={issuesCertificate ? "Issuing the certificate" : "Processing request"} />
 			) : null}
 			<h2 className="font-semibold">Record assessment</h2>
 
@@ -544,7 +547,7 @@ function AssessmentForm({ item }: { item: ProcessingItem }) {
 					? "Saving…"
 					: exempt
 						? "Clear and issue exemption certificate"
-						: needsCertificate
+						: issuesCertificate
 							? "Clear and issue certificate"
 							: "Save assessment"}
 			</Button>

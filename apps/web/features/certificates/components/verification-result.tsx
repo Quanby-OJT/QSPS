@@ -81,7 +81,7 @@ function StatusBanner({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
 		<div className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
-			<dt className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+			<dt className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
 				{label}
 			</dt>
 			{children}
@@ -167,6 +167,13 @@ export function VerificationResult({
 				<Field label="Date issued (Asia/Manila)">
 					<dd>{manilaDateTime(data.issuedAt)}</dd>
 				</Field>
+				{data.documentType === "water-analysis-certificate" && data.analysisOutcome ? (
+					<Field label="Water analysis outcome">
+						<dd className="font-semibold">
+							{data.analysisOutcome === "fail" ? "FAILED" : "PASSED"}
+						</dd>
+					</Field>
+				) : null}
 				{data.validUntil ? (
 					<Field label="Valid until">
 						<dd>{calendarDate(data.validUntil)}</dd>
