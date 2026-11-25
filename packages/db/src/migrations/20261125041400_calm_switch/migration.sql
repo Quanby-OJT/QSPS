@@ -1,1 +1,0 @@
-ALTER TABLE "step_results" ADD COLUMN "released_at" timestamp;

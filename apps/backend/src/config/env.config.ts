@@ -138,6 +138,15 @@ export const env = createEnv({
 			)
 			.optional(),
 
+		// Physical Examination results (CRT-9). 32 random bytes as 64 hex characters.
+		// Optional so the app boots without it; recording or reading PE results then fails.
+		PE_RESULTS_ENCRYPTION_KEY: z
+			.string()
+			.regex(
+				/^[0-9a-fA-F]{64}$/,
+				"PE_RESULTS_ENCRYPTION_KEY must be 32 random bytes as 64 hex characters"
+			)
+			.optional(),
 		// Database
 		DATABASE_URL: z.string(),
 
