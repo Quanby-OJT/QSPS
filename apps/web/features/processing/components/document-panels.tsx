@@ -511,15 +511,16 @@ export function IssueDocumentPanel({
 	const sanitation = validityDocumentType(item.service.documentType)
 	// One key per issue, so a double click issues one document, not two.
 	const [idempotencyKey, setIdempotencyKey] = useState(newKey)
-	const exempt = !sanitation && allowExemption && form.mode === "exempt"
-	const missing = sanitation ? sanitationForm.missing(sanitation) : form.missing
+	const usesPeResults = item.service.documentType === "pe-medical-certificate"
+	const exempt = !usesPeResults && !sanitation && allowExemption && form.mode === "exempt"
+	const missing = !usesPeResults && (sanitation ? sanitationForm.missing(sanitation) : form.missing)
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
 		if (missing) return
 		try {
 			const document = await issue.mutateAsync({
-				details: sanitation || exempt ? null : form.details(),
+				details: usesPeResults || sanitation || exempt ? null : form.details(),
 				exemption: exempt ? form.exemptionDetails() : null,
 				sanitaryPermit: sanitation === "sanitary-permit" ? sanitationForm.sanitaryPermit() : null,
 				shipSanitation: sanitation === "ship-sanitation" ? sanitationForm.shipSanitation() : null,
@@ -559,7 +560,9 @@ export function IssueDocumentPanel({
 		>
 			{issue.isPending ? <BoqLoader label="Issuing the certificate" /> : null}
 			<h2 className="font-semibold">Issue document</h2>
-			{sanitation ? (
+			{usesPeResults ? (
+				<p className="text-muted-foreground text-sm">This certificate uses the recorded Physician evaluation.</p>
+			) : sanitation ? (
 				<SanitationFields form={sanitationForm} kind={sanitation} idPrefix="issue" />
 			) : (
 				<DocumentDetailsFields

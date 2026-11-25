@@ -69,6 +69,7 @@ export function correctionsFromRows(
 
 /** Names staff see for each document type (CRT-1, CRT-3, CRT-5). An unknown type shows as stored. */
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+	"pe-medical-certificate": "Physical Examination Medical Certificate",
 	"icv-record": "International Certificate of Vaccination",
 	"medical-exemption": "Medical Exemption Certificate",
 	"sanitary-permit": "Sanitary Permit",

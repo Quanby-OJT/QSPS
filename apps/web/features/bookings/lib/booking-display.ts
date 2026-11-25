@@ -100,6 +100,8 @@ export function documentTypeLabel(type: DocumentType): string {
 			return "Food Safety Training Certificate"
 		case "haccp":
 			return "HACCP Certificate"
+		case "pe-medical-certificate":
+			return "Physical Examination Medical Certificate"
 	}
 }
 

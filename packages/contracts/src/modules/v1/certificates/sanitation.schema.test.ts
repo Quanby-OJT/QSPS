@@ -134,11 +134,8 @@ describe("IssueDocumentSchema with the sanitation types", () => {
 		expect(mixed.success).toBe(false)
 	})
 
-	it("refuses an issue with no details, with the CRT-3 wording", () => {
-		const none = IssueDocumentSchema.safeParse({ bookingItemId: 7 })
-		expect(problems(none)).toContain(
-			"Enter the vaccination details or the exemption details, not both"
-		)
+	it("accepts stored-result issuance without request details", () => {
+		expect(IssueDocumentSchema.safeParse({ bookingItemId: 7 }).success).toBe(true)
 	})
 
 	it("refuses a sanitation document whose own details are invalid", () => {

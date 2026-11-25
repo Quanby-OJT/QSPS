@@ -25,6 +25,8 @@ export default async function AssessmentPage({
 	const canApprove = canAccess(holder, { requiredPermission: "processing.assessments:approve" })
 	// CRT-3: show Issue document and Print only to staff who hold the keys.
 	const canIssue = canAccess(holder, { requiredPermission: "certificates.documents:issue" })
+	const canRelease =
+		canIssue && canAccess(holder, { requiredPermission: "processing.assessments:perform" })
 	const canPrint = canAccess(holder, { requiredPermission: "certificates.documents:print" })
 	// CRT-8: show Revoke and Reissue only to staff who hold the key.
 	const canRevoke = canAccess(holder, { requiredPermission: "certificates.documents:revoke" })
@@ -34,6 +36,7 @@ export default async function AssessmentPage({
 			bookingItemId={id}
 			canApprove={canApprove}
 			canIssue={canIssue}
+			canRelease={canRelease}
 			canPrint={canPrint}
 			canRevoke={canRevoke}
 		/>

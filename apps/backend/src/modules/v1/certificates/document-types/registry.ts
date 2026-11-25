@@ -3,6 +3,7 @@ import { foodSafetyTraining } from "./food-safety-training"
 import { haccp } from "./haccp"
 import { icvRecord } from "./icv-record"
 import { medicalExemption } from "./medical-exemption"
+import { peMedicalCertificate } from "./pe-medical-certificate"
 import { sanitaryPermit } from "./sanitary-permit"
 import { shipSanitation } from "./ship-sanitation"
 
@@ -12,6 +13,7 @@ import { shipSanitation } from "./ship-sanitation"
  */
 const REGISTRY: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
+	[peMedicalCertificate.type]: peMedicalCertificate,
 	// CRT-3: issued instead of the vaccination record when the client is medically exempt.
 	[medicalExemption.type]: medicalExemption,
 	// CRT-5: issued by sanitation Services. Wording and numbering await BOQ sign-off (PRD open item 6).
@@ -29,6 +31,7 @@ const REGISTRY: Record<string, RenderableDocumentType> = {
  */
 const SERVICE_TYPES: Record<string, RenderableDocumentType> = {
 	[icvRecord.type]: icvRecord,
+	[peMedicalCertificate.type]: peMedicalCertificate,
 	[sanitaryPermit.type]: sanitaryPermit,
 	[shipSanitation.type]: shipSanitation,
 	[foodSafetyTraining.type]: foodSafetyTraining,

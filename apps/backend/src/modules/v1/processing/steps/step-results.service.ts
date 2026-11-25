@@ -23,6 +23,7 @@ import { BookingService } from "../../bookings/bookings.service"
 import { manilaDateOf } from "../../schedules/manila-time"
 import { ProcessingService } from "../processing.service"
 import { fieldsByTemplate, publishedStepForms, readableStepAnswers } from "./item-steps"
+import { decryptPeAnswers, encryptPeAnswers, PE_SERVICE_CODE } from "./pe-results"
 
 const AUDIT_DOMAIN_PROCESSING = "processing"
 
@@ -91,10 +92,11 @@ export class StepResultsService {
 		await db.transaction(async tx => {
 			// Locked so two officers recording the same step get versions one after the other.
 			const [item] = await tx
-				.select({ status: bookingItems.status, serviceId: bookingItems.serviceId })
+				.select({ status: bookingItems.status, serviceId: bookingItems.serviceId, serviceCode: services.code })
 				.from(bookingItems)
+				.innerJoin(services, eq(services.id, bookingItems.serviceId))
 				.where(eq(bookingItems.id, input.bookingItemId))
-				.for("update")
+				.for("update", { of: bookingItems })
 			if (!item) throw stepNotFound()
 			if (!(RECORDABLE_STATUSES as readonly string[]).includes(item.status)) {
 				throw new ORPCError("CONFLICT", {
@@ -160,6 +162,15 @@ export class StepResultsService {
 				.orderBy(desc(stepResults.version))
 				.limit(1)
 			const version = (previous?.version ?? 0) + 1
+			const isPhysicalExamination = item.serviceCode === PE_SERVICE_CODE
+			const storedAnswers = isPhysicalExamination
+				? encryptPeAnswers(check.answers, {
+						bookingItemId: input.bookingItemId,
+						serviceStepId: step.id,
+						formTemplateId: form.formTemplateId,
+						version,
+					})
+				: check.answers
 
 			const [saved] = await tx
 				.insert(stepResults)
@@ -168,7 +179,7 @@ export class StepResultsService {
 					serviceStepId: step.id,
 					formTemplateId: form.formTemplateId,
 					version,
-					answers: check.answers,
+					answers: storedAnswers,
 					recordedBy: staffId,
 					// Set here, in UTC, rather than by the database clock (DOMAIN-MODEL.md: timestamps are UTC).
 					createdAt: now,
@@ -190,7 +201,7 @@ export class StepResultsService {
 								stepId: step.id,
 								version: previous.version,
 								formTemplateId: previous.formTemplateId,
-								answers: previous.answers,
+								...(isPhysicalExamination ? {} : { answers: previous.answers }),
 							}
 						: null,
 					newValue: {
@@ -199,7 +210,7 @@ export class StepResultsService {
 						stepName: step.name,
 						version,
 						formTemplateId: form.formTemplateId,
-						answers: check.answers,
+						...(isPhysicalExamination ? {} : { answers: check.answers }),
 					},
 				},
 				tx
@@ -237,6 +248,7 @@ export class StepResultsService {
 				referenceNumber: bookings.referenceNumber,
 				clientName: users.name,
 				serviceName: services.name,
+				serviceCode: services.code,
 				locationName: locations.name,
 				serviceId: bookingItems.serviceId,
 			})
@@ -285,7 +297,15 @@ export class StepResultsService {
 			.where(eq(formTemplates.id, result.formTemplateId))
 			.limit(1)
 		const fields = (await fieldsByTemplate(db, [result.formTemplateId])).get(result.formTemplateId)
-		const answers = readableStepAnswers(fields ?? [], result.answers)
+		const values = item.serviceCode === PE_SERVICE_CODE
+			? decryptPeAnswers(result.answers, {
+					bookingItemId,
+					serviceStepId: step.id,
+					formTemplateId: result.formTemplateId,
+					version: result.version,
+				})
+			: result.answers
+		const answers = readableStepAnswers(fields ?? [], values)
 
 		const pdf = await this.pdfService.render(
 			{ title: `${step.name} result ${item.referenceNumber}` },

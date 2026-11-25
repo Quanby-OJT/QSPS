@@ -44,6 +44,7 @@ type DocumentType = (typeof SERVICE_DOCUMENT_TYPES)[number]
 
 /** Names shown to admins for each document type a Service can issue (CRT-1, CRT-3, CRT-5, CRT-6). */
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+	"pe-medical-certificate": "Physical Examination Medical Certificate",
 	"icv-record": "International Certificate of Vaccination",
 	"sanitary-permit": "Sanitary Permit",
 	"ship-sanitation": "Ship Sanitation Certificate",
