@@ -229,11 +229,8 @@ export function ServicesView() {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead>Category</TableHead>
-								<TableHead>Code</TableHead>
 								<TableHead>Service</TableHead>
 								<TableHead>Fee</TableHead>
-								<TableHead>Approval</TableHead>
 								<TableHead>Document</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead className="text-right">Actions</TableHead>
@@ -242,15 +239,25 @@ export function ServicesView() {
 						<TableBody>
 							{serviceList.map(service => (
 								<TableRow key={service.id}>
-									<TableCell>{service.categoryName}</TableCell>
-									<TableCell className="font-mono text-xs">{service.code}</TableCell>
-									<TableCell className="font-medium">{service.name}</TableCell>
-									<TableCell>₱{feeInPesos(service.feeCentavos)}</TableCell>
-									<TableCell>{service.requiresApproval ? "Required" : "Not required"}</TableCell>
-									<TableCell>
+									<TableCell className="whitespace-normal">
+										<div className="font-medium">{service.name}</div>
+										<div className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
+											<span className="font-mono">{service.code}</span>
+											<span aria-hidden>{"Â·"}</span>
+											<span>{service.categoryName}</span>
+										</div>
+									</TableCell>
+									<TableCell className="whitespace-nowrap tabular-nums">
+										{"â‚±"}
+										{feeInPesos(service.feeCentavos)}
+										{service.requiresApproval ? (
+											<span className="text-muted-foreground block text-xs">Head approval</span>
+										) : null}
+									</TableCell>
+									<TableCell className="whitespace-normal">
 										{documentTypeLabel(service.documentType)}
 										{isDocumentType(service.documentType) && !service.autoIssue ? (
-											<span className="text-muted-foreground block text-xs">Not automatic</span>
+											<span className="text-muted-foreground block text-xs">Issued by officer</span>
 										) : null}
 									</TableCell>
 									<TableCell>
@@ -259,7 +266,7 @@ export function ServicesView() {
 										</Badge>
 									</TableCell>
 									<TableCell>
-										<div className="flex justify-end gap-2">
+										<div className="flex justify-end gap-1.5">
 											<Button variant="outline" size="sm" onClick={() => startEdit(service)}>
 												Edit
 											</Button>
@@ -271,8 +278,9 @@ export function ServicesView() {
 												Steps
 											</Link>
 											<Button
-												variant={service.isActive ? "secondary" : "outline"}
+												variant={service.isActive ? "ghost" : "default"}
 												size="sm"
+												className="w-24"
 												disabled={setActive.isPending}
 												onClick={() => void toggleActive(service)}
 											>
