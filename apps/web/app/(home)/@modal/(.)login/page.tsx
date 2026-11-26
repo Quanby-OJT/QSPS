@@ -1,6 +1,6 @@
 import { AnalyticsIdentityStamp } from "@/services/analytics/analytics-identity-stamp"
+import { PublicLoginForm as LoginForm } from "@/features/announcements/components/public-login-form"
 import { AuthModal } from "@/features/auth/components/auth-modal"
-import { LoginForm } from "@/features/auth/login/components/login-form"
 
 /**
  * /login opened from the home page: the sign-in form slides up over it

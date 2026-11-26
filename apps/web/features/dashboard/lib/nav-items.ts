@@ -136,6 +136,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "settings.payment-channels:manage",
 	},
 	{
+		label: "Announcements",
+		href: "/announcements",
+		icon: AccountSetting01Icon,
+		section: "Administration",
+		requiredPermission: "settings.announcements:manage",
+	},
+	{
 		label: "Policies",
 		href: "/policies",
 		icon: AccountSetting01Icon,

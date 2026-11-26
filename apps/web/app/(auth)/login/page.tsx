@@ -1,5 +1,5 @@
 import { AnalyticsIdentityStamp } from "@/services/analytics/analytics-identity-stamp"
-import { LoginForm } from "@/features/auth/login/components/login-form"
+import { PublicLoginForm as LoginForm } from "@/features/announcements/components/public-login-form"
 
 export default function LoginPage() {
 	return (
