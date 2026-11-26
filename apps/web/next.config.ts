@@ -120,7 +120,9 @@ const config: NextConfig = {
 			"frame-src https://challenges.cloudflare.com",
 			// Tailwind and next-themes both set inline styles at runtime.
 			"style-src 'self' 'unsafe-inline'",
-			"img-src 'self' data: blob:",
+			`img-src 'self' data: blob: ${apiOrigin}`.trim(),
+			// AUTH-4: the announcement image and video are served by the API.
+			`media-src 'self' blob: ${apiOrigin}`.trim(),
 			"font-src 'self' data:",
 			// The API ORIGIN, not the base URL. A CSP source with a path is
 			// matched as a path prefix, so `http://host:3000/api` permits only

@@ -308,6 +308,7 @@ describe("navItems", () => {
 			"Forms",
 			"Schedules",
 			"Payment Channels",
+			"Announcements",
 			"Policies",
 			"Transaction monitor",
 			"Audit log",

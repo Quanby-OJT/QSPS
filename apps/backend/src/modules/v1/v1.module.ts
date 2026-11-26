@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common"
 
 import { env } from "@/config/env.config"
 
+import { AnnouncementsModule } from "./announcements/announcements.module"
 import { BookingsModule } from "./bookings/bookings.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
 import { FormsModule } from "./forms/forms.module"
@@ -20,6 +21,8 @@ import { WalkInModule } from "./walk-in/walk-in.module"
 
 @Module({
 	imports: [
+		// AUTH-4: the Gender and Development flash screen.
+		AnnouncementsModule,
 		BookingsModule,
 		HealthModule,
 		LocationsModule,

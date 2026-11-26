@@ -564,6 +564,37 @@ export type {
 	UpdateSmsPreferencesInput,
 } from "./modules/v1/me/me.schema.js"
 
+// Gender and Development flash screen (AUTH-4)
+export { announcementsContract } from "./modules/v1/announcements/announcements.contract.js"
+export {
+	MAX_ANNOUNCEMENT_TITLE_LENGTH,
+	ANNOUNCEMENT_MEDIA_TYPES,
+	ANNOUNCEMENT_CONTENT_TYPES,
+	ANNOUNCEMENT_MEDIA_KINDS,
+	ANNOUNCEMENT_MEDIA_KEY_PATTERN,
+	ANNOUNCEMENT_STATES,
+	AnnouncementMediaKindSchema,
+	AnnouncementMediaKeySchema,
+	AnnouncementStateSchema,
+	UploadAnnouncementMediaSchema,
+	AnnouncementMediaUploadSchema,
+	CreateAnnouncementSchema,
+	UpdateAnnouncementSchema,
+	SetAnnouncementActiveSchema,
+	AnnouncementSchema,
+	ActiveAnnouncementSchema,
+} from "./modules/v1/announcements/announcements.schema.js"
+export type {
+	AnnouncementContentType,
+	AnnouncementMediaKind,
+	AnnouncementState,
+	AnnouncementMediaUpload,
+	CreateAnnouncementInput,
+	UpdateAnnouncementInput,
+	SetAnnouncementActiveInput,
+	Announcement,
+	ActiveAnnouncement,
+} from "./modules/v1/announcements/announcements.schema.js"
 // Future versions:
 // export { v2Contract, type V2Contract } from "./modules/v2/v2.contract.js"
 // export const v2 = { ... }

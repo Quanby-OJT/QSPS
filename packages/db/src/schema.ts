@@ -1,5 +1,5 @@
 import { defineRelations, sql, type SQL } from "drizzle-orm"
-import { check as pgCheck, index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
+import { index, check as pgCheck, primaryKey, uniqueIndex } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -524,10 +524,7 @@ export const bookingItems = createTable(
 			.integer("schedule_slot_id")
 			.notNull()
 			.references(() => scheduleSlots.id, { onDelete: "restrict" }),
-		rescheduleCount: t
-			.integer("reschedule_count")
-			.notNull()
-			.default(0),	
+		rescheduleCount: t.integer("reschedule_count").notNull().default(0),
 		locationId: t
 			.integer("location_id")
 			.notNull()
@@ -893,6 +890,30 @@ export const policies = createTable("policies", t => ({
 	value: t.jsonb("value").$type<unknown>().notNull(),
 	/** Who last changed it. Null only for a row written by the System. */
 	updatedBy: t.text("updated_by").references(() => users.id, { onDelete: "set null" }),
+	createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
+}))
+
+// ============================================================================
+// ANNOUNCEMENTS (AUTH-4)
+// ============================================================================
+
+/**
+ * The Gender and Development flash screen shown before client sign-in
+ * (AUTH-4, TOR VIII.2). `media_url` is the FileStorage key of the image or
+ * video; the API serves it and the bucket stays private. Never deleted, only
+ * deactivated.
+ */
+export const announcements = createTable("announcements", t => ({
+	id: t.serial("id").primaryKey(),
+	title: t.text("title").notNull(),
+	mediaUrl: t.text("media_url").notNull(),
+	mediaType: t.text("media_type").$type<"image" | "video">().notNull(),
+	startsAt: t.timestamp("starts_at").notNull(),
+	/** Null: shown until deactivated. */
+	endsAt: t.timestamp("ends_at"),
+	isActive: t.boolean("is_active").notNull().default(false),
+	createdBy: t.text("created_by").references(() => users.id, { onDelete: "set null" }),
 	createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 }))
@@ -1499,4 +1520,3 @@ function check(arg0: string) {
 		on: (expression: SQL) => pgCheck(arg0, expression),
 	}
 }
-
