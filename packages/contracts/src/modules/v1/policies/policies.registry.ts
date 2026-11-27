@@ -17,7 +17,7 @@ import { z } from "zod"
  */
 
 /** Groups on the policy screen, in display order. */
-export const POLICY_AREAS = ["booking", "payment", "auth", "support"] as const
+export const POLICY_AREAS = ["booking", "payment", "auth", "support", "retention"] as const
 
 export type PolicyArea = (typeof POLICY_AREAS)[number]
 
@@ -26,6 +26,7 @@ export const POLICY_AREA_LABELS: Record<PolicyArea, string> = {
 	payment: "Payments and refunds",
 	auth: "Sign-in security",
 	support: "Help desk",
+	retention: "Data retention",
 }
 
 /** How a text Policy is checked, and which input the policy screen shows for it. */
@@ -233,6 +234,43 @@ export const POLICY_DEFINITIONS = [
 		format: "text",
 		maxLength: 200,
 		defaultValue: "",
+	},
+	// Data retention (OPS-4, TOR IX.C). 0 keeps every row in the live table.
+	{
+		key: "retention.audit_log_days",
+		area: "retention",
+		label: "Audit log kept live",
+		description:
+			"Audit entries older than this are moved to the archive each night and stay searchable there. 0 never archives.",
+		type: "integer",
+		min: 0,
+		max: 36500,
+		unit: "days",
+		defaultValue: 0,
+	},
+	{
+		key: "retention.notifications_days",
+		area: "retention",
+		label: "Sent notifications kept live",
+		description:
+			"Sent and failed notifications older than this are moved to the archive each night. 0 never archives.",
+		type: "integer",
+		min: 0,
+		max: 36500,
+		unit: "days",
+		defaultValue: 0,
+	},
+	{
+		key: "retention.payment_events_days",
+		area: "retention",
+		label: "Payment notifications kept live",
+		description:
+			"Raw payment provider notifications older than this are moved to the archive each night. 0 never archives.",
+		type: "integer",
+		min: 0,
+		max: 36500,
+		unit: "days",
+		defaultValue: 0,
 	},
 ] as const satisfies readonly PolicyDefinition[]
 

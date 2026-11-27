@@ -3,6 +3,7 @@ import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { Session, type UserSession } from "@thallesp/nestjs-better-auth"
 
+import { AuditArchiveService } from "@/common/archive/audit-archive.service"
 import { RbacService } from "@/common/rbac/rbac.service"
 import { NO_SCOPE, SCOPE_RESOLVER, type ScopeResolver } from "@/common/scope/scope.token"
 import { v1 } from "@/config/api-versions.config"
@@ -21,7 +22,8 @@ export class RbacController {
 	constructor(
 		private readonly rbacAdminService: RbacAdminService,
 		private readonly rbacService: RbacService,
-		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver
+		@Optional() @Inject(SCOPE_RESOLVER) private readonly scopeResolver?: ScopeResolver,
+		@Optional() private readonly auditArchiveService?: AuditArchiveService
 	) {}
 
 	/** ADM-2: user routes work inside the caller's Scope. */
@@ -236,6 +238,15 @@ export class RbacController {
 		})
 	}
 
+	// OPS-4: archived entries, searched with the same filters. Above getAuditEntry for the same reason as export.
+	@RequirePermissions("audit.logs:read")
+	@Implement(v1.rbac.audit.archived)
+	async listArchivedAuditLog() {
+		return implement(v1.rbac.audit.archived).handler(async ({ input }) => {
+			if (!this.auditArchiveService) return { entries: [], truncated: false, unreadableFiles: 0 }
+			return this.auditArchiveService.search(input)
+		})
+	}
 	@RequirePermissions("audit.logs:read")
 	@Implement(v1.rbac.audit.get)
 	async getAuditEntry() {

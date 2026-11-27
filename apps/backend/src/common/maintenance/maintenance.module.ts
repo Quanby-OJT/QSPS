@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common"
 import { ScheduleModule } from "@nestjs/schedule"
 
+import { ArchiveService } from "@/common/archive/archive.service"
+import { StorageModule } from "@/common/storage/storage.module"
 import { BookingsModule } from "@/modules/v1/bookings/bookings.module"
 import { PaymentsModule } from "@/modules/v1/payments/payments.module"
 
@@ -19,8 +21,19 @@ import { PaymentReconciliationService } from "./payment-reconciliation.service"
  * 5 minutes and changes Payments only through `PaymentService`.
  */
 @Module({
-	imports: [ScheduleModule.forRoot(), BookingsModule, PaymentsModule],
-	providers: [ExpiryCleanupService, BookingExpiryService, PaymentReconciliationService],
-	exports: [ExpiryCleanupService, BookingExpiryService, PaymentReconciliationService],
+	imports: [ScheduleModule.forRoot(), BookingsModule, PaymentsModule, StorageModule],
+	// OPS-4: nightly data retention and archiving.
+	providers: [
+		ExpiryCleanupService,
+		BookingExpiryService,
+		PaymentReconciliationService,
+		ArchiveService,
+	],
+	exports: [
+		ExpiryCleanupService,
+		BookingExpiryService,
+		PaymentReconciliationService,
+		ArchiveService,
+	],
 })
 export class MaintenanceModule {}

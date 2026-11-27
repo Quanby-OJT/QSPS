@@ -19,7 +19,8 @@
 		"verify:telemetry": "tsx test/telemetry-modes.ts",
 		"test:e2e": "cross-env NODE_OPTIONS=\"--experimental-vm-modules --disable-warning=ExperimentalWarning\" jest --config ./test/jest-e2e.json --runInBand",
 		"typecheck": "tsc --noEmit",
-		"audit:verify": "tsx src/scripts/audit-verify.ts"
+		"audit:verify": "tsx src/scripts/audit-verify.ts",
+		"archive:run": "tsx src/scripts/archive-run.ts"
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1175.0",

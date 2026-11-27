@@ -21,6 +21,7 @@ import { ThrottlerProxyGuard } from "@/shared/guards/throttler-proxy.guard"
 import { TelemetryLifecycle } from "@/telemetry/telemetry.lifecycle"
 
 import { AnalyticsModule } from "./common/analytics/analytics.module"
+import { ArchiveModule } from "./common/archive/archive.module"
 import { AuditModule } from "./common/audit/audit.module"
 import { MaintenanceModule } from "./common/maintenance/maintenance.module"
 import { NotificationsModule } from "./common/notifications/notifications.module"
@@ -115,6 +116,8 @@ import { env } from "./config/env.config"
 		// RBAC services
 		// Global: the audit trail is meant to outgrow RBAC.
 		AuditModule,
+		// OPS-4: archived audit entries stay searchable.
+		ArchiveModule,
 		// ADM-6: booking, payment and sign-in Policies, read by every epic.
 		PolicyModule,
 		RbacModule,

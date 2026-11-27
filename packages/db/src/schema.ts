@@ -993,6 +993,39 @@ export const policyAcceptances = createTable(
 	]
 )
 
+// ============================================================================
+// ARCHIVE (OPS-4)
+// ============================================================================
+
+/**
+ * One archive file written by the retention job (OPS-4, TOR IX.C). The rows
+ * listed here left their live table only after the file was read back and
+ * its sha256 matched. Insert-only; written by `ArchiveService`.
+ */
+export const archiveBatches = createTable(
+	"archive_batches",
+	t => ({
+		id: t.serial("id").primaryKey(),
+		dataClass: t
+			.text("data_class")
+			.notNull()
+			.$type<"audit_log" | "notifications" | "payment_events">(),
+		/** created_at of the oldest and newest archived row. */
+		rangeFrom: t.timestamp("range_from").notNull(),
+		rangeTo: t.timestamp("range_to").notNull(),
+		firstId: t.integer("first_id").notNull(),
+		lastId: t.integer("last_id").notNull(),
+		rowCount: t.integer("row_count").notNull(),
+		/** FileStorage key, archive/<class>/<run>.jsonl.gz. Never overwritten. */
+		storageKey: t.text("storage_key").notNull().unique(),
+		/** sha256 (hex) of the stored file. */
+		checksum: t.text("checksum").notNull(),
+		/** audit_log only: entry_hash of the last archived entry, the live chain's anchor. */
+		chainTailHash: t.text("chain_tail_hash"),
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
+	}),
+	t => [index("archive_batches_class_range_idx").on(t.dataClass, t.rangeFrom, t.rangeTo)]
+)
 // NTF-2: persist send limits across instances; the key is a keyed digest.
 export const smsCodeLimits = createTable("sms_code_limits", t => ({
 	key: t.text("key").primaryKey(),
@@ -1026,6 +1059,8 @@ export const notifications = createTable(
 		attempts: t.integer("attempts").notNull().default(0),
 		dedupeKey: t.text("dedupe_key").notNull().unique(),
 		nextAttemptAt: t.timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+		/** OPS-4: when the row was queued; the retention period counts from here. */
+		createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	}),
 	t => [index("notifications_due_idx").on(t.channel, t.status, t.nextAttemptAt)]
 )

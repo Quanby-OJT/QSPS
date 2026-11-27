@@ -1,6 +1,6 @@
 "use client"
 
-import type { AuditLogEntry } from "@repo/contracts"
+import type { ArchivedAuditLogEntry, AuditLogEntry } from "@repo/contracts"
 
 import { Badge } from "@/core/components/ui/badge"
 import {
@@ -33,7 +33,7 @@ function ValueBlock({ label, value }: { label: string; value: unknown }) {
 	return (
 		<div className="flex min-w-0 flex-col gap-1">
 			<h3 className="text-sm font-semibold">{label}</h3>
-			<pre className="bg-muted max-h-64 overflow-auto rounded-lg border p-3 font-mono text-xs whitespace-pre-wrap break-all">
+			<pre className="bg-muted max-h-64 overflow-auto rounded-lg border p-3 font-mono text-xs break-all whitespace-pre-wrap">
 				{formatAuditValue(value)}
 			</pre>
 		</div>
@@ -48,10 +48,12 @@ export function AuditEntryDialog({
 	entry,
 	onClose,
 }: {
-	entry: AuditLogEntry | null
+	entry: AuditLogEntry | ArchivedAuditLogEntry | null
 	onClose: () => void
 }) {
-	const detail = useAuditEntryQuery(entry?.id ?? null)
+	// OPS-4: an archived entry carries its own hash; the live lookup would not find it.
+	const isArchived = entry !== null && "archived" in entry
+	const detail = useAuditEntryQuery(isArchived ? null : (entry?.id ?? null))
 
 	return (
 		<Dialog open={entry !== null} onOpenChange={open => !open && onClose()}>
@@ -62,6 +64,7 @@ export function AuditEntryDialog({
 							<div className="bg-gold mb-1 h-1 w-10 rounded-full" />
 							<DialogTitle className="flex flex-wrap items-center gap-2">
 								<span className="font-mono">{entry.action}</span>
+								{isArchived ? <Badge variant="secondary">Archived</Badge> : null}
 								{entry.outcome === "denied" ? (
 									<Badge variant="destructive">Denied</Badge>
 								) : (
@@ -99,11 +102,14 @@ export function AuditEntryDialog({
 								label="Entry hash"
 								mono
 								value={
-									detail.isPending
-										? "Loading…"
-										: detail.isError
-											? detail.error.message
-											: (detail.data.entryHash ?? "Recorded before the hash chain started")
+									isArchived
+										? ((entry as ArchivedAuditLogEntry).entryHash ??
+											"Recorded before the hash chain started")
+										: detail.isPending
+											? "Loading…"
+											: detail.isError
+												? detail.error.message
+												: (detail.data.entryHash ?? "Recorded before the hash chain started")
 								}
 							/>
 						</dl>

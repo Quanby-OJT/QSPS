@@ -17,7 +17,7 @@
 
 import { and, asc, desc, eq, gt } from "drizzle-orm"
 
-import { auditLog, roles, userRoles, users } from "@repo/db/schema"
+import { archiveBatches, auditLog, roles, userRoles, users } from "@repo/db/schema"
 
 import { verifyChain } from "@/common/audit/audit-chain"
 import { AUDIT_DOMAIN_RBAC, AuditService } from "@/common/audit/audit.service"
@@ -468,7 +468,11 @@ describe("audit log filters (ADM-3)", () => {
 	itDb("treats % and _ in the actor filter as plain text", async () => {
 		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
 
-		const { entries } = await new AuditService().list({ limit: 50, actor: "%", targetId: TEST_USER })
+		const { entries } = await new AuditService().list({
+			limit: 50,
+			actor: "%",
+			targetId: TEST_USER,
+		})
 		expect(entries).toHaveLength(0)
 	})
 
@@ -551,8 +555,19 @@ describe("tamper-resistant trail (FND-3)", () => {
 	itDb("verifies the whole stored chain", async () => {
 		await makeRbacService().assignRole(TEST_USER, TEST_ROLE, TEST_ACTOR)
 
-		const rows = await db.select().from(auditLog).orderBy(asc(auditLog.id))
-		const check = verifyChain(rows)
+		// Older rows may sit in archive files (OPS-4): start after the newest archived batch.
+		const [batch] = await db
+			.select()
+			.from(archiveBatches)
+			.where(eq(archiveBatches.dataClass, "audit_log"))
+			.orderBy(desc(archiveBatches.lastId))
+			.limit(1)
+		const rows = await db
+			.select()
+			.from(auditLog)
+			.where(gt(auditLog.id, batch?.lastId ?? 0))
+			.orderBy(asc(auditLog.id))
+		const check = verifyChain(rows, batch?.chainTailHash ?? null)
 
 		expect(check).toMatchObject({ ok: true })
 		expect(check.checked).toBeGreaterThan(0)

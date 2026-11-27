@@ -360,7 +360,7 @@ describe("PolicyService.list", () => {
 
 		const list = await service.list()
 
-		expect(list).toHaveLength(15)
+		expect(list).toHaveLength(18)
 		expect(list.find(policy => policy.key === "booking.hold_minutes")).toEqual({
 			key: "booking.hold_minutes",
 			area: "booking",
