@@ -217,6 +217,19 @@ export const AuditLogEntryDetailSchema = AuditLogEntrySchema.extend({
 	prevHash: z.string().nullable(),
 	entryHash: z.string().nullable(),
 })
+/** OPS-4: an audit entry moved to the archive by the retention job. Read-only, like every entry. */
+export const ArchivedAuditLogEntrySchema = AuditLogEntryDetailSchema.extend({
+	archived: z.literal(true),
+})
+
+/** OPS-4: archived entries matching the ADM-3 filters, newest first. */
+export const ArchivedAuditLogResponseSchema = z.object({
+	entries: z.array(ArchivedAuditLogEntrySchema),
+	/** True when more matched than one search returns; narrow the dates. */
+	truncated: z.boolean(),
+	/** Archive files that were missing or did not match their checksum. */
+	unreadableFiles: z.number().int().nonnegative(),
+})
 
 /** A business date, YYYY-MM-DD, read in Asia/Manila. */
 const AuditDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD")
@@ -277,6 +290,8 @@ export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>
 export type ListAuditLogRequest = z.infer<typeof ListAuditLogRequestSchema>
 export type ListAuditLogResponse = z.infer<typeof ListAuditLogResponseSchema>
 export type AuditLogEntryDetail = z.infer<typeof AuditLogEntryDetailSchema>
+export type ArchivedAuditLogEntry = z.infer<typeof ArchivedAuditLogEntrySchema>
+export type ArchivedAuditLogResponse = z.infer<typeof ArchivedAuditLogResponseSchema>
 export type AuditLogFilter = z.infer<typeof AuditLogFilterSchema>
 export type AuditExportFormat = z.infer<typeof AuditExportFormatSchema>
 export type ExportAuditLogRequest = z.infer<typeof ExportAuditLogRequestSchema>

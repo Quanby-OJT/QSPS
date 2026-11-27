@@ -3,6 +3,8 @@
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query"
 
 import type {
+	ArchivedAuditLogEntry,
+	ArchivedAuditLogResponse,
 	AuditLogEntry,
 	AuditLogEntryDetail,
 	AuditLogFilter,
@@ -12,8 +14,8 @@ import type {
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
-import { env } from "@/env"
 import { AUDIT_PAGE_SIZE, auditQueryString } from "@/features/audit-log/lib/filters"
+import { env } from "@/env"
 
 const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}`
 
@@ -53,6 +55,7 @@ export const auditLogKeys = {
 	all: ["rbac", "audit-log"] as const,
 	list: (filter: AuditLogFilter) => ["rbac", "audit-log", "list", filter] as const,
 	entry: (id: number) => ["rbac", "audit-log", "entry", id] as const,
+	archived: (filter: AuditLogFilter) => ["rbac", "audit-log", "archived", filter] as const,
 }
 
 /** ADM-3: entries newest first, a page at a time (cursor paging). */
@@ -113,5 +116,21 @@ export function useExportAuditLogMutation() {
 			URL.revokeObjectURL(url)
 			return res
 		},
+	})
+}
+/** OPS-4: archived entries matching the same filters (at most 500, newest first). */
+export function useArchivedAuditLogQuery(filter: AuditLogFilter) {
+	return useQuery({
+		queryKey: auditLogKeys.archived(filter),
+		queryFn: async (): Promise<ArchivedAuditLogResponse> => {
+			const body = await apiGet<
+				Omit<ArchivedAuditLogResponse, "entries"> & {
+					entries: WithTextDate<ArchivedAuditLogEntry>[]
+				}
+			>(`/rbac/audit-log/archived${auditQueryString({ ...filter })}`)
+			return { ...body, entries: body.entries.map(entry => withDate<ArchivedAuditLogEntry>(entry)) }
+		},
+		retry: retryUnlessClientError,
+		refetchOnWindowFocus: false,
 	})
 }

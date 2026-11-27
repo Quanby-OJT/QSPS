@@ -516,6 +516,8 @@ export {
 	ListAuditLogResponseSchema,
 	ExportAuditLogRequestSchema,
 	ExportAuditLogResponseSchema,
+	ArchivedAuditLogEntrySchema,
+	ArchivedAuditLogResponseSchema,
 } from "./modules/v1/rbac/rbac.schema.js"
 export type {
 	Role,
@@ -535,6 +537,8 @@ export type {
 	ListAuditLogResponse,
 	ExportAuditLogRequest,
 	ExportAuditLogResponse,
+	ArchivedAuditLogEntry,
+	ArchivedAuditLogResponse,
 } from "./modules/v1/rbac/rbac.schema.js"
 
 // Current-user access, profile and SMS settings schemas (AUTH-1, NTF-2)

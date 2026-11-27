@@ -2,8 +2,10 @@ import { oc } from "@orpc/contract"
 import { z } from "zod"
 
 import {
+	ArchivedAuditLogResponseSchema,
 	AssignRoleRequestSchema,
 	AuditLogEntryDetailSchema,
+	AuditLogFilterSchema,
 	AuditLogIdParamSchema,
 	CreateRoleSchema,
 	CreateStaffUserSchema,
@@ -245,6 +247,18 @@ export const rbacContract = {
 			.input(ExportAuditLogRequestSchema)
 			.output(ExportAuditLogResponseSchema),
 
+		// OPS-4. Declared before `get` so "/archived" is never read as an id.
+		archived: oc
+			.route({
+				method: "GET",
+				path: "/rbac/audit-log/archived",
+				summary: "Search archived audit entries",
+				description:
+					"Entries the retention job moved to the archive, filtered like the live log, newest first, at most 500 (OPS-4). Needs audit.logs:read.",
+				tags: ["RBAC"],
+			})
+			.input(AuditLogFilterSchema)
+			.output(ArchivedAuditLogResponseSchema),
 		get: oc
 			.route({
 				method: "GET",

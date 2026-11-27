@@ -5,7 +5,12 @@ import { Download01Icon, ShieldKeyIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
 
-import type { AuditExportFormat, AuditLogEntry, AuditLogFilter } from "@repo/contracts"
+import type {
+	ArchivedAuditLogEntry,
+	AuditExportFormat,
+	AuditLogEntry,
+	AuditLogFilter,
+} from "@repo/contracts"
 
 import { PageHeader } from "@/core/components/page-header"
 import { Badge } from "@/core/components/ui/badge"
@@ -39,9 +44,11 @@ import { useHydrated } from "@/core/hooks/use-hydrated"
 import { ApiError } from "@/core/lib/api-error"
 import { useIsQueryLoading } from "@/services/tanstack-query/use-query-loading"
 import {
+	useArchivedAuditLogQuery,
 	useAuditLogQuery,
 	useExportAuditLogMutation,
 } from "@/features/audit-log/api/audit-log.hooks"
+import { ArchivedEntries } from "@/features/audit-log/components/archived-entries"
 import { AuditEntryDialog } from "@/features/audit-log/components/audit-entry-dialog"
 import {
 	actorLabel,
@@ -78,10 +85,11 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 	const [draft, setDraft] = useState<AuditFilterDraft>(EMPTY_AUDIT_DRAFT)
 	const [filter, setFilter] = useState<AuditLogFilter>({})
 	const [formError, setFormError] = useState<string | null>(null)
-	const [openEntry, setOpenEntry] = useState<AuditLogEntry | null>(null)
+	const [openEntry, setOpenEntry] = useState<AuditLogEntry | ArchivedAuditLogEntry | null>(null)
 
 	const query = useAuditLogQuery(filter)
 	const exportLog = useExportAuditLogMutation()
+	const archived = useArchivedAuditLogQuery(filter)
 	const isQueryLoading = useIsQueryLoading()
 	const hydrated = useHydrated()
 
@@ -395,7 +403,9 @@ export function AuditLogView({ canExport }: AuditLogViewProps) {
 						</Button>
 					) : null}
 
-					{!loading && !query.isError && entries.length === 0 ? (
+					<ArchivedEntries data={loading ? undefined : archived.data} onOpen={setOpenEntry} />
+
+					{!loading && !query.isError && entries.length === 0 && !archived.data?.entries.length ? (
 						<Empty className="border">
 							<EmptyHeader>
 								<EmptyMedia variant="icon">

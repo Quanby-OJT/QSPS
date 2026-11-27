@@ -100,6 +100,12 @@ export class ChainVerifier {
 	private beforeChain = 0
 	private failure: { brokenId: number; problem: string } | null = null
 
+	/** startHash: entryHash of the last archived row, when older rows were archived. */
+	constructor(startHash: string | null = null) {
+		this.expectedPrev = startHash
+		this.started = startHash !== null
+	}
+
 	/** Feed the next row. Returns false once a break is found; stop feeding then. */
 	add(row: ChainedRow): boolean {
 		if (this.failure) return false
@@ -143,8 +149,11 @@ export class ChainVerifier {
 }
 
 /** Check a whole list of rows at once (tests and small tables). */
-export function verifyChain(rows: Iterable<ChainedRow>): ChainCheck {
-	const verifier = new ChainVerifier()
+export function verifyChain(
+	rows: Iterable<ChainedRow>,
+	startHash: string | null = null
+): ChainCheck {
+	const verifier = new ChainVerifier(startHash)
 	for (const row of rows) {
 		if (!verifier.add(row)) break
 	}
